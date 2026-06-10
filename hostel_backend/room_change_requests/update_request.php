@@ -1,0 +1,229 @@
+<?php
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Origin, Accept');
+header("Content-Type: application/json; charset=UTF-8");
+
+if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
+
+$database = new DatabaseMysqli();
+$conn = $database->getConnection();
+
+/**
+ * Helper to fetch exact fee from renew_fee table or hardcoded requirements
+ */
+function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
+    if (empty($room_type_name)) {
+        if ($request_id) {
+            // Try to find the actual room type from the requested room
+            $res = $conn->query("SELECT hr.room_type FROM hostel_rooms hr JOIN room_change_requests rcr ON hr.room_code = rcr.requested_room WHERE rcr.request_id = '$request_id'");
+            if ($res && $row = $res->fetch_assoc()) {
+                $room_type_name = $row['room_type'];
+            }
+        }
+    }
+    
+    $normalized = strtoupper(trim($room_type_name ?? ''));
+    
+    // Robust check for 6 IN 1 AC rooms
+    if ($normalized === 'AC - B ATTACHED (6 IN 1)' || 
+        $normalized === 'AC - B ATTACHED' || 
+        (strpos($normalized, '6 IN 1') !== false && strpos($normalized, 'AC') !== false)) {
+        return 65000.00;
+    }
+
+    // Robust check for 4 IN 1 AC rooms
+    if ($normalized === 'AC - B ATTACHED (4 IN 1)' || 
+        (strpos($normalized, '4 IN 1') !== false && strpos($normalized, 'AC') !== false)) {
+        return 75000.00;
+    }
+    
+    if (empty($normalized) || $normalized === 'AC' || $normalized === 'NON AC' || $normalized === 'STANDARD') {
+        if ($request_id) {
+             $res = $conn->query("SELECT hr.room_type FROM hostel_rooms hr JOIN room_change_requests rcr ON hr.room_code = rcr.requested_room WHERE rcr.request_id = '$request_id'");
+             if ($res && $row = $res->fetch_assoc()) {
+                 return getFeeForRoomType($conn, $row['room_type']);
+             }
+        }
+    }
+    
+    // Look up in renew_fee table for other types
+    $query = "SELECT six_month_amount, monthly_amount FROM renew_fee WHERE UPPER(TRIM(room_type)) = ?";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("s", $normalized);
+    $stmt->execute();
+    $res = $stmt->get_result()->fetch_assoc();
+    
+    if ($res) {
+        if (floatval($res['six_month_amount']) > 0) return (float)$res['six_month_amount'];
+        if (floatval($res['monthly_amount']) > 0) return (float)$res['monthly_amount'] * 12;
+    }
+    
+    return 0;
+}
+
+try {
+    $json_input = file_get_contents('php://input');
+    $data = json_decode($json_input, true);
+    
+    if (!$data) throw new Exception('Invalid JSON data');
+    
+    $required_fields = ['request_id', 'status', 'warden_id'];
+    foreach ($required_fields as $field) {
+        if (!isset($data[$field]) || empty(trim($data[$field]))) {
+            throw new Exception("Missing required field: $field");
+        }
+    }
+    
+    $request_id = $data['request_id'];
+    $status = $data['status'];
+    $warden_id = (int)$data['warden_id'];
+    $remarks = isset($data['remarks']) ? trim($data['remarks']) : null;
+    
+    // Get warden details
+    $warden_query = "SELECT id, username, full_name, role FROM users WHERE id = ?";
+    $warden_stmt = $conn->prepare($warden_query);
+    $warden_stmt->bind_param("i", $warden_id);
+    $warden_stmt->execute();
+    $warden_data = $warden_stmt->get_result()->fetch_assoc();
+    
+    if (!$warden_data) throw new Exception("Warden not found");
+    $warden_name = !empty($warden_data['full_name']) ? $warden_data['full_name'] : $warden_data['username'];
+    
+    // Check if request exists
+    $check_query = "SELECT r.*, u.username as reg_no 
+                    FROM room_change_requests r 
+                    JOIN users u ON r.student_id = u.id 
+                    WHERE r.request_id = ?";
+    $check_stmt = $conn->prepare($check_query);
+    $check_stmt->bind_param("s", $request_id);
+    $check_stmt->execute();
+    $request_data = $check_stmt->get_result()->fetch_assoc();
+    
+    if (!$request_data) throw new Exception('Room change request not found');
+
+    $requested_room = $request_data['requested_room'];
+    $current_room = $request_data['current_room'];
+    $reg_no = $request_data['reg_no'];
+
+    if ($status === 'approved' || $status === 'pre_approved') {
+        // 1. Get room details
+        $room_stmt = $conn->prepare("SELECT available_rooms, amount, room_type FROM hostel_rooms WHERE room_code = ?");
+        $room_stmt->bind_param("s", $requested_room);
+        $room_stmt->execute();
+        $room_data = $room_stmt->get_result()->fetch_assoc();
+
+        if (!$room_data) throw new Exception("Requested room $requested_room not found");
+        if ($room_data['available_rooms'] <= 0) throw new Exception("Room $requested_room is full");
+
+        $room_type = $room_data['room_type'] ?? 'Standard';
+                $amount = getFeeForRoomType($conn, $room_type, $request_id);
+                if ($amount <= 0) $amount = (float)$room_data['amount'];
+                
+                if ($amount <= 0) throw new Exception("Fee amount not found for '$room_type'. Please update renew_fee table.");
+        
+                // 2. Reject others
+                $conn->query("UPDATE room_change_requests SET status = 'rejected', remarks = 'Room filled by another student' WHERE requested_room = '$requested_room' AND status = 'pending' AND request_id != '$request_id'");
+        
+                // 3. Check for auto-finalize (Same or lower price)
+                $cp_stmt = $conn->prepare("SELECT amount, room_type FROM hostel_rooms WHERE room_code = ?");
+                $cp_stmt->bind_param("s", $current_room);
+                $cp_stmt->execute();
+                $current_room_data = $cp_stmt->get_result()->fetch_assoc();
+                
+                $current_price = 0;
+                if ($current_room_data) {
+                    $current_price = getFeeForRoomType($conn, $current_room_data['room_type']);
+                    if ($current_price <= 0) $current_price = (float)$current_room_data['amount'];
+                }
+
+        // ALWAYS FINALIZE DIRECTLY (No wait for payment)
+        $conn->begin_transaction();
+        try {
+            // Fetch room details
+            $r_stmt = $conn->prepare("SELECT id, hostel_name FROM hostel_rooms WHERE room_code = ?");
+            $r_stmt->bind_param("s", $requested_room);
+            $r_stmt->execute();
+            $r_info = $r_stmt->get_result()->fetch_assoc();
+            $room_id_db = $r_info ? $r_info['id'] : 0;
+            $hostel_name_db = $r_info ? $r_info['hostel_name'] : '';
+
+            // Check if profile exists, insert if missing
+            $p_check = $conn->prepare("SELECT id FROM profile WHERE reg_no = ?");
+            $p_check->bind_param("s", $reg_no);
+            $p_check->execute();
+            $p_exists = $p_check->get_result()->fetch_assoc();
+
+            if (!$p_exists) {
+                $u_stmt = $conn->prepare("SELECT full_name, email, phone_number FROM users WHERE username = ?");
+                $u_stmt->bind_param("s", $reg_no);
+                $u_stmt->execute();
+                $u_row = $u_stmt->get_result()->fetch_assoc();
+                $f_name = $u_row ? $u_row['full_name'] : '';
+                $u_email = $u_row ? $u_row['email'] : '';
+                $u_phone = $u_row ? $u_row['phone_number'] : '';
+
+                $p_ins = $conn->prepare("INSERT INTO profile (reg_no, full_name, email, personal_phone, institution) VALUES (?, ?, ?, ?, 'Saveetha Institute of Medical and Technical Sciences')");
+                $p_ins->bind_param("ssss", $reg_no, $f_name, $u_email, $u_phone);
+                $p_ins->execute();
+            }
+
+            // Update profile with NEW ALLOCATION and RESET DATES (From Today)
+            $conn->query("UPDATE profile SET 
+                          current_room_id = '$room_id_db',
+                          room_allocation = '$requested_room', 
+                          hostel_name = '$hostel_name_db',
+                          check_in_date = CURRENT_DATE,
+                          renewal_date = DATE_FORMAT(DATE_ADD(CURRENT_DATE, INTERVAL 12 MONTH), '%Y-%m-%d'),
+                          valid_from = CURRENT_DATE, 
+                          valid_to = DATE_FORMAT(DATE_ADD(CURRENT_DATE, INTERVAL 12 MONTH), '%Y-%m-%d')
+                          WHERE reg_no = '$reg_no'");
+            
+            if ($current_room && $current_room !== 'N/A') {
+                $conn->query("UPDATE hostel_rooms SET occupied_rooms = occupied_rooms - 1, available_rooms = available_rooms + 1 WHERE room_code = '$current_room'");
+            }
+            $conn->query("UPDATE hostel_rooms SET occupied_rooms = occupied_rooms + 1, available_rooms = available_rooms - 1 WHERE room_code = '$requested_room'");
+            
+            $status = 'completed';
+            $remarks = ($remarks ? $remarks . " | " : "") . "Approved and finalized directly by Warden (No payment waiting required).";
+            
+            $final_up = $conn->prepare("UPDATE room_change_requests SET status = ?, payment_status = 'paid', amount_to_pay = ?, requested_room_type = ?, remarks = ? WHERE request_id = ?");
+            $final_up->bind_param("sdsss", $status, $amount, $room_type, $remarks, $request_id);
+            $final_up->execute();
+            
+            $conn->commit();
+        } catch (Exception $e) { 
+            $conn->rollback(); 
+            throw $e; 
+        }
+    }
+
+    // Final Status Update
+    $update_stmt = $conn->prepare("UPDATE room_change_requests SET status = ?, processed_by = ?, processed_by_name = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE request_id = ?");
+    $update_stmt->bind_param("sisss", $status, $warden_id, $warden_name, $remarks, $request_id);
+    $update_stmt->execute();
+    
+    // Log activity
+    logActivity(
+        $warden_id,
+        $warden_data['username'],
+        'warden',
+        'UPDATE_ROOM_CHANGE_REQUEST',
+        'room_change_requests',
+        json_encode(['status' => $request_data['status']]),
+        json_encode(['status' => $status])
+    );
+    
+    echo json_encode(['success' => true, 'status' => 'success', 'message' => "Request processed: $status", 'amount' => $amount ?? 0]);
+    
+} catch(Exception $e) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'status' => 'error', 'message' => $e->getMessage()]);
+}
+?>

@@ -1,0 +1,26 @@
+2026-03-20 05:46:00 - Response: {
+  "error": {
+    "code": 400,
+    "message": "The registration token is not a valid FCM registration token",
+    "status": "INVALID_ARGUMENT",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+        "errorCode": "INVALID_ARGUMENT"
+      }
+    ]
+  }
+}
+
+2026-03-20 05:49:39 - Response: {
+  "name": "projects/hostel-app-2210b/messages/0:1773982177682951%4526c4e44526c4e4"
+}
+
+2026-03-20 05:49:50 - Response: {
+  "name": "projects/hostel-app-2210b/messages/0:1773982189344484%4526c4e44526c4e4"
+}
+
+2026-03-20 05:50:06 - Response: {
+  "name": "projects/hostel-app-2210b/messages/0:1773982205736100%4526c4e44526c4e4"
+}
+

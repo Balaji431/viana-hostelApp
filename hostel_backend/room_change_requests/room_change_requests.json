@@ -1,0 +1,78 @@
+[
+    {
+        "requestId": "RCR-653543",
+        "studentId": 3,
+        "studentName": "Student 3",
+        "studentRegNo": "REG3",
+        "currentRoom": "A101",
+        "requestedRoom": "B109",
+        "reason": "Test simple file-based system",
+        "id": 1,
+        "createdAt": "2026-04-02 06:02:20",
+        "status": "approved",
+        "updatedAt": "2026-04-02 06:02:53"
+    },
+    {
+        "requestId": "RCR-061599",
+        "studentId": 3,
+        "studentName": "Student 3",
+        "studentRegNo": "REG3",
+        "currentRoom": "Vaigai",
+        "requestedRoom": "11",
+        "reason": "nothing",
+        "id": 2,
+        "createdAt": "2026-04-02 07:16:33",
+        "status": "approved",
+        "updatedAt": "2026-04-02 07:53:31"
+    },
+    {
+        "requestId": "RCR-588062",
+        "studentId": 4,
+        "studentName": "Student 4",
+        "studentRegNo": "REG4",
+        "currentRoom": "Vaigai",
+        "requestedRoom": "121",
+        "reason": "nohing",
+        "id": 3,
+        "createdAt": "2026-04-02 07:43:57",
+        "status": "approved",
+        "updatedAt": "2026-04-02 08:03:04"
+    },
+    {
+        "requestId": "RCR-149410",
+        "studentId": 3,
+        "studentName": "Student 3",
+        "studentRegNo": "REG3",
+        "currentRoom": "Vaigai",
+        "requestedRoom": "11",
+        "reason": "no",
+        "id": 4,
+        "createdAt": "2026-04-02 07:58:23",
+        "status": "approved",
+        "updatedAt": "2026-04-02 08:03:40"
+    },
+    {
+        "requestId": "RCR-323052",
+        "studentId": 3,
+        "studentName": "192524101",
+        "studentRegNo": "REG3",
+        "currentRoom": "Vaigai",
+        "requestedRoom": "Cauvery",
+        "reason": "Testing real student details",
+        "id": 5,
+        "createdAt": "2026-04-02 08:06:33",
+        "status": "pending"
+    },
+    {
+        "requestId": "RCR-946562",
+        "studentId": 4,
+        "studentName": "192525052",
+        "studentRegNo": "REG4",
+        "currentRoom": "Vaigai",
+        "requestedRoom": "11",
+        "reason": "jiiiii",
+        "id": 6,
+        "createdAt": "2026-04-02 10:19:02",
+        "status": "pending"
+    }
+]

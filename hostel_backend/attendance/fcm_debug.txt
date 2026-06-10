@@ -1,0 +1,180 @@
+2026-03-24 05:15:15 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent: Parent User (parent1)
+Status: absent
+Token: cc-6HcrxS-emnx7Yjw8hdF:APA91bF_y45-_uw6UVRRMXJyYER...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774325714967811%4526c4e4f9fd7ecd"
+}
+
+
+2026-03-24 06:43:33 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cc-6HcrxS-emnx7Yjw8hdF:APA91bF_y45-_uw6UVRRMXJyYER...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774331013316026%4526c4e4f9fd7ecd"
+}
+
+
+2026-03-24 06:47:29 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cc-6HcrxS-emnx7Yjw8hdF:APA91bF_y45-_uw6UVRRMXJyYER...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774331249168956%4526c4e4f9fd7ecd"
+}
+
+
+2026-03-24 06:49:51 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cc-6HcrxS-emnx7Yjw8hdF:APA91bF_y45-_uw6UVRRMXJyYER...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774331390958505%4526c4e4f9fd7ecd"
+}
+
+
+2026-03-24 07:17:25 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cc-6HcrxS-emnx7Yjw8hdF:APA91bF_y45-_uw6UVRRMXJyYER...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774333045211781%4526c4e4f9fd7ecd"
+}
+
+
+2026-03-24 07:53:48 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cc-6HcrxS-emnx7Yjw8hdF:APA91bF_y45-_uw6UVRRMXJyYER...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774335228830070%4526c4e4f9fd7ecd"
+}
+
+
+2026-03-24 09:34:19 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cc-6HcrxS-emnx7Yjw8hdF:APA91bF_y45-_uw6UVRRMXJyYER...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774341257931416%4526c4e4f9fd7ecd"
+}
+
+
+2026-03-27 05:06:18 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cQ8AvTQ6RKGq1wz20uL688:APA91bGNDCxvMp7mXZGitxlbwqA...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1774584377465400%4526c4e4f9fd7ecd"
+}
+
+
+2026-04-01 10:12:59 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: cQ8AvTQ6RKGq1wz20uL688:APA91bGNDCxvMp7mXZGitxlbwqA...
+FCM Result: {
+  "error": {
+    "code": 404,
+    "message": "Requested entity was not found.",
+    "status": "NOT_FOUND",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+        "errorCode": "UNREGISTERED"
+      }
+    ]
+  }
+}
+
+
+2026-04-01 10:26:05 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: fQ65xbyDTPeveh452w878D:APA91bEkAXBBVyNKHh7LRiGMYoD...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1775031965382139%4526c4e4f9fd7ecd"
+}
+
+
+2026-04-01 12:31:26 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: fQ65xbyDTPeveh452w878D:APA91bEkAXBBVyNKHh7LRiGMYoD...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1775039485897626%4526c4e4f9fd7ecd"
+}
+
+
+2026-04-01 12:36:33 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: fQ65xbyDTPeveh452w878D:APA91bEkAXBBVyNKHh7LRiGMYoD...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1775039792920223%4526c4e4f9fd7ecd"
+}
+
+
+2026-04-01 12:36:35 - PARENT ATTENDANCE NOTIFICATION:
+Student: SHAIK RESHMA (ID: 4)
+Parent:  (p-192525052)
+Status: absent
+Token: dcB47zcHS0GD6bIaC2FM9s:APA91bGf8ZgrYJdk8b3Opw-7JHw...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1775039795129787%4526c4e4f9fd7ecd"
+}
+
+
+2026-04-08 10:31:24 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: fQ65xbyDTPeveh452w878D:APA91bEkAXBBVyNKHh7LRiGMYoD...
+FCM Result: {
+  "error": {
+    "code": 404,
+    "message": "Requested entity was not found.",
+    "status": "NOT_FOUND",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+        "errorCode": "UNREGISTERED"
+      }
+    ]
+  }
+}
+
+
+2026-04-08 11:33:52 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: eKvmLpxSTP-SsJdYVeTsp4:APA91bHo_6dOHYB01JNDXOPULri...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1775641246771542%4526c4e4f9fd7ecd"
+}
+
+
+2026-04-09 11:00:37 - PARENT ATTENDANCE NOTIFICATION:
+Student: RACHAKONDA YOGA NANDHINI (ID: 3)
+Parent:  (p-192524101)
+Status: absent
+Token: csuDFDwhTzO1MaHCSMHNUT:APA91bERidAfjK5PglPBc1oGsSq...
+FCM Result: {
+  "name": "projects/hostel-app-2c755/messages/0:1775725651547603%4526c4e4f9fd7ecd"
+}
+
+

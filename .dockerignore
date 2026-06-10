@@ -1,0 +1,6 @@
+.git
+node_modules
+android/.gradle
+android/build
+ios/build
+*.log

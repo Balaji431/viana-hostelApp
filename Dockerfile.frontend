@@ -1,0 +1,26 @@
+FROM nginx:alpine
+
+# Clean default files
+RUN rm -rf /usr/share/nginx/html/*
+
+# ✅ Copy Flutter web build
+COPY build/web/ /usr/share/nginx/html/
+
+# Pre-compress all large static assets at build time so Nginx can serve .gz
+# files instantly via gzip_static — eliminates runtime compression overhead
+RUN find /usr/share/nginx/html -type f \
+    \( -name "*.js" -o -name "*.wasm" -o -name "*.css" -o -name "*.json" -o -name "*.html" -o -name "*.svg" -o -name "*.otf" -o -name "*.ttf" \) \
+    ! -name "config.json" \
+    -exec gzip -9 -k {} \;
+
+# nginx config
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+
+# config.json generator (always regenerated at runtime, not cached)
+RUN echo '#!/bin/sh' > /docker-entrypoint.sh && \
+    echo 'echo "{\"api_url\":\"${API_BASE_URL}\"}" > /usr/share/nginx/html/config.json' >> /docker-entrypoint.sh && \
+    echo 'exec nginx -g "daemon off;"' >> /docker-entrypoint.sh && \
+    chmod +x /docker-entrypoint.sh
+
+EXPOSE 80
+ENTRYPOINT ["/docker-entrypoint.sh"]

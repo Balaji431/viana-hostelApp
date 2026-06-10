@@ -1,0 +1,64 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: balaji182/vstay-frontend:latest
+    container_name: hostel_frontend
+    ports:
+      - "8080:80"
+    environment:
+      - API_BASE_URL=https://vstay.saveetha.com/api/
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    depends_on:
+      - backend
+    restart: always
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: balaji182/vstay-backend:latest
+    container_name: hostel_backend
+    ports:
+      - "8081:80"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    volumes:
+      - ./hostel_backend:/var/www/html
+      - backend_uploads:/var/www/html/uploads
+    depends_on:
+      - db
+    restart: always
+
+  db:
+    image: mysql:8.0
+    container_name: hostel_db
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=vstay2026
+      - MYSQL_DATABASE=stay_simats
+      - MYSQL_USER=user
+      - MYSQL_PASSWORD=vstay2026
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: hostel_phpmyadmin
+    restart: always
+    ports:
+      - "8082:80"
+    environment:
+      - PMA_HOST=db
+      - MYSQL_ROOT_PASSWORD=vstay2026
+      - PMA_ABSOLUTE_URI=https://vstay.saveetha.com/api/
+      
+volumes:
+  db_data:
+  backend_uploads:
