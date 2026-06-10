@@ -320,19 +320,13 @@ class MyApp extends StatelessWidget {
         },
         '/announcements': (context) =>
             const MainResponsiveLayout(showAnnouncements: true),
-        '/category_manager': (context) => const CategoryManagerScreen(showAppBar: true),
-        '/hostel_manager': (context) => const AdminHostelManagerScreen(showAppBar: true),
-        '/mapping_manager': (context) => const StaffMappingManagerScreen(showAppBar: true),
+        '/category_manager': (context) => const MainResponsiveLayout(initialRoute: '/category_manager'),
+        '/hostel_manager': (context) => const MainResponsiveLayout(initialRoute: '/hostel_manager'),
+        '/mapping_manager': (context) => const MainResponsiveLayout(initialRoute: '/mapping_manager'),
         '/room_master': (context) => const RoomMasterScreen(),
         '/hostel_detail': (context) {
           final args = ModalRoute.of(context)!.settings.arguments;
-          if (args is HierarchicalHostel) {
-            return HostelDetailScreen(hostel: args, showAppBar: true);
-          }
-          return Scaffold(
-            appBar: AppBar(title: const Text('Error')),
-            body: const Center(child: Text('Invalid hostel selection')),
-          );
+          return MainResponsiveLayout(initialRoute: '/hostel_detail', initialRouteArgs: args);
         },
       },
     );

@@ -129,7 +129,7 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFFB08900),
                 iconBg: const Color(0xFFB08900),
                 count: categoryCount,
-                onTap: () => Navigator.of(context, rootNavigator: true).pushNamed('/category_manager'),
+                onTap: () => Navigator.of(context).pushNamed('/category_manager'),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -138,7 +138,7 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFF2A4A8C),
                 iconBg: const Color(0xFF2A4A8C),
                 count: hostelCount,
-                onTap: () => Navigator.of(context, rootNavigator: true).pushNamed('/hostel_manager'),
+                onTap: () => Navigator.of(context).pushNamed('/hostel_manager'),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -147,7 +147,7 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFF7B3FC4),
                 iconBg: const Color(0xFF7B3FC4),
                 count: mappingCount,
-                onTap: () => Navigator.of(context, rootNavigator: true).pushNamed('/mapping_manager'),
+                onTap: () => Navigator.of(context).pushNamed('/mapping_manager'),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(

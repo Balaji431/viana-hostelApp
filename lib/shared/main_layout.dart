@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/app_logger.dart';
 import '../core/styles.dart';
@@ -27,6 +28,11 @@ import '../maintenance/screens/maintenance_home_tab.dart';
 import '../maintenance/screens/maintenance_attendance_tab.dart';
 import '../maintenance/screens/maintenance_settings_tab.dart';
 import '../security/screens/security_home_tab.dart';
+import '../admin/screens/category_manager_screen.dart';
+import '../admin/screens/admin_hostel_manager_screen.dart';
+import '../admin/staff_mapping_manager_screen.dart';
+import '../admin/screens/hostel_detail_screen.dart';
+import '../core/models/hierarchical_hostel_model.dart';
 
 
 class MainResponsiveLayout extends StatefulWidget {
@@ -34,12 +40,16 @@ class MainResponsiveLayout extends StatefulWidget {
   final String? senderId;
   final bool isSecurity;
   final bool showAnnouncements;
+  final String? initialRoute;
+  final Object? initialRouteArgs;
   
   const MainResponsiveLayout({
     this.initialRequestId, 
     this.senderId, 
     this.isSecurity = false, 
     this.showAnnouncements = false, 
+    this.initialRoute,
+    this.initialRouteArgs,
     super.key
   });
 
@@ -113,6 +123,13 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         context.read<UIProvider>().setActiveChatChannel('Security');
       } else {
         context.read<UIProvider>().setActiveChatChannel(null);
+      }
+
+      if (widget.initialRoute != null) {
+        _phoneNavigatorKey.currentState?.pushNamed(
+          widget.initialRoute!,
+          arguments: widget.initialRouteArgs,
+        );
       }
     });
   }
@@ -222,12 +239,33 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
               child: Navigator(
                 key: _phoneNavigatorKey,
                 observers: [_navigatorObserver],
-                onGenerateRoute: (settings) => MaterialPageRoute(
-                  builder: (context) => IndexedStack(
-                    index: _selectedIndex,
-                    children: tabs.map((t) => t.page).toList(),
-                  ),
-                ),
+                onGenerateRoute: (settings) {
+                  WidgetBuilder builder;
+                  switch (settings.name) {
+                    case '/category_manager':
+                      builder = (context) => const CategoryManagerScreen(showAppBar: true);
+                      break;
+                    case '/hostel_manager':
+                      builder = (context) => const AdminHostelManagerScreen(showAppBar: true);
+                      break;
+                    case '/mapping_manager':
+                      builder = (context) => const StaffMappingManagerScreen(showAppBar: true);
+                      break;
+                    case '/hostel_detail':
+                      final args = settings.arguments as HierarchicalHostel;
+                      builder = (context) => HostelDetailScreen(hostel: args, showAppBar: true);
+                      break;
+                    default:
+                      builder = (context) => IndexedStack(
+                        index: _selectedIndex,
+                        children: tabs.map((t) => t.page).toList(),
+                      );
+                  }
+                  return MaterialPageRoute(
+                    builder: builder,
+                    settings: settings,
+                  );
+                },
               ),
             ),
           ),
@@ -556,12 +594,26 @@ class _NestedNavigatorObserver extends NavigatorObserver {
   @override
   void didPush(Route route, Route? previousRoute) {
     super.didPush(route, previousRoute);
+    if (route.settings.name != null) {
+      SystemNavigator.routeInformationUpdated(
+        location: route.settings.name!,
+      );
+    }
     onStackChanged();
   }
 
   @override
   void didPop(Route route, Route? previousRoute) {
     super.didPop(route, previousRoute);
+    if (previousRoute != null && previousRoute.settings.name != null) {
+      SystemNavigator.routeInformationUpdated(
+        location: previousRoute.settings.name!,
+      );
+    } else {
+      SystemNavigator.routeInformationUpdated(
+        location: '/',
+      );
+    }
     onStackChanged();
   }
 
@@ -574,6 +626,11 @@ class _NestedNavigatorObserver extends NavigatorObserver {
   @override
   void didReplace({Route? newRoute, Route? oldRoute}) {
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    if (newRoute != null && newRoute.settings.name != null) {
+      SystemNavigator.routeInformationUpdated(
+        location: newRoute.settings.name!,
+      );
+    }
     onStackChanged();
   }
 }
