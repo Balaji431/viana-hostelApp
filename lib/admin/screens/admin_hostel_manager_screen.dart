@@ -426,11 +426,9 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
                       widget.onHostelSelected!(hostel);
                       _isNavigating = false;
                     } else {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => HostelDetailScreen(hostel: hostel),
-                        ),
+                      Navigator.of(context, rootNavigator: true).pushNamed(
+                        '/hostel_detail',
+                        arguments: hostel,
                       ).then((_) {
                         _isNavigating = false;
                       });

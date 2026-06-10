@@ -84,23 +84,15 @@ class _AdminScreenState extends State<AdminScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
-        title: _selectedIndex == 0 ? 'Admin Dashboard' : _getSubScreenTitle(),
+        title: 'Admin Dashboard',
         onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
-        onBack: _selectedIndex != 0
-            ? () {
-                if (_selectedHostel != null) {
-                  setState(() => _selectedHostel = null);
-                } else {
-                  setState(() => _selectedIndex = 0);
-                }
-              }
-            : null,
+        onBack: null,
         rightAction: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-              onPressed: _selectedIndex == 0 ? _refreshData : _refreshSubScreenData,
+              onPressed: _refreshData,
               constraints: const BoxConstraints(),
               padding: EdgeInsets.zero,
             ),
@@ -111,17 +103,8 @@ class _AdminScreenState extends State<AdminScreen> {
           ],
         ),
       ),
-      body: _selectedIndex == 0 ? _buildLaunchpad() : _buildSubScreenContent(),
+      body: _buildLaunchpad(),
     );
-  }
-
-  String _getSubScreenTitle() {
-    switch (_selectedIndex) {
-      case 1: return 'Category Management';
-      case 2: return _selectedHostel != null ? _selectedHostel!.name : 'Hostel Management';
-      case 3: return 'Mapping Management';
-      default: return '';
-    }
   }
 
   Widget _buildLaunchpad() {
@@ -146,7 +129,7 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFFB08900),
                 iconBg: const Color(0xFFB08900),
                 count: categoryCount,
-                onTap: () => setState(() => _selectedIndex = 1),
+                onTap: () => Navigator.of(context, rootNavigator: true).pushNamed('/category_manager'),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -155,7 +138,7 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFF2A4A8C),
                 iconBg: const Color(0xFF2A4A8C),
                 count: hostelCount,
-                onTap: () => setState(() => _selectedIndex = 2),
+                onTap: () => Navigator.of(context, rootNavigator: true).pushNamed('/hostel_manager'),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -164,7 +147,7 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFF7B3FC4),
                 iconBg: const Color(0xFF7B3FC4),
                 count: mappingCount,
-                onTap: () => setState(() => _selectedIndex = 3),
+                onTap: () => Navigator.of(context, rootNavigator: true).pushNamed('/mapping_manager'),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -174,10 +157,7 @@ class _AdminScreenState extends State<AdminScreen> {
                 iconBg: const Color(0xFF2E7D32),
                 count: _roomCount,
                 onTap: () {
-                  // BREAK OUT of the mobile container by pushing to root navigator
-                  Navigator.of(context, rootNavigator: true).push(
-                    MaterialPageRoute(builder: (context) => const RoomMasterScreen()),
-                  );
+                  Navigator.of(context, rootNavigator: true).pushNamed('/room_master');
                 },
               ),
             ],
@@ -268,32 +248,5 @@ class _AdminScreenState extends State<AdminScreen> {
       ),
     );
   }
-
-  Widget _buildSubScreenContent() {
-    switch (_selectedIndex) {
-      case 1: return const CategoryManagerScreen(showAppBar: false);
-      case 2:
-        if (_selectedHostel != null) {
-          return HostelDetailScreen(hostel: _selectedHostel!, showAppBar: false);
-        }
-        return AdminHostelManagerScreen(
-          showAppBar: false,
-          onHostelSelected: (hostel) => setState(() => _selectedHostel = hostel),
-        );
-      case 3: return const StaffMappingManagerScreen(showAppBar: false);
-      default: return const SizedBox();
-    }
-  }
-
-  void _refreshSubScreenData() {
-    final user = context.read<UserProvider>();
-    switch (_selectedIndex) {
-      case 1: 
-        context.read<CategoryProvider>().fetchCategories(); 
-        context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username);
-        break;
-      case 2: context.read<HierarchicalHostelProvider>().loadHostels(); break;
-      case 3: context.read<MappingProvider>().loadMappings(); break;
-    }
-  }
 }
+

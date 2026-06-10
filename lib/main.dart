@@ -26,6 +26,12 @@ import 'student/screens/security_chat_screen.dart';
 import 'student/screens/maintenance_chat_screen.dart';
 import 'student/screens/parent_warden_chat_screen.dart';
 import 'warden/screens/warden_chat_interface.dart';
+import 'admin/screens/category_manager_screen.dart';
+import 'admin/screens/admin_hostel_manager_screen.dart';
+import 'admin/staff_mapping_manager_screen.dart';
+import 'admin/screens/room_master_screen.dart';
+import 'admin/screens/hostel_detail_screen.dart';
+import 'core/models/hierarchical_hostel_model.dart';
 import 'core/styles.dart';
 
 @pragma('vm:entry-point')
@@ -314,6 +320,20 @@ class MyApp extends StatelessWidget {
         },
         '/announcements': (context) =>
             const MainResponsiveLayout(showAnnouncements: true),
+        '/category_manager': (context) => const CategoryManagerScreen(showAppBar: true),
+        '/hostel_manager': (context) => const AdminHostelManagerScreen(showAppBar: true),
+        '/mapping_manager': (context) => const StaffMappingManagerScreen(showAppBar: true),
+        '/room_master': (context) => const RoomMasterScreen(),
+        '/hostel_detail': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments;
+          if (args is HierarchicalHostel) {
+            return HostelDetailScreen(hostel: args, showAppBar: true);
+          }
+          return Scaffold(
+            appBar: AppBar(title: const Text('Error')),
+            body: const Center(child: Text('Invalid hostel selection')),
+          );
+        },
       },
     );
   }

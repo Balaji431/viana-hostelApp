@@ -50,6 +50,7 @@ class MainResponsiveLayout extends StatefulWidget {
 class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   int _selectedIndex = 0;
   final GlobalKey<NavigatorState> _phoneNavigatorKey = GlobalKey<NavigatorState>();
+  late final _NestedNavigatorObserver _navigatorObserver;
 
   void setSelectedIndex(int index) {
     setState(() {
@@ -64,6 +65,13 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   @override
   void initState() {
     super.initState();
+    _navigatorObserver = _NestedNavigatorObserver(
+      onStackChanged: () {
+        if (mounted) {
+          setState(() {});
+        }
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final user = Provider.of<UserProvider>(context, listen: false);
       if (user.role == UserRole.student && user.dbId != null) {
@@ -203,12 +211,22 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(32),
           child: LinenGridBackground(
-            child: Navigator(
-              key: _phoneNavigatorKey,
-              onGenerateRoute: (settings) => MaterialPageRoute(
-                builder: (context) => IndexedStack(
-                  index: _selectedIndex,
-                  children: tabs.map((t) => t.page).toList(),
+            child: PopScope(
+              canPop: !(_phoneNavigatorKey.currentState?.canPop() ?? false),
+              onPopInvokedWithResult: (didPop, result) {
+                if (didPop) return;
+                if (_phoneNavigatorKey.currentState?.canPop() ?? false) {
+                  _phoneNavigatorKey.currentState!.pop();
+                }
+              },
+              child: Navigator(
+                key: _phoneNavigatorKey,
+                observers: [_navigatorObserver],
+                onGenerateRoute: (settings) => MaterialPageRoute(
+                  builder: (context) => IndexedStack(
+                    index: _selectedIndex,
+                    children: tabs.map((t) => t.page).toList(),
+                  ),
                 ),
               ),
             ),
@@ -528,4 +546,34 @@ class _TabItem {
   final IconData activeIcon;
   final Widget page;
   const _TabItem({required this.label, required this.icon, required this.activeIcon, required this.page});
+}
+
+class _NestedNavigatorObserver extends NavigatorObserver {
+  final VoidCallback onStackChanged;
+
+  _NestedNavigatorObserver({required this.onStackChanged});
+
+  @override
+  void didPush(Route route, Route? previousRoute) {
+    super.didPush(route, previousRoute);
+    onStackChanged();
+  }
+
+  @override
+  void didPop(Route route, Route? previousRoute) {
+    super.didPop(route, previousRoute);
+    onStackChanged();
+  }
+
+  @override
+  void didRemove(Route route, Route? previousRoute) {
+    super.didRemove(route, previousRoute);
+    onStackChanged();
+  }
+
+  @override
+  void didReplace({Route? newRoute, Route? oldRoute}) {
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    onStackChanged();
+  }
 }
