@@ -9,6 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 function extractCapacity($roomType) {
     $type = strtoupper($roomType);
@@ -69,6 +70,11 @@ try {
     }
 
     if ($id > 0) {
+        // Fetch old values for audit logging
+        $old_stmt = $db->prepare("SELECT * FROM room_master WHERE id = ?");
+        $old_stmt->execute([$id]);
+        $old_room = $old_stmt->fetch(PDO::FETCH_ASSOC);
+
         // Update existing record
         $sql = "UPDATE room_master SET 
                     location_name = ?, 
@@ -82,6 +88,7 @@ try {
                 WHERE id = ?";
         $stmt = $db->prepare($sql);
         $stmt->execute([$locationName, $buildingCode, $floorNo, $blockNo, $roomNo, $roomCode, $roomType, $roomCapacity, $id]);
+        logAudit(null, null, null, "UPDATE_ROOM", "Room Master", $old_room, $data);
     } else {
         // Check for duplicate room
         $checkSql = "SELECT id FROM room_master WHERE location_name = ? AND building_code = ? AND floor_no = ? AND block_no = ? AND room_no = ?";
@@ -90,6 +97,12 @@ try {
         
         if ($existing = $checkStmt->fetch()) {
             $existingId = intval($existing['id']);
+            
+            // Fetch old values for audit logging
+            $old_stmt = $db->prepare("SELECT * FROM room_master WHERE id = ?");
+            $old_stmt->execute([$existingId]);
+            $old_room = $old_stmt->fetch(PDO::FETCH_ASSOC);
+
             // Update existing record
             $sql = "UPDATE room_master SET 
                         location_name = ?, 
@@ -103,6 +116,7 @@ try {
                     WHERE id = ?";
             $stmt = $db->prepare($sql);
             $stmt->execute([$locationName, $buildingCode, $floorNo, $blockNo, $roomNo, $roomCode, $roomType, $roomCapacity, $existingId]);
+            logAudit(null, null, null, "UPDATE_ROOM", "Room Master", $old_room, $data);
             $id = $existingId;
         } else {
             // Insert new record
@@ -111,6 +125,7 @@ try {
             $stmt = $db->prepare($sql);
             $stmt->execute([$locationName, $buildingCode, $floorNo, $blockNo, $roomNo, $roomCode, $roomType, $roomCapacity]);
             $id = $db->lastInsertId();
+            logAudit(null, null, null, "CREATE_ROOM", "Room Master", null, $data);
         }
     }
 

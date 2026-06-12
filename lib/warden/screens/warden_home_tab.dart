@@ -51,10 +51,24 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
         _refreshAllData(silent: true);
       }
     });
+    _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
+    context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
+  }
+
+  int _lastRefreshTick = 0;
+
+  void _handleGlobalRefreshListener() {
+    if (!mounted) return;
+    final user = context.read<UserProvider>();
+    if (user.dashboardRefreshTick > _lastRefreshTick) {
+      _lastRefreshTick = user.dashboardRefreshTick;
+      _refreshAllData();
+    }
   }
 
   @override
   void dispose() {
+    context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -502,7 +516,14 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
               ),
               if (allPending.length > 3)
                 TextButton(
-                  onPressed: () => WardenMainScreen.of(context)?.setTabIndex(2), 
+                  onPressed: () {
+                    final mainResponsive = context.findAncestorStateOfType<MainResponsiveLayoutState>();
+                    if (mainResponsive != null) {
+                      mainResponsive.setSelectedIndex(2);
+                    } else {
+                      WardenMainScreen.of(context)?.setTabIndex(2);
+                    }
+                  },
                   child: const Text('View All', style: TextStyle(fontSize: 11, color: Color(0xFF1E2F5E)))
                 ),
             ],
@@ -857,7 +878,12 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
           child: GestureDetector(
             onTap: () {
               if (type == 'reports') {
-                WardenMainScreen.of(context)?.setTabIndex(2, reportsCategory: category);
+                final mainResponsive = context.findAncestorStateOfType<MainResponsiveLayoutState>();
+                if (mainResponsive != null) {
+                  mainResponsive.setSelectedIndex(2, reportsCategory: category);
+                } else {
+                  WardenMainScreen.of(context)?.setTabIndex(2, reportsCategory: category);
+                }
                 return;
               }
 

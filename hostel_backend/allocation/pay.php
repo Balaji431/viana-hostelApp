@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -67,8 +68,8 @@ try {
         $check_in_date = $now->format('Y-m-d');
         $renewal_date = (clone $now)->modify('+365 days')->format('Y-m-d');
         
-        // Fetch room info to populate profile text fields
-        $room_stmt = $conn->prepare("SELECT room_code, hostel_name FROM hostel_rooms WHERE id = ?");
+        // Fetch room info to populate profile text fields and log audit trail
+        $room_stmt = $conn->prepare("SELECT room_code, hostel_name, building_code, floor, room_no, room_type FROM hostel_rooms WHERE id = ?");
         $room_stmt->bind_param("i", $room_id);
         $room_stmt->execute();
         $room_info = $room_stmt->get_result()->fetch_assoc();
@@ -113,9 +114,11 @@ try {
         $receipt_number = "RCP-" . time() . "-" . rand(1000, 9999);
         $description = "Room Allocation Fee - Room ID " . $room_id;
         
-        $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at) VALUES (?, ?, ?, 'paid', ?, ?)");
+        $gateway_response = json_encode(['gateway' => 'Razorpay', 'status' => 'SUCCESS', 'method' => $payment_method]);
+        $ip_address = getClientIp();
+        $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at, student_name, reg_number, gateway_response, user_id, ip_address) VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)");
         $now_str = $now->format('Y-m-d H:i:s');
-        $ins_pay->bind_param("idsss", $student_id, $amount, $receipt_number, $description, $now_str);
+        $ins_pay->bind_param("idsssssssis", $student_id, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $student_id, $ip_address);
         $ins_pay->execute();
 
         // 6. Finalize Allocation Status
@@ -125,6 +128,46 @@ try {
 
         // 7. Cancel Sibling Preferences
         $conn->query("UPDATE room_preferences SET status = 'cancelled' WHERE student_id = $student_id AND status = 'submitted'");
+
+        // Audit Logging for Successful Payment
+        logAudit(
+            $student_id,
+            $reg_no,
+            'student',
+            'PAYMENT_SUCCESS',
+            'Payments',
+            null,
+            [
+                'student_reg_no' => $reg_no,
+                'student_name' => $f_name,
+                'transaction_id' => $receipt_number,
+                'payment_gateway' => 'Razorpay',
+                'amount' => (string)$amount,
+                'payment_time' => $now_str,
+                'status' => 'SUCCESS'
+            ]
+        );
+
+        // Audit Logging for Room Allocation Completion
+        $hostel_val = $room_info['building_code'] ?? $room_info['hostel_name'] ?? 'Vaigai Hostel';
+        $allocated_bed = $allocation['allocated_bed_no'] ?? 'B1';
+        logAudit(
+            $student_id,
+            $reg_no,
+            'student',
+            'ROOM_ALLOCATED',
+            'Room Allocation',
+            null,
+            [
+                'student_reg_no' => $reg_no,
+                'hostel' => $hostel_val,
+                'floor' => $room_info['floor'] ?? '',
+                'room_no' => $room_info['room_no'] ?? '',
+                'bed_no' => $allocated_bed,
+                'allocated_by' => 'System/Payment Gateway',
+                'allocated_at' => $now_str
+            ]
+        );
 
         $conn->commit();
 
@@ -137,6 +180,36 @@ try {
 
     } catch (Exception $e) {
         $conn->rollback();
+        // Log PAYMENT_FAILED
+        try {
+            $temp_reg = isset($reg_no) ? $reg_no : '';
+            if (empty($temp_reg) && isset($student_id)) {
+                $temp_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
+                $temp_stmt->bind_param("i", $student_id);
+                $temp_stmt->execute();
+                $temp_u = $temp_stmt->get_result()->fetch_assoc();
+                $temp_reg = $temp_u['username'] ?? '';
+            }
+            $temp_receipt = isset($receipt_number) ? $receipt_number : 'N/A';
+            $temp_amount = isset($amount) ? $amount : 68000.00;
+            logAudit(
+                isset($student_id) ? $student_id : null,
+                $temp_reg,
+                'student',
+                'PAYMENT_FAILED',
+                'Payments',
+                null,
+                [
+                    'student_reg_no' => $temp_reg,
+                    'transaction_id' => $temp_receipt,
+                    'amount' => (string)$temp_amount,
+                    'failure_reason' => $e->getMessage(),
+                    'timestamp' => date('Y-m-d H:i:s')
+                ]
+            );
+        } catch (Exception $log_ex) {
+            error_log("Failed to log PAYMENT_FAILED: " . $log_ex->getMessage());
+        }
         throw $e;
     }
 

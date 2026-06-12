@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -43,10 +44,26 @@ if (!empty($data->full_name) && !empty($data->username) && !empty($data->passwor
         $stmt->bindValue(':phone', $phone);
 
         if ($stmt->execute()) {
+            $user_id = $db->lastInsertId();
+            
+            // Log REGISTER_STAFF audit trail entry
+            logAudit(
+                $user_id,
+                $data->username,
+                $role,
+                'REGISTER_STAFF',
+                'Authentication',
+                null,
+                [
+                    'full_name' => $data->full_name,
+                    'phone_number' => $phone
+                ]
+            );
+
             echo json_encode([
                 "success" => true, 
                 "message" => "Staff member registered successfully",
-                "user_id" => $db->lastInsertId()
+                "user_id" => $user_id
             ]);
         } else {
             echo json_encode(["success" => false, "message" => "Database insertion failed"]);

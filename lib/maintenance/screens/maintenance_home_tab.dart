@@ -43,10 +43,32 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> {
         context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username);
       }
     });
+    _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
+    context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
+  }
+
+  int _lastRefreshTick = 0;
+
+  void _handleGlobalRefreshListener() {
+    if (!mounted) return;
+    final user = context.read<UserProvider>();
+    if (user.dashboardRefreshTick > _lastRefreshTick) {
+      _lastRefreshTick = user.dashboardRefreshTick;
+      _handleGlobalRefresh();
+    }
+  }
+
+  void _handleGlobalRefresh() {
+    _fetchAnnouncements();
+    if (mounted) {
+      final user = context.read<UserProvider>();
+      context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username);
+    }
   }
 
   @override
   void dispose() {
+    context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
     _refreshTimer?.cancel();
     super.dispose();
   }

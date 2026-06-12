@@ -91,7 +91,10 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
       appBar: widget.showAppBar 
         ? SkeuomorphicNavBar(
             title: 'Staff Mapping',
-            onBack: () => Navigator.of(context).pop(),
+            onBack: () {
+              debugPrint("BACK BUTTON CLICKED in StaffMappingManagerScreen");
+              Navigator.of(context).pop();
+            },
             rightAction: IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
               onPressed: () => mappingProvider.loadMappings(),
@@ -153,7 +156,10 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           ),
           const SizedBox(height: 30),
           ElevatedButton.icon(
-            onPressed: () => _showEditMappingDialog(context, null),
+            onPressed: () {
+              debugPrint("ADD NEW MAPPING CLICKED from EmptyState");
+              _showEditMappingDialog(context, null);
+            },
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('Add New Mapping'),
             style: ElevatedButton.styleFrom(
@@ -332,7 +338,10 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
 
   Widget _buildAddNewMappingCard() {
     return GestureDetector(
-      onTap: () => _showEditMappingDialog(context, null),
+      onTap: () {
+        debugPrint("ADD NEW MAPPING CLICKED in StaffMappingManagerScreen");
+        _showEditMappingDialog(context, null);
+      },
       child: Container(
         margin: const EdgeInsets.only(top: 8, bottom: 20),
         padding: const EdgeInsets.symmetric(vertical: 18),

@@ -3,6 +3,7 @@ header('Access-Control-Allow-Origin: *');
 header("Content-Type: application/json");
 
 require_once("../../config/database.php");
+require_once("../../utils/activity_logger.php");
 
 $data = json_decode(file_get_contents("php://input"), true);
 
@@ -11,6 +12,8 @@ $conn = $db->getConnection();
 
 $stmt = $conn->prepare("INSERT INTO hostels (name) VALUES (?)");
 $stmt->execute([$data['name']]);
+
+logAudit(null, null, null, "CREATE_HOSTEL", "Hostels", null, ['name' => $data['name']]);
 
 echo json_encode(["success"=>true]);
 ?>

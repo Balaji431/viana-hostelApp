@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -46,6 +47,21 @@ if($data && !empty($data->full_name) && !empty($data->register_no) && !empty($da
         
         if($stmt_u->execute()) {
             $user_id = $db->lastInsertId();
+            
+            // Log REGISTER_STUDENT audit trail entry
+            logAudit(
+                $user_id,
+                $data->register_no,
+                'student',
+                'REGISTER_STUDENT',
+                'Authentication',
+                null,
+                [
+                    'full_name' => $data->full_name,
+                    'email' => $email,
+                    'phone_number' => $phone
+                ]
+            );
             
             // 3. Insert into profile table
             $query_p = "INSERT INTO profile (reg_no, full_name, email, personal_phone, institution) 

@@ -18,6 +18,7 @@ import 'firebase_options.dart';
 import 'shared/auth_wrapper.dart';
 import 'shared/category_provider.dart';
 import 'shared/main_layout.dart';
+import 'shared/role_guard.dart';
 import 'shared/request_provider.dart';
 import 'shared/ui_provider.dart';
 import 'shared/user_provider.dart';
@@ -52,6 +53,16 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    ApiService.reportError(details.exceptionAsString(), details.stack?.toString() ?? '');
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    ApiService.reportError(error.toString(), stack.toString());
+    return true;
+  };
 
   runApp(
     MultiProvider(
@@ -119,7 +130,7 @@ Future<void> _initializeFirebaseMessaging() async {
       AppLogger.info("Foreground message: ${message.data}");
 
       final currentContext = navigatorKey.currentContext;
-      if (currentContext != null) {
+      if (currentContext != null && currentContext.mounted) {
         final userProvider =
             Provider.of<UserProvider>(currentContext, listen: false);
         final String? senderId = message.data['sender_id']?.toString();
@@ -312,21 +323,57 @@ class MyApp extends StatelessWidget {
           final requestId =
               args is String ? args : mapArgs?['request_id']?.toString();
           final senderId = mapArgs?['sender_id']?.toString() ?? '';
-          return MainResponsiveLayout(
-            initialRequestId: requestId,
-            senderId: senderId,
-            isSecurity: true,
+          return RoleGuard(
+            allowedRoles: const [UserRole.security, UserRole.warden, UserRole.admin],
+            child: MainResponsiveLayout(
+              initialRequestId: requestId,
+              senderId: senderId,
+              isSecurity: true,
+            ),
           );
         },
         '/announcements': (context) =>
             const MainResponsiveLayout(showAnnouncements: true),
-        '/category_manager': (context) => const MainResponsiveLayout(initialRoute: '/category_manager'),
-        '/hostel_manager': (context) => const MainResponsiveLayout(initialRoute: '/hostel_manager'),
-        '/mapping_manager': (context) => const MainResponsiveLayout(initialRoute: '/mapping_manager'),
-        '/room_master': (context) => const RoomMasterScreen(),
+        '/category_manager': (context) {
+          final isDesktop = MediaQuery.of(context).size.width >= 768;
+          return RoleGuard(
+            allowedRoles: const [UserRole.admin],
+            child: isDesktop
+                ? const MainResponsiveLayout(initialRoute: '/category_manager')
+                : const CategoryManagerScreen(showAppBar: true),
+          );
+        },
+        '/hostel_manager': (context) {
+          final isDesktop = MediaQuery.of(context).size.width >= 768;
+          return RoleGuard(
+            allowedRoles: const [UserRole.admin],
+            child: isDesktop
+                ? const MainResponsiveLayout(initialRoute: '/hostel_manager')
+                : const AdminHostelManagerScreen(showAppBar: true),
+          );
+        },
+        '/mapping_manager': (context) {
+          final isDesktop = MediaQuery.of(context).size.width >= 768;
+          return RoleGuard(
+            allowedRoles: const [UserRole.admin],
+            child: isDesktop
+                ? const MainResponsiveLayout(initialRoute: '/mapping_manager')
+                : const StaffMappingManagerScreen(showAppBar: true),
+          );
+        },
+        '/room_master': (context) => const RoleGuard(
+              allowedRoles: [UserRole.admin],
+              child: RoomMasterScreen(),
+            ),
         '/hostel_detail': (context) {
           final args = ModalRoute.of(context)!.settings.arguments;
-          return MainResponsiveLayout(initialRoute: '/hostel_detail', initialRouteArgs: args);
+          final isDesktop = MediaQuery.of(context).size.width >= 768;
+          return RoleGuard(
+            allowedRoles: const [UserRole.admin],
+            child: isDesktop
+                ? MainResponsiveLayout(initialRoute: '/hostel_detail', initialRouteArgs: args)
+                : HostelDetailScreen(hostel: args as HierarchicalHostel, showAppBar: true),
+          );
         },
       },
     );

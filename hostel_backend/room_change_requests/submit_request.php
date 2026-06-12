@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 // Initialize database connection
 $database = new DatabaseMysqli();
@@ -185,6 +186,23 @@ try {
     if (!$insert_stmt->execute()) {
         throw new Exception('Failed to submit room change request');
     }
+    
+    logAudit(
+        $student_id,
+        $student_reg_no,
+        'student',
+        'REQUEST_CREATE',
+        'Room Change Requests',
+        null,
+        [
+            'request_id' => $request_id,
+            'current_room' => $data['current_room'],
+            'requested_room' => $data['requested_room'],
+            'requested_room_type' => $requested_room_type,
+            'reason' => $data['reason'],
+            'status' => 'pending'
+        ]
+    );
     
     // Get the inserted request details
     $request_details = [

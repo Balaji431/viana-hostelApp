@@ -426,7 +426,13 @@ class _AllocationExplorerScreenState extends State<AllocationExplorerScreen> {
                 child: Row(
                   children: [
                     GestureDetector(
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PriorityQueueScreen())),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          settings: const RouteSettings(name: '/priority_queue'),
+                          builder: (_) => const PriorityQueueScreen(),
+                        ),
+                      ),
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: [
@@ -484,7 +490,13 @@ class _AllocationExplorerScreenState extends State<AllocationExplorerScreen> {
                       child: ds.SkeuomorphicButton(
                         text: 'Review & Submit',
                         onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const PriorityQueueScreen()));
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              settings: const RouteSettings(name: '/priority_queue'),
+                              builder: (context) => const PriorityQueueScreen(),
+                            ),
+                          );
                         },
                       ),
                     ),

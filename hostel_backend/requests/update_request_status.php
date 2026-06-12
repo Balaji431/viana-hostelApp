@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -96,6 +97,20 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
         $stmt->bindParam(":request_id", $data->request_id);
 
         if($stmt->execute()){
+            logAudit(
+                $data->warden_id,
+                $staff_username,
+                $staff_role,
+                "UPDATE_REQUEST_STATUS_" . strtoupper($data->status),
+                $is_rcr ? "Room Change" : "Complaints",
+                null,
+                [
+                    "request_id" => $data->request_id,
+                    "status" => $data->status,
+                    "reason" => $data->reason ?? null
+                ]
+            );
+
             // 4. Add Status notification message to chat history
             $display_status = strtoupper($data->status);
             

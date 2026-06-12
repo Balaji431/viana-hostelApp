@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -29,7 +30,7 @@ $ids = implode(',', array_map('intval', $request_ids));
 
 try {
     // 1. Fetch current live capacities of ALL rooms
-    $rooms_query = "SELECT hr.id, hr.room_no, hr.building_code, hr.total_capacity, hr.occupied_rooms,
+    $rooms_query = "SELECT hr.id, hr.room_no, hr.building_code, hr.total_capacity, hr.occupied_rooms, hr.room_type, hr.floor, hr.hostel_name,
                     (SELECT COUNT(*) FROM room_allocations WHERE allocated_room_id = hr.id AND allocation_status = 'payment_pending' AND payment_deadline > NOW()) as hold_count
                     FROM hostel_rooms hr";
     $r_res = $conn->query($rooms_query);
@@ -151,8 +152,10 @@ try {
                 $receipt_number = "RCP-" . time() . "-" . rand(1000, 9999);
                 $description = "Room Allocation Fee - Room ID " . $room_id;
                 
-                $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at) VALUES (?, ?, ?, 'paid', ?, ?)");
-                $ins_pay->bind_param("idsss", $sid, $amount, $receipt_number, $description, $now_str);
+                $gateway_response = json_encode(['gateway' => 'AutoAllocation', 'status' => 'SUCCESS', 'method' => 'System']);
+                $ip_address = getClientIp();
+                $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at, student_name, reg_number, gateway_response, user_id, ip_address) VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)");
+                $ins_pay->bind_param("idsssssssis", $sid, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $sid, $ip_address);
                 $ins_pay->execute();
 
                 // 5. Update room_allocations status to 'approved' and paid_at
@@ -162,6 +165,57 @@ try {
 
                 // 6. Cancel Sibling Preferences
                 $conn->query("UPDATE room_preferences SET status = 'cancelled' WHERE student_id = $sid AND status = 'submitted'");
+
+                // Audit Logging for Warden Approving Request & Room Allocation
+                try {
+                    $w_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
+                    $w_stmt->bind_param("i", $warden_id);
+                    $w_stmt->execute();
+                    $warden_row = $w_stmt->get_result()->fetch_assoc();
+                    $warden_username = $warden_row['username'] ?? 'warden1';
+
+                    $hostel_val = $assigned_room_details['building_code'] ?? $assigned_room_details['hostel_name'] ?? 'Vaigai Hostel';
+                    $room_type_val = $assigned_room_details['room_type'] ?? '4 IN 1 AC';
+                    $floor_val = $assigned_room_details['floor'] ?? '';
+                    $room_no_val = $assigned_room_details['room_no'] ?? '';
+                    $student_reg = $req['student_reg_no'];
+
+                    logAudit(
+                        $warden_id,
+                        $warden_username,
+                        'warden',
+                        'APPROVE_ALLOCATION_REQUEST',
+                        'Room Allocation',
+                        null,
+                        [
+                            'student_reg_no' => $student_reg,
+                            'hostel' => $hostel_val,
+                            'room_type' => $room_type_val,
+                            'approved_by' => $warden_username,
+                            'approval_time' => $now_str
+                        ]
+                    );
+
+                    logAudit(
+                        $warden_id,
+                        $warden_username,
+                        'warden',
+                        'ROOM_ALLOCATED',
+                        'Room Allocation',
+                        null,
+                        [
+                            'student_reg_no' => $student_reg,
+                            'hostel' => $hostel_val,
+                            'floor' => $floor_val,
+                            'room_no' => $room_no_val,
+                            'bed_no' => 'B1',
+                            'allocated_by' => $warden_username,
+                            'allocated_at' => $now_str
+                        ]
+                    );
+                } catch (Exception $e) {
+                    error_log("Failed to log auto_allocate approvals: " . $e->getMessage());
+                }
             }
 
         } else {

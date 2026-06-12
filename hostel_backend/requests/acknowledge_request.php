@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -43,6 +44,22 @@ if(!empty($data->request_id) && !empty($data->student_id) && isset($data->is_wor
         $stmt->bindParam(":request_id", $data->request_id);
 
         if($stmt->execute()){
+            // Log Audit state transition
+            $action = ($new_status === 'completed') ? 'REQUEST_CLOSE' : 'REQUEST_REOPEN';
+            logAudit(
+                $data->student_id,
+                $student_username,
+                'student',
+                $action,
+                'Requests',
+                null,
+                [
+                    'request_id' => $data->request_id,
+                    'is_working' => $data->is_working,
+                    'new_status' => $new_status
+                ]
+            );
+
             // 4. Add Acknowledgment message to chat history
             if ($data->is_working) {
                 $msg = "[SUCCESS] Student ($student_name) has acknowledged that the issue is resolved. Request closed.";

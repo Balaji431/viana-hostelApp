@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/activity_logger.php';
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -55,7 +56,9 @@ try {
 
     $conn->commit();
 
-    // 5. Send push notification to main warden
+    // Log audit trail
+    $student_name = 'Student';
+    $student_reg = '';
     try {
         $st_stmt = $conn->prepare("SELECT full_name, username FROM users WHERE id = ?");
         $st_stmt->bind_param("i", $student_id);
@@ -63,6 +66,41 @@ try {
         $st_res = $st_stmt->get_result()->fetch_assoc();
         $student_name = $st_res['full_name'] ?? 'Student';
         $student_reg = $st_res['username'] ?? '';
+
+        $pref_query = $conn->prepare("
+            SELECT hr.building_code, hr.room_type 
+            FROM room_preferences rp 
+            JOIN hostel_rooms hr ON rp.room_id = hr.id 
+            WHERE rp.student_id = ? AND rp.priority_order = 1
+            LIMIT 1
+        ");
+        $pref_query->bind_param("i", $student_id);
+        $pref_query->execute();
+        $pref = $pref_query->get_result()->fetch_assoc();
+        $hostel = $pref['building_code'] ?? 'Vaigai Hostel';
+        $room_type = $pref['room_type'] ?? '4 IN 1 AC';
+
+        logAudit(
+            $student_id,
+            $student_reg,
+            'student',
+            'SUBMIT_ALLOCATION_REQUEST',
+            'Room Allocation',
+            null,
+            [
+                'student_reg_no' => $student_reg,
+                'hostel' => $hostel,
+                'room_type' => $room_type,
+                'priority' => '1',
+                'request_time' => $now
+            ]
+        );
+    } catch (Exception $e) {
+        error_log("Audit logging failed in submit_preferences: " . $e->getMessage());
+    }
+
+    // 5. Send push notification to main warden
+    try {
 
         $w_res = $conn->query("SELECT fcm_token FROM users WHERE role = 'warden' LIMIT 1");
         if ($w_res && $w_row = $w_res->fetch_assoc()) {

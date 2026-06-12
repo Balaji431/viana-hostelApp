@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'history_helper.dart';
 import '../core/app_logger.dart';
 import '../core/styles.dart';
 import 'user_provider.dart';
@@ -33,6 +35,8 @@ import '../admin/screens/admin_hostel_manager_screen.dart';
 import '../admin/staff_mapping_manager_screen.dart';
 import '../admin/screens/hostel_detail_screen.dart';
 import '../core/models/hierarchical_hostel_model.dart';
+import 'widgets/glassmorphic_jelly_navbar.dart';
+import 'role_guard.dart';
 
 
 class MainResponsiveLayout extends StatefulWidget {
@@ -59,17 +63,68 @@ class MainResponsiveLayout extends StatefulWidget {
 
 class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   int _selectedIndex = 0;
+  String? reportsCategoryFilter;
   final GlobalKey<NavigatorState> _phoneNavigatorKey = GlobalKey<NavigatorState>();
   late final _NestedNavigatorObserver _navigatorObserver;
 
-  void setSelectedIndex(int index) {
+  void setSelectedIndex(int index, {String? reportsCategory}) {
     setState(() {
       _selectedIndex = index;
+      if (reportsCategory != null) {
+        reportsCategoryFilter = reportsCategory;
+      }
     });
     if (_phoneNavigatorKey.currentState != null) {
       _phoneNavigatorKey.currentState!.popUntil((route) => route.isFirst);
     }
   }
+
+  DateTime? _lastBackPressed;
+
+  Future<void> _handleBackPress() async {
+    // If we are on a different tab, go back to the home tab first (index 0)
+    if (_selectedIndex != 0) {
+      setState(() {
+        _selectedIndex = 0;
+      });
+      if (_phoneNavigatorKey.currentState != null) {
+        _phoneNavigatorKey.currentState!.popUntil((route) => route.isFirst);
+      }
+      return;
+    }
+
+    // Double-back to exit logic
+    if (_lastBackPressed == null ||
+        DateTime.now().difference(_lastBackPressed!) > const Duration(seconds: 4)) {
+      _lastBackPressed = DateTime.now();
+
+      // Trigger global dashboard refresh (calls UserProvider.triggerDashboardRefresh)
+      final user = Provider.of<UserProvider>(context, listen: false);
+      user.triggerDashboardRefresh();
+
+      // Show toast / snackbar
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Press back again to exit'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    // Exit the application
+    await SystemNavigator.pop();
+  }
+
+  void _handlePop() {
+    debugPrint('MainResponsiveLayoutState: _handlePop called. canPop = ${_phoneNavigatorKey.currentState?.canPop()}');
+    if (_phoneNavigatorKey.currentState?.canPop() ?? false) {
+      _phoneNavigatorKey.currentState!.pop();
+    } else {
+      _handleBackPress();
+    }
+  }
+
   Timer? _countTimer;
 
   @override
@@ -82,6 +137,9 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         }
       },
     );
+    if (kIsWeb) {
+      HistoryHelper.addPopStateListener(_handlePop);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final user = Provider.of<UserProvider>(context, listen: false);
       if (user.role == UserRole.student && user.dbId != null) {
@@ -149,6 +207,9 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   @override
   void dispose() {
     _countTimer?.cancel();
+    if (kIsWeb) {
+      HistoryHelper.removePopStateListener();
+    }
     super.dispose();
   }
 
@@ -164,41 +225,52 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
       _selectedIndex = 0;
     }
 
-    return SafeArea(
-      top: false,
-      child: Scaffold(
-        backgroundColor: isDesktop ? const Color(0xFF0A1128) : const Color(0xFFE8E4DB),
-        body: Container(
-          decoration: isDesktop ? const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF0F1520),
-                Color(0xFF1A2235),
-                Color(0xFF0F1520),
-              ],
-            ),
-          ) : null,
-          child: isDesktop
-            ? Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min, 
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    _buildSidebar(context, user, tabs),
-                    _buildMainContentCard(isDesktop, tabs),
-                    if (ui.activeChatChannel != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: _buildChatSidePanel(context, ui, user.role),
-                      ),
-                  ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleBackPress();
+      },
+      child: SafeArea(
+        top: false,
+        bottom: false,
+        child: Scaffold(
+          extendBody: !isDesktop,
+          backgroundColor: isDesktop ? const Color(0xFF0A1128) : const Color(0xFFE8E4DB),
+          body: Container(
+            decoration: isDesktop ? const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF0F1520),
+                  Color(0xFF1A2235),
+                  Color(0xFF0F1520),
+                ],
+              ),
+            ) : null,
+            child: isDesktop
+              ? Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min, 
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _buildSidebar(context, user, tabs),
+                      _buildMainContentCard(isDesktop, tabs),
+                      if (ui.activeChatChannel != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: _buildChatSidePanel(context, ui, user.role),
+                        ),
+                    ],
+                  ),
+                )
+              : LinenGridBackground(
+                  child: _buildMainContentCard(isDesktop, tabs),
                 ),
-              )
-            : _buildMainContentCard(isDesktop, tabs),
+          ),
+          bottomNavigationBar: !isDesktop ? _buildBottomNavigationBar(tabs) : null,
         ),
-        bottomNavigationBar: !isDesktop ? _buildBottomNavigationBar(tabs) : null,
       ),
     );
   }
@@ -243,17 +315,29 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                   WidgetBuilder builder;
                   switch (settings.name) {
                     case '/category_manager':
-                      builder = (context) => const CategoryManagerScreen(showAppBar: true);
+                      builder = (context) => const RoleGuard(
+                            allowedRoles: [UserRole.admin],
+                            child: CategoryManagerScreen(showAppBar: true),
+                          );
                       break;
                     case '/hostel_manager':
-                      builder = (context) => const AdminHostelManagerScreen(showAppBar: true);
+                      builder = (context) => const RoleGuard(
+                            allowedRoles: [UserRole.admin],
+                            child: AdminHostelManagerScreen(showAppBar: true),
+                          );
                       break;
                     case '/mapping_manager':
-                      builder = (context) => const StaffMappingManagerScreen(showAppBar: true);
+                      builder = (context) => const RoleGuard(
+                            allowedRoles: [UserRole.admin],
+                            child: StaffMappingManagerScreen(showAppBar: true),
+                          );
                       break;
                     case '/hostel_detail':
                       final args = settings.arguments as HierarchicalHostel;
-                      builder = (context) => HostelDetailScreen(hostel: args, showAppBar: true);
+                      builder = (context) => RoleGuard(
+                            allowedRoles: const [UserRole.admin],
+                            child: HostelDetailScreen(hostel: args, showAppBar: true),
+                          );
                       break;
                     default:
                       builder = (context) => IndexedStack(
@@ -496,34 +580,25 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   }
 
   Widget _buildBottomNavigationBar(List<_TabItem> tabs) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF2C2C2C), Color(0xFF1A1A1A)],
-        ),
-      ),
-      child: BottomNavigationBar(
-        currentIndex: _selectedIndex >= tabs.length ? 0 : _selectedIndex,
-        onTap: (index) {
-          setState(() => _selectedIndex = index);
-          if (_phoneNavigatorKey.currentState != null) {
-            _phoneNavigatorKey.currentState!.popUntil((route) => route.isFirst);
+    return GlassmorphicJellyNavbar(
+      currentIndex: _selectedIndex >= tabs.length ? 0 : _selectedIndex,
+      totalTabs: tabs.length,
+      tabs: tabs.map((t) => GlassmorphicTabItem(
+        label: t.label,
+        icon: t.icon,
+        activeIcon: t.activeIcon,
+      )).toList(),
+      onTap: (index) {
+        setState(() {
+          _selectedIndex = index;
+          if (index != 2) {
+            reportsCategoryFilter = null;
           }
-        },
-        backgroundColor: Colors.transparent,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFFD4AF37),
-        unselectedItemColor: Colors.grey,
-        showSelectedLabels: true,
-        showUnselectedLabels: true,
-        items: tabs.map((t) => BottomNavigationBarItem(
-          icon: Icon(t.icon),
-          activeIcon: Icon(t.activeIcon, shadows: const [Shadow(color: Color(0xFFD4AF37), blurRadius: 8)]),
-          label: t.label,
-        )).toList(),
-      ),
+        });
+        if (_phoneNavigatorKey.currentState != null) {
+          _phoneNavigatorKey.currentState!.popUntil((route) => route.isFirst);
+        }
+      },
     );
   }
 
@@ -545,7 +620,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         return [
           const _TabItem(label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home, page: WardenHomeTab()),
           const _TabItem(label: 'Attendance', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month, page: WardenAttendanceTab()),
-          const _TabItem(label: 'Reports', icon: Icons.bar_chart_outlined, activeIcon: Icons.bar_chart, page: WardenReportsTab()),
+          _TabItem(label: 'Reports', icon: Icons.bar_chart_outlined, activeIcon: Icons.bar_chart, page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
           const _TabItem(label: 'Management', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: WardenManagementTab()),
           const _TabItem(label: 'Settings', icon: Icons.person_outline, activeIcon: Icons.person, page: SettingsPage()),
         ];
@@ -594,10 +669,9 @@ class _NestedNavigatorObserver extends NavigatorObserver {
   @override
   void didPush(Route route, Route? previousRoute) {
     super.didPush(route, previousRoute);
-    if (route.settings.name != null) {
-      SystemNavigator.routeInformationUpdated(
-        location: route.settings.name!,
-      );
+    debugPrint('NestedObserver: didPush | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
+    if (kIsWeb && route.settings.name != null && route.settings.name != '/') {
+      HistoryHelper.pushState();
     }
     onStackChanged();
   }
@@ -605,32 +679,21 @@ class _NestedNavigatorObserver extends NavigatorObserver {
   @override
   void didPop(Route route, Route? previousRoute) {
     super.didPop(route, previousRoute);
-    if (previousRoute != null && previousRoute.settings.name != null) {
-      SystemNavigator.routeInformationUpdated(
-        location: previousRoute.settings.name!,
-      );
-    } else {
-      SystemNavigator.routeInformationUpdated(
-        location: '/',
-      );
-    }
+    debugPrint('NestedObserver: didPop | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
     onStackChanged();
   }
 
   @override
   void didRemove(Route route, Route? previousRoute) {
     super.didRemove(route, previousRoute);
+    debugPrint('NestedObserver: didRemove | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
     onStackChanged();
   }
 
   @override
   void didReplace({Route? newRoute, Route? oldRoute}) {
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
-    if (newRoute != null && newRoute.settings.name != null) {
-      SystemNavigator.routeInformationUpdated(
-        location: newRoute.settings.name!,
-      );
-    }
+    debugPrint('NestedObserver: didReplace | newRoute=${newRoute?.settings.name} | oldRoute=${oldRoute?.settings.name} | canPop=${navigator?.canPop()}');
     onStackChanged();
   }
 }

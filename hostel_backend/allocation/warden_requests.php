@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/activity_logger.php';
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -183,7 +184,7 @@ try {
             $conn->begin_transaction();
             try {
                 // Capacity Guard: SELECT ... FOR UPDATE
-                $lock_query = "SELECT total_capacity, occupied_rooms, room_code, hostel_name FROM hostel_rooms WHERE id = ? FOR UPDATE";
+                $lock_query = "SELECT id, total_capacity, occupied_rooms, room_code, hostel_name, building_code, room_type, floor, room_no FROM hostel_rooms WHERE id = ? FOR UPDATE";
                 $l_stmt = $conn->prepare($lock_query);
                 $l_stmt->bind_param("i", $room_id);
                 $l_stmt->execute();
@@ -204,6 +205,13 @@ try {
                 $current_alloc_status = $alloc_row['allocation_status'];
                 $suggested_room_id = (int)$alloc_row['allocated_room_id'];
                 $allocated_bed = $alloc_row['allocated_bed_no'] ?? 'B1';
+
+                // Fetch warden details for audit logging
+                $w_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
+                $w_stmt->bind_param("i", $warden_id);
+                $w_stmt->execute();
+                $warden_row = $w_stmt->get_result()->fetch_assoc();
+                $warden_username = $warden_row['username'] ?? 'warden1';
 
                 // Recalculate bed if modified by warden
                 if ($current_alloc_status === 'under_review' && $room_id !== $suggested_room_id) {
@@ -238,6 +246,29 @@ try {
                         if (!in_array($candidate, $occupied_beds)) {
                             $allocated_bed = $candidate;
                             break;
+                        }
+                    }
+
+                    // Warden Modifies Request Logging
+                    $old_room_type = '';
+                    $new_room_type = $room['room_type'] ?? '';
+                    if ($suggested_room_id > 0) {
+                        $old_r_stmt = $conn->prepare("SELECT room_type FROM hostel_rooms WHERE id = ?");
+                        $old_r_stmt->bind_param("i", $suggested_room_id);
+                        $old_r_stmt->execute();
+                        $old_r_res = $old_r_stmt->get_result()->fetch_assoc();
+                        $old_room_type = $old_r_res['room_type'] ?? '';
+
+                        if (!empty($old_room_type) && !empty($new_room_type) && $old_room_type !== $new_room_type) {
+                            logAudit(
+                                $warden_id,
+                                $warden_username,
+                                'warden',
+                                'MODIFY_ALLOCATION_REQUEST',
+                                'Room Allocation',
+                                ['room_type' => $old_room_type],
+                                ['room_type' => $new_room_type]
+                            );
                         }
                     }
                 }
@@ -292,8 +323,10 @@ try {
                 $receipt_number = "RCP-" . time() . "-" . rand(1000, 9999);
                 $description = "Room Allocation Fee - Room ID " . $room_id;
                 
-                $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at) VALUES (?, ?, ?, 'paid', ?, ?)");
-                $ins_pay->bind_param("idsss", $sid, $amount, $receipt_number, $description, $now_str);
+                $gateway_response = json_encode(['gateway' => 'Internal/Warden', 'status' => 'SUCCESS']);
+                $ip_address = getClientIp();
+                $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at, student_name, reg_number, gateway_response, user_id, ip_address) VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)");
+                $ins_pay->bind_param("idsssssssis", $sid, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $sid, $ip_address);
                 $ins_pay->execute();
 
                 // 5. Update room_allocations status to 'approved' and paid_at
@@ -303,6 +336,43 @@ try {
 
                 // 6. Cancel Sibling Preferences
                 $conn->query("UPDATE room_preferences SET status = 'cancelled' WHERE student_id = $sid AND status = 'submitted'");
+
+                // Audit Logging for Warden Approving Request
+                $hostel_val = $room['building_code'] ?? $room['hostel_name'] ?? 'Vaigai Hostel';
+                logAudit(
+                    $warden_id,
+                    $warden_username,
+                    'warden',
+                    'APPROVE_ALLOCATION_REQUEST',
+                    'Room Allocation',
+                    null,
+                    [
+                        'student_reg_no' => $reg_no,
+                        'hostel' => $hostel_val,
+                        'room_type' => $room['room_type'] ?? '4 IN 1 AC',
+                        'approved_by' => $warden_username,
+                        'approval_time' => $now_str
+                    ]
+                );
+
+                // Audit Logging for Room Allocated Completion
+                logAudit(
+                    $warden_id,
+                    $warden_username,
+                    'warden',
+                    'ROOM_ALLOCATED',
+                    'Room Allocation',
+                    null,
+                    [
+                        'student_reg_no' => $reg_no,
+                        'hostel' => $hostel_val,
+                        'floor' => $room['floor'] ?? '',
+                        'room_no' => $room['room_no'] ?? '',
+                        'bed_no' => $allocated_bed,
+                        'allocated_by' => $warden_username,
+                        'allocated_at' => $now_str
+                    ]
+                );
 
                 $conn->commit();
 
@@ -330,17 +400,50 @@ try {
                 $sid = $sid_row['student_id'];
                 $conn->query("UPDATE room_allocations SET allocation_status = 'rejected' WHERE id = $request_id");
                 
+                // Audit Logging for Warden Rejects Request
                 try {
-                    $student_stmt = $conn->prepare("SELECT fcm_token FROM users WHERE id = ?");
+                    // Fetch student registration number
+                    $student_stmt = $conn->prepare("SELECT username, fcm_token FROM users WHERE id = ?");
                     $student_stmt->bind_param("i", $sid);
                     $student_stmt->execute();
-                    $student_row = $student_stmt->get_result()->fetch_assoc();
-                    
-                    if ($student_row && !empty($student_row['fcm_token'])) {
+                    $student_res = $student_stmt->get_result()->fetch_assoc();
+                    $student_reg = $student_res['username'] ?? '';
+                    $fcm_token = $student_res['fcm_token'] ?? '';
+
+                    // Fetch warden details
+                    $w_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
+                    $w_stmt->bind_param("i", $warden_id);
+                    $w_stmt->execute();
+                    $warden_row = $w_stmt->get_result()->fetch_assoc();
+                    $warden_username = $warden_row['username'] ?? 'warden1';
+
+                    $reason = !empty($data['reason']) ? $data['reason'] : (!empty($data['remarks']) ? $data['remarks'] : "No vacancies available");
+                    $timestamp = date('Y-m-d H:i:s');
+
+                    logAudit(
+                        $warden_id,
+                        $warden_username,
+                        'warden',
+                        'REJECT_ALLOCATION_REQUEST',
+                        'Room Allocation',
+                        null,
+                        [
+                            'student_reg_no' => $student_reg,
+                            'reason' => $reason,
+                            'rejected_by' => $warden_username,
+                            'timestamp' => $timestamp
+                        ]
+                    );
+                } catch (Exception $e) {
+                    error_log("Failed to log REJECT_ALLOCATION_REQUEST: " . $e->getMessage());
+                }
+                
+                try {
+                    if (!empty($fcm_token)) {
                         require_once '../send_notification.php';
                         $title = "Room Allocation Rejected";
                         $body = "Your room allocation request has been rejected by the warden.";
-                        sendFCM($student_row['fcm_token'], $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation_rejected');
+                        sendFCM($fcm_token, $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation_rejected');
                     }
                 } catch (Exception $e) {}
             }

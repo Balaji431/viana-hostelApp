@@ -103,8 +103,10 @@ if ($username && $password) {
                     "renewal_date" => $row['valid_to']
                 ];
                 logActivity($row['id'], $row['register_no'], $row['role'], 'LOGIN', 'users', null, ['login_time' => date('Y-m-d H:i:s')]);
+                logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN', 'Authentication', null, ['login_time' => date('Y-m-d H:i:s')]);
                 sendResponse(true, "Login successful", $user_data);
             } else {
+                logAudit($row['id'], $row['register_no'], $row['role'], 'FAILED_LOGIN_WRONG_PASSWORD', 'Authentication', null, ['attempt_time' => date('Y-m-d H:i:s')]);
                 sendResponse(false, "Invalid credentials", null, 401);
             }
         } else {
@@ -156,11 +158,14 @@ if ($username && $password) {
                     }
                     
                     logActivity($p_row['id'], $p_row['parent_id'], 'parent', 'LOGIN', 'parent_users', null, ['login_time' => date('Y-m-d H:i:s')]);
+                    logAudit($p_row['id'], $p_row['parent_id'], 'parent', 'LOGIN', 'Authentication', null, ['login_time' => date('Y-m-d H:i:s')]);
                     sendResponse(true, "Parent Login successful", $user_data);
                 } else {
+                    logAudit($p_row['id'], $p_row['parent_id'], 'parent', 'FAILED_LOGIN_WRONG_PASSWORD', 'Authentication', null, ['attempt_time' => date('Y-m-d H:i:s')]);
                     sendResponse(false, "Invalid parent credentials", null, 401);
                 }
             } else {
+                logAudit(null, $username, 'unknown', 'FAILED_LOGIN_USER_NOT_FOUND', 'Authentication', null, ['attempt_time' => date('Y-m-d H:i:s')]);
                 sendResponse(false, "User not found ($username)", null, 404);
             }
         }

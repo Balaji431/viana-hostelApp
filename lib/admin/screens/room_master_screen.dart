@@ -442,30 +442,39 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: PaginatedDataTable2(
           border: TableBorder.all(
-            color: Colors.grey.shade300,
-            width: 1,
+            color: const Color(0xFFEAEAEA),
+            width: 0.5,
           ),
-          columnSpacing: 12,
-          minWidth: 1300,
+          columnSpacing: 24,
+          minWidth: 1500,
+          dataRowHeight: 64,
+          headingRowHeight: 56,
           headingRowColor: WidgetStateProperty.all(const Color(0xFFF8F9FA)),
           rowsPerPage: 15,
           availableRowsPerPage: const [10, 15, 25, 50, 100],
           columns: const [
-            DataColumn2(label: Text('Hostel Name'), size: ColumnSize.S, fixedWidth: 264),
-            DataColumn2(label: Text('Building Code'), size: ColumnSize.S, fixedWidth: 120),
-            DataColumn2(label: Text('Floor No'), size: ColumnSize.S, fixedWidth: 120),
-            DataColumn2(label: Text('Block No'), size: ColumnSize.S, fixedWidth: 120),
-            DataColumn2(label: Text('Room No'), size: ColumnSize.S, fixedWidth: 120),
-            DataColumn2(label: Text('Room Code'), size: ColumnSize.S, fixedWidth: 160),
-            DataColumn2(label: Text('Room Type'), size: ColumnSize.S, fixedWidth: 240),
-            DataColumn2(label: Text('Edit'), size: ColumnSize.S, fixedWidth: 72, numeric: false),
-            DataColumn2(label: Text('Save'), size: ColumnSize.S, fixedWidth: 72),
+            DataColumn2(label: Text('Hostel Name', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 264),
+            DataColumn2(label: Text('Building Code', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
+            DataColumn2(label: Text('Floor No', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
+            DataColumn2(label: Text('Block No', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
+            DataColumn2(label: Text('Room No', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
+            DataColumn2(label: Text('Room Code', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 180),
+            DataColumn2(label: Text('Room Type', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 260),
+            DataColumn2(label: Text('Edit', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 80, numeric: false),
+            DataColumn2(label: Text('Save', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 90),
           ],
           source: RoomDataTableSource(
             rooms: _filteredRooms,
@@ -711,40 +720,70 @@ class RoomDataTableSource extends DataTableSource {
 
     return DataRow(
       cells: [
-        DataCell(Text(cleanHostelName(r['location_name'] ?? ''), style: const TextStyle(fontSize: 11))),
-        DataCell(Text(r['building_code'] ?? '')),
-        DataCell(Text(r['floor_no'] ?? '')),
-        DataCell(Text(r['block_no'] ?? '')),
-        DataCell(Text(r['room_no'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold))),
-        DataCell(Text(r['location_code'] ?? '', style: const TextStyle(fontSize: 11))),
+        DataCell(Text(
+          cleanHostelName(r['location_name'] ?? ''),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF1A2744)),
+        )),
+        DataCell(Text(
+          r['building_code'] ?? '',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF555555)),
+        )),
+        DataCell(Text(
+          r['floor_no'] ?? '',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF555555)),
+        )),
+        DataCell(Text(
+          r['block_no'] ?? '',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF555555)),
+        )),
+        DataCell(Text(
+          r['room_no'] ?? '',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)),
+        )),
+        DataCell(Text(
+          r['location_code'] ?? '',
+          style: const TextStyle(fontSize: 12, color: Colors.grey, fontFamily: 'monospace'),
+        )),
         DataCell(
           SizedBox(
             width: double.infinity,
             child: DropdownButtonFormField<String>(
               value: dropdownValue,
               isExpanded: true,
-              decoration: const InputDecoration(
-                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                border: OutlineInputBorder(borderSide: BorderSide.none),
-                filled: false,
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey.shade300, width: 1),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.blue, width: 1.5),
+                ),
+                filled: true,
+                fillColor: Colors.grey.shade50,
               ),
-              hint: const Text('Select Room Type', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              style: const TextStyle(fontSize: 11, color: Colors.black),
+              hint: const Text('Select Room Type', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              style: const TextStyle(fontSize: 13, color: Colors.black),
               selectedItemBuilder: (BuildContext context) {
                 return [
                   const Text(
                     'Not Assigned',
-                    style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w500, fontSize: 11),
+                    style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600, fontSize: 13),
                     softWrap: true,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   ...roomTypes.map((type) {
                     return Text(
                       type['name'].toString(),
-                      style: const TextStyle(fontSize: 11, height: 1.1),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                       softWrap: true,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     );
                   }).toList(),
@@ -753,7 +792,7 @@ class RoomDataTableSource extends DataTableSource {
               items: [
                 const DropdownMenuItem<String>(
                   value: null,
-                  child: Text('Not Assigned', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w500, fontSize: 11)),
+                  child: Text('Not Assigned', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600, fontSize: 13)),
                 ),
                 ...roomTypes.map((type) {
                   final String name = type['name'].toString();
@@ -761,9 +800,7 @@ class RoomDataTableSource extends DataTableSource {
                     value: name,
                     child: Text(
                       name,
-                      style: const TextStyle(fontSize: 11),
-                      softWrap: true,
-                      maxLines: 2,
+                      style: const TextStyle(fontSize: 13),
                     ),
                   );
                 }).toList(),
@@ -772,24 +809,34 @@ class RoomDataTableSource extends DataTableSource {
             ),
           ),
         ),
-        DataCell(IconButton(
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          splashRadius: 18,
-          icon: const Icon(Icons.edit, size: 18, color: Colors.blue),
-          onPressed: () => onEdit(r),
-        )),
+        DataCell(
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            splashRadius: 20,
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.edit, size: 18, color: Colors.blue),
+            ),
+            onPressed: () => onEdit(r),
+          ),
+        ),
         DataCell(
           ElevatedButton.icon(
             onPressed: () => onSave(r),
-            icon: const Icon(Icons.save, size: 12, color: Colors.white),
-            label: const Text('Save', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+            icon: const Icon(Icons.save, size: 14, color: Colors.white),
+            label: const Text('Save', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              minimumSize: const Size(60, 26),
+              backgroundColor: const Color(0xFF1A2744),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              minimumSize: const Size(76, 32),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              elevation: 0,
             ),
           ),
         ),

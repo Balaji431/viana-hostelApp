@@ -240,9 +240,12 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
                     ds.SkeuomorphicButton(
                       text: 'Browse Available Rooms',
                       onPressed: () {
-                        Navigator.pushReplacement(
+                        Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const AllocationExplorerScreen()),
+                          MaterialPageRoute(
+                            settings: const RouteSettings(name: '/allocation_explorer'),
+                            builder: (_) => const AllocationExplorerScreen(),
+                          ),
                         );
                       },
                     ),
@@ -252,9 +255,12 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
                     ds.SkeuomorphicButton(
                       text: 'Start New Application',
                       onPressed: () {
-                        Navigator.pushReplacement(
+                        Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => AllocationExplorerScreen()),
+                          MaterialPageRoute(
+                            settings: const RouteSettings(name: '/allocation_explorer'),
+                            builder: (_) => const AllocationExplorerScreen(),
+                          ),
                         );
                       },
                     ),
@@ -263,7 +269,7 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
                   ds.SkeuomorphicButton(
                     text: 'Back to Home',
                     isPrimary: false,
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
                   ),
                 ],
               ),

@@ -275,7 +275,15 @@ class PriorityQueueScreen extends StatelessWidget {
               final success = await provider.submitPreferences(studentId);
               if (success) {
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
-                if (context.mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AllocationStatusScreen()));
+                if (context.mounted) {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      settings: const RouteSettings(name: '/allocation_status'),
+                      builder: (context) => const AllocationStatusScreen(),
+                    ),
+                  );
+                }
               }
             },
             child: const Text('Confirm & Submit', style: TextStyle(color: Colors.white)),

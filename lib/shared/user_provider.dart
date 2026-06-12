@@ -51,8 +51,10 @@ class UserProvider with ChangeNotifier {
   String _linkedStudentProfilePic = "";
   
   DateTime? _lastRefreshTime;
+  int _dashboardRefreshTick = 0;
   
   int? get dbId => _dbId;
+  int get dashboardRefreshTick => _dashboardRefreshTick;
   UserRole get role => _role;
   String get roleName => _roleName; // NEW: Accessor for dynamic role name
   bool get isLoggedIn => _isLoggedIn;
@@ -208,6 +210,12 @@ class UserProvider with ChangeNotifier {
     }
   }
 
+  void triggerDashboardRefresh() {
+    refreshUserData();
+    _dashboardRefreshTick++;
+    notifyListeners();
+  }
+
   void requestRenewal() {
     _renewalStatus = 'Pending';
     notifyListeners();
@@ -299,6 +307,11 @@ class UserProvider with ChangeNotifier {
 
     _isLoggedIn = true;
     
+    // Set variables in ApiService for header injection
+    ApiService.currentUserId = userData['id']?.toString();
+    ApiService.currentUsername = userData['username']?.toString() ?? userData['register_no']?.toString();
+    ApiService.currentUserRole = userData['role']?.toString();
+
     // 🔥 SAVE FCM TOKEN TO BACKEND (Works for all users including parents)
     _saveFCMToken();
     
@@ -390,13 +403,32 @@ class UserProvider with ChangeNotifier {
   }
 
   Future<void> logout() async {
-    final String activeUser = this.username;
+    final String activeUser = username;
+    final String? activeUserId = _dbId?.toString();
+    final String activeRole = _roleName.isNotEmpty ? _roleName : _role.toString().split('.').last;
+
     if (activeUser.isNotEmpty) {
+      // Log logout event on backend
+      ApiService.logout(
+        userId: activeUserId,
+        username: activeUser,
+        role: activeRole,
+      ).catchError((e) {
+        AppLogger.error("Failed to log audit logout: $e");
+        return <String, dynamic>{};
+      });
+
       // Fire-and-forget: do NOT await — waiting for FCM clear was causing 5-6 s logout delay
       NotificationService.saveTokenToBackend(activeUser, 'clear').catchError(
         (e) => AppLogger.error("Failed to clear FCM token on logout: $e"),
       );
     }
+
+    // Clear user tracking headers
+    ApiService.currentUserId = null;
+    ApiService.currentUsername = null;
+    ApiService.currentUserRole = null;
+
     _isLoggedIn = false;
     AppLogger.currentUserEmail = null;
     final prefs = await SharedPreferences.getInstance();

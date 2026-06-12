@@ -13,9 +13,10 @@ class AdminActivityLogsScreen extends StatefulWidget {
 }
 
 class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
-  int _activeTab = 0; // 0: Complaints, 1: Feedback
+  int _activeTab = 0; // 0: Complaints, 1: Feedback, 2: Audit Trail
   List<Map<String, dynamic>> _complaints = [];
   List<Map<String, dynamic>> _feedbacks = [];
+  List<Map<String, dynamic>> _auditLogs = [];
   bool _isLoading = true;
 
   @override
@@ -29,6 +30,7 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
     try {
       final compRes = await ApiService.getComplaints();
       final feedRes = await ApiService.getFeedbacks();
+      final auditRes = await ApiService.getAuditLogs();
 
       setState(() {
         if (compRes['success'] == true) {
@@ -36,6 +38,9 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
         }
         if (feedRes['success'] == true) {
           _feedbacks = List<Map<String, dynamic>>.from(feedRes['data'] ?? []);
+        }
+        if (auditRes['success'] == true) {
+          _auditLogs = List<Map<String, dynamic>>.from(auditRes['data'] ?? []);
         }
         _isLoading = false;
       });
@@ -68,7 +73,9 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B2B48)))
                   : _activeTab == 0
                       ? _buildComplaintsList()
-                      : _buildFeedbackList(),
+                      : _activeTab == 1
+                          ? _buildFeedbackList()
+                          : _buildAuditLogsList(),
             ),
           ],
         ),
@@ -110,6 +117,15 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
               index: 1,
               label: "Feedback",
               icon: Icons.star_border_rounded,
+              badgeCount: 0,
+            ),
+          ),
+          // Audit Trail Tab
+          Expanded(
+            child: _buildTabButton(
+              index: 2,
+              label: "Audit Trail",
+              icon: Icons.history_rounded,
               badgeCount: 0,
             ),
           ),
@@ -763,6 +779,185 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
           },
         );
       },
+    );
+  }
+
+  // ─── Audit Logs List ────────────────────────────────────────────────────
+  Widget _buildAuditLogsList() {
+    if (_auditLogs.isEmpty) {
+      return const Center(
+        child: Text("No audit trail records found.", style: TextStyle(color: Colors.grey, fontFamily: 'Lato')),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      itemCount: _auditLogs.length,
+      itemBuilder: (context, index) {
+        final log = _auditLogs[index];
+        return _buildAuditLogCard(log);
+      },
+    );
+  }
+
+  Widget _buildAuditLogCard(Map<String, dynamic> log) {
+    final dateRaw = log['created_at'] != null ? DateTime.tryParse(log['created_at'].toString()) : null;
+    final dateStr = dateRaw != null ? DateFormat('dd MMM yyyy, hh:mm a').format(dateRaw) : 'N/A';
+    final user = log['username'] ?? 'System / Anonymous';
+    final role = log['role'] ?? 'N/A';
+    final action = log['action'] ?? 'N/A';
+    final module = log['module_name'] ?? 'N/A';
+    final ip = log['ip_address'] ?? 'N/A';
+    
+    final oldValue = log['old_value'];
+    final newValue = log['new_value'];
+    
+    final hasDetails = (oldValue != null && oldValue.toString().isNotEmpty) || (newValue != null && newValue.toString().isNotEmpty);
+
+    Color actionColor = Colors.blue.shade900;
+    if (action.contains('DELETE') || action.contains('FAILED')) {
+      actionColor = Colors.red.shade800;
+    } else if (action.contains('CREATE') || action.contains('LOGIN') || action.contains('SYNCED')) {
+      actionColor = Colors.green.shade800;
+    } else if (action.contains('UPDATE') || action.contains('EDIT')) {
+      actionColor = Colors.orange.shade800;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Strip
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9F6F1),
+                border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05))),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1B2B48)),
+                        ),
+                        Text(
+                          "Role: ${role.toUpperCase()} • IP: $ip",
+                          style: const TextStyle(color: Colors.grey, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: actionColor.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      module.toUpperCase(),
+                      style: TextStyle(color: actionColor, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Action description
+                  Row(
+                    children: [
+                      Icon(Icons.play_arrow_rounded, size: 16, color: actionColor),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          action,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13.5,
+                            color: actionColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Old vs New value details
+                  if (hasDetails) ...[
+                    if (oldValue != null && oldValue.toString().isNotEmpty) ...[
+                      const Text(
+                        "BEFORE CHANGE",
+                        style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 0.5),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.02),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withOpacity(0.08)),
+                        ),
+                        child: Text(
+                          oldValue.toString(),
+                          style: const TextStyle(color: Colors.black87, fontSize: 12, height: 1.4, fontFamily: 'monospace'),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (newValue != null && newValue.toString().isNotEmpty) ...[
+                      const Text(
+                        "AFTER CHANGE / INPUT VALUE",
+                        style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 0.5),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.02),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green.withOpacity(0.08)),
+                        ),
+                        child: Text(
+                          newValue.toString(),
+                          style: const TextStyle(color: Colors.black87, fontSize: 12, height: 1.4, fontFamily: 'monospace'),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                  ],
+
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        dateStr,
+                        style: const TextStyle(color: Colors.grey, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

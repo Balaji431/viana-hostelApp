@@ -19,6 +19,7 @@ function log_debug($msg) {
 }
 
 require_once '../send_notification.php';
+require_once '../utils/activity_logger.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -91,6 +92,24 @@ if(
             $stu = $stu_stmt->fetch(PDO::FETCH_ASSOC);
             $stu_username = ($stu) ? $stu['username'] : $data['student_id'];
             $stu_name = ($stu) ? $stu['full_name'] : "Student";
+
+            // Log Audit state transition
+            logAudit(
+                $data['student_id'],
+                $stu_username,
+                'student',
+                'REQUEST_CREATE',
+                'Requests',
+                null,
+                [
+                    'request_id' => $request_id,
+                    'request_type' => $data['request_type'],
+                    'room_number' => $data['room_number'],
+                    'purpose' => $data['purpose'],
+                    'department' => $dept,
+                    'status' => 'pending'
+                ]
+            );
 
             // Determine Receiver (Warden by default for all requests for now, or based on dept)
             $receiver_username = 'warden1'; // Default fallback

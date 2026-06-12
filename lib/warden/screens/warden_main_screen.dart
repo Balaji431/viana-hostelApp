@@ -3,6 +3,7 @@ import 'warden_home_tab.dart';
 import 'warden_attendance_tab.dart';
 import 'warden_reports_tab.dart';
 import 'warden_management_tab.dart';
+import '../../shared/widgets/glassmorphic_jelly_navbar.dart';
 
 class WardenMainScreen extends StatefulWidget {
   const WardenMainScreen({super.key});
@@ -41,40 +42,37 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
         index: _selectedIndex,
         children: tabs,
       ),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF3D3D3D), Color(0xFF1A1A1A)],
+      bottomNavigationBar: GlassmorphicJellyNavbar(
+        currentIndex: _selectedIndex,
+        totalTabs: 4,
+        tabs: const [
+          GlassmorphicTabItem(
+            label: 'Home',
+            icon: Icons.home_outlined,
+            activeIcon: Icons.home,
           ),
-          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 10, offset: Offset(0, -2))],
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: (index) {
-            setState(() {
-              _selectedIndex = index;
-              // Reset filter if moving away from reports, or keep it? 
-              // Usually reset to "All" when clicking the bottom tab directly
-              if (index != 2) _reportsCategoryFilter = null;
-            });
-          },
-          backgroundColor: Colors.transparent,
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: const Color(0xFFD4AF37),
-          unselectedItemColor: Colors.grey,
-          showSelectedLabels: true,
-          showUnselectedLabels: true,
-          selectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-          unselectedLabelStyle: const TextStyle(fontSize: 10),
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home, shadows: [Shadow(color: Color(0xFFD4AF37), blurRadius: 8)]), label: 'Home'),
-            BottomNavigationBarItem(icon: Icon(Icons.calendar_month_outlined), activeIcon: Icon(Icons.calendar_month, shadows: [Shadow(color: Color(0xFFD4AF37), blurRadius: 8)]), label: 'Attendance'),
-            BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), activeIcon: Icon(Icons.bar_chart, shadows: [Shadow(color: Color(0xFFD4AF37), blurRadius: 8)]), label: 'Reports'),
-            BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings, shadows: [Shadow(color: Color(0xFFD4AF37), blurRadius: 8)]), label: 'Management'),
-          ],
-        ),
+          GlassmorphicTabItem(
+            label: 'Attendance',
+            icon: Icons.calendar_month_outlined,
+            activeIcon: Icons.calendar_month,
+          ),
+          GlassmorphicTabItem(
+            label: 'Reports',
+            icon: Icons.bar_chart_outlined,
+            activeIcon: Icons.bar_chart,
+          ),
+          GlassmorphicTabItem(
+            label: 'Management',
+            icon: Icons.settings_outlined,
+            activeIcon: Icons.settings,
+          ),
+        ],
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+            if (index != 2) _reportsCategoryFilter = null;
+          });
+        },
       ),
     );
   }

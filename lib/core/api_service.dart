@@ -1,17 +1,28 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+import '../main.dart';
+import '../shared/user_provider.dart';
+import 'api_client.dart' as http;
 import 'app_logger.dart';
 
 class ApiService {
   // Simply change this single URL to switch between environments:
 
-  static const String baseUrl = 'http://localhost:8081/';
+  static const String baseUrl = 'https://vstay.saveetha.com/api/';
+
+  static String? currentUserId;
+  static String? currentUsername;
+  static String? currentUserRole;
 
   static Future<void> init() async {
-    AppLogger.isProduction = !baseUrl.contains('localhost') && 
-                            !baseUrl.contains('127.0.0.1') && 
-                            !baseUrl.contains('10.0.2.2');
+    final uri = Uri.tryParse(baseUrl);
+    final host = uri?.host ?? '';
+    final isIp = RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(host);
+    final isLocalhost = host == 'localhost' || baseUrl.contains('localhost');
+    final isDevIp = isIp || baseUrl.contains('127.0.0.1') || baseUrl.contains('10.0.2.2');
+
+    AppLogger.isProduction = !(isLocalhost || isDevIp);
     AppLogger.info("API initialized: $baseUrl");
   }
 
@@ -32,6 +43,67 @@ class ApiService {
 
   static Future<void> updateServerIp(String newIp) async {
     AppLogger.warning("Dynamic IP update disabled for live server");
+  }
+
+  static Future<void> reportError(String errorMessage, String stackTrace) async {
+    try {
+      final userContext = navigatorKey.currentContext;
+      String userStr = 'Guest';
+      if (userContext != null) {
+        try {
+          final user = Provider.of<UserProvider>(userContext, listen: false);
+          if (user.isLoggedIn) {
+            userStr = "${user.username} (${user.role.toString().split('.').last})";
+          }
+        } catch (_) {}
+      }
+
+      String deviceStr = kIsWeb ? 'Web Browser' : 'Mobile Device';
+
+      await http.post(
+        Uri.parse('$baseUrl/utils/report_error.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'error_message': errorMessage,
+          'stack_trace': stackTrace,
+          'user': userStr,
+          'device': deviceStr,
+        }),
+      );
+    } catch (e) {
+      AppLogger.error("Failed to report error to backend: $e");
+    }
+  }
+
+  static Future<Map<String, dynamic>> logout({required String? userId, required String? username, required String? role}) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/logout.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_id': userId,
+          'username': username,
+          'role': role,
+        }),
+      );
+      return json.decode(response.body);
+    } catch (e) {
+      AppLogger.error("Logout API failed: $e");
+      return {"success": false, "message": e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getAuditLogs() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin_v2/get_audit_logs.php'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      return json.decode(response.body);
+    } catch (e) {
+      AppLogger.error("Failed to fetch audit logs: $e");
+      return {"success": false, "message": e.toString(), "data": []};
+    }
   }
 
   // ==================== CLEAN HOSTEL HIERARCHY APIs ====================

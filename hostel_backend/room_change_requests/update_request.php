@@ -146,13 +146,70 @@ try {
         // ALWAYS FINALIZE DIRECTLY (No wait for payment)
         $conn->begin_transaction();
         try {
+            // Fetch old profile details (specifically current room and bed number)
+            $prof_query = $conn->prepare("SELECT bed_no, room_allocation FROM profile WHERE reg_no = ?");
+            $prof_query->bind_param("s", $reg_no);
+            $prof_query->execute();
+            $prof_data = $prof_query->get_result()->fetch_assoc();
+            
+            // Map current room_allocation to room number
+            $old_room_no = '';
+            $old_bed_no = 'B1';
+            if ($prof_data) {
+                $old_bed_no = $prof_data['bed_no'] ?? 'B1';
+                $old_room_code = $prof_data['room_allocation'] ?? '';
+                
+                $old_r_stmt = $conn->prepare("SELECT room_no FROM hostel_rooms WHERE room_code = ?");
+                $old_r_stmt->bind_param("s", $old_room_code);
+                $old_r_stmt->execute();
+                $old_r_res = $old_r_stmt->get_result()->fetch_assoc();
+                $old_room_no = $old_r_res['room_no'] ?? '';
+            }
+
             // Fetch room details
-            $r_stmt = $conn->prepare("SELECT id, hostel_name FROM hostel_rooms WHERE room_code = ?");
+            $r_stmt = $conn->prepare("SELECT id, hostel_name, room_no, total_capacity FROM hostel_rooms WHERE room_code = ?");
             $r_stmt->bind_param("s", $requested_room);
             $r_stmt->execute();
             $r_info = $r_stmt->get_result()->fetch_assoc();
             $room_id_db = $r_info ? $r_info['id'] : 0;
             $hostel_name_db = $r_info ? $r_info['hostel_name'] : '';
+            $new_room_no = $r_info ? $r_info['room_no'] : '';
+            $total_cap = $r_info ? (int)$r_info['total_capacity'] : 4;
+
+            // Assign a bed in the new room
+            $occupied_beds = [];
+            $b_stmt = $conn->prepare("SELECT bed_no FROM profile WHERE room_allocation = ? AND bed_no IS NOT NULL AND bed_no != ''");
+            $b_stmt->bind_param("s", $requested_room);
+            $b_stmt->execute();
+            $b_res = $b_stmt->get_result();
+            while ($b_row = $b_res->fetch_assoc()) {
+                $occupied_beds[] = strtoupper(trim($b_row['bed_no']));
+            }
+
+            // Also check virtually locked beds in room_allocations
+            $a_stmt = $conn->prepare("
+                SELECT allocated_bed_no 
+                FROM room_allocations 
+                WHERE allocated_room_id = ? 
+                  AND allocation_status IN ('under_review', 'payment_pending', 'approved')
+            ");
+            $a_stmt->bind_param("i", $room_id_db);
+            $a_stmt->execute();
+            $a_res = $a_stmt->get_result();
+            while ($a_row = $a_res->fetch_assoc()) {
+                if (!empty($a_row['allocated_bed_no'])) {
+                    $occupied_beds[] = strtoupper(trim($a_row['allocated_bed_no']));
+                }
+            }
+
+            $new_bed_no = "B1";
+            for ($i = 1; $i <= $total_cap; $i++) {
+                $candidate = "B" . $i;
+                if (!in_array($candidate, $occupied_beds)) {
+                    $new_bed_no = $candidate;
+                    break;
+                }
+            }
 
             // Check if profile exists, insert if missing
             $p_check = $conn->prepare("SELECT id FROM profile WHERE reg_no = ?");
@@ -174,11 +231,12 @@ try {
                 $p_ins->execute();
             }
 
-            // Update profile with NEW ALLOCATION and RESET DATES (From Today)
+            // Update profile with NEW ALLOCATION, RESET DATES (From Today), and set the new bed number
             $conn->query("UPDATE profile SET 
                           current_room_id = '$room_id_db',
                           room_allocation = '$requested_room', 
                           hostel_name = '$hostel_name_db',
+                          bed_no = '$new_bed_no',
                           check_in_date = CURRENT_DATE,
                           renewal_date = DATE_FORMAT(DATE_ADD(CURRENT_DATE, INTERVAL 12 MONTH), '%Y-%m-%d'),
                           valid_from = CURRENT_DATE, 
@@ -196,6 +254,23 @@ try {
             $final_up = $conn->prepare("UPDATE room_change_requests SET status = ?, payment_status = 'paid', amount_to_pay = ?, requested_room_type = ?, remarks = ? WHERE request_id = ?");
             $final_up->bind_param("sdsss", $status, $amount, $room_type, $remarks, $request_id);
             $final_up->execute();
+
+            // Log ROOM_CHANGED in audit_logs
+            logAudit(
+                $warden_id,
+                $warden_data['username'],
+                'warden',
+                'ROOM_CHANGED',
+                'Room Allocation',
+                [
+                    'room_no' => $old_room_no,
+                    'bed_no' => $old_bed_no
+                ],
+                [
+                    'room_no' => $new_room_no,
+                    'bed_no' => $new_bed_no
+                ]
+            );
             
             $conn->commit();
         } catch (Exception $e) { 
@@ -219,6 +294,23 @@ try {
         json_encode(['status' => $request_data['status']]),
         json_encode(['status' => $status])
     );
+    
+    if ($status === 'rejected') {
+        logAudit(
+            $warden_id,
+            $warden_data['username'],
+            'warden',
+            'REQUEST_REJECT',
+            'Room Change Requests',
+            null,
+            [
+                'request_id' => $request_id,
+                'student_id' => $request_data['student_id'],
+                'student_reg_no' => $request_data['reg_no'] ?? $reg_no,
+                'remarks' => $remarks
+            ]
+        );
+    }
     
     echo json_encode(['success' => true, 'status' => 'success', 'message' => "Request processed: $status", 'amount' => $amount ?? 0]);
     

@@ -226,11 +226,13 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
                   ),
                 )
               : null,
-          body: _isLoading
-              ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
-              : _error != null
-                  ? _buildErrorState()
-                  : _buildHostelList(),
+          body: LinenGridBackground(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
+                : _error != null
+                    ? _buildErrorState()
+                    : _buildHostelList(),
+          ),
         ),
         if (_isDeleting)
           Container(
@@ -426,9 +428,12 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
                       widget.onHostelSelected!(hostel);
                       _isNavigating = false;
                     } else {
-                      Navigator.of(context).pushNamed(
-                        '/hostel_detail',
-                        arguments: hostel,
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          settings: const RouteSettings(name: '/hostel_detail'),
+                          builder: (context) => HostelDetailScreen(hostel: hostel),
+                        ),
                       ).then((_) {
                         _isNavigating = false;
                       });

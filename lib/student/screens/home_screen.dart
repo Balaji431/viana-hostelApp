@@ -72,10 +72,51 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         }
       }
     });
+
+    _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
+    context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
+  }
+
+  int _lastRefreshTick = 0;
+
+  void _handleGlobalRefreshListener() {
+    if (!mounted) return;
+    final user = context.read<UserProvider>();
+    if (user.dashboardRefreshTick > _lastRefreshTick) {
+      _lastRefreshTick = user.dashboardRefreshTick;
+      _handleGlobalRefresh();
+    }
+  }
+
+  void _handleGlobalRefresh() {
+    _fetchAnnouncements();
+    _fetchPayments();
+    _fetchRoomChangeStatus();
+    final user = context.read<UserProvider>();
+    user.refreshUserData().then((_) {
+      if (mounted) {
+        context.read<CategoryProvider>().fetchCounts(
+          studentUsername: user.isParent ? user.linkedStudentUsername : user.username,
+        );
+      }
+    });
+    final int? fetchId = user.isParent ? user.linkedStudentId : user.dbId;
+    if (fetchId != null) {
+      context.read<CategoryProvider>().fetchAssignedStaff(fetchId);
+      if (!user.isParent && user.role == UserRole.student) {
+        final allocProvider = context.read<AllocationProvider>();
+        allocProvider.loadAllocation(fetchId).then((_) {
+          if (mounted && !user.isRoomAllocated && allocProvider.allocationStatus == 'none') {
+            allocProvider.fetchPaidHostelType(user.username);
+          }
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
+    context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
     _nameScrollController.dispose();
     super.dispose();
   }
@@ -859,12 +900,24 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       child: ds.SkeuomorphicCard(
         onTap: () async {
           if (isAllocated || inProcess || needsPayment || isExpired) {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const AllocationStatusScreen()));
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                settings: const RouteSettings(name: '/allocation_status'),
+                builder: (_) => const AllocationStatusScreen(),
+              ),
+            );
             if (user.dbId != null) {
               Provider.of<AllocationProvider>(context, listen: false).loadAllocation(user.dbId!);
             }
           } else {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const AllocationExplorerScreen()));
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                settings: const RouteSettings(name: '/allocation_explorer'),
+                builder: (_) => const AllocationExplorerScreen(),
+              ),
+            );
             if (user.dbId != null) {
               Provider.of<AllocationProvider>(context, listen: false).loadAllocation(user.dbId!);
             }
@@ -914,7 +967,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
           
           final allocProvider = context.read<AllocationProvider>();
           if (allocProvider.allocationStatus == 'payment_pending') {
-             Navigator.push(context, MaterialPageRoute(builder: (_) => const AllocationStatusScreen()));
+             Navigator.push(
+               context,
+               MaterialPageRoute(
+                 settings: const RouteSettings(name: '/allocation_status'),
+                 builder: (_) => const AllocationStatusScreen(),
+               ),
+             );
              return;
           }
 
@@ -1290,7 +1349,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
     decoration: const BoxDecoration(
-      color: Color(0xFFF1EDE6), 
+      color: Colors.transparent, 
     ),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.center,

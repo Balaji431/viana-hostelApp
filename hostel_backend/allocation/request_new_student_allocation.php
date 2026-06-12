@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/activity_logger.php';
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -233,6 +234,21 @@ try {
     }
 
     if ($ins_stmt->execute()) {
+        logAudit(
+            $student_id,
+            $reg_no,
+            'student',
+            'SUBMIT_ALLOCATION_REQUEST',
+            'Room Allocation',
+            null,
+            [
+                'student_reg_no' => $reg_no,
+                'hostel' => $matched_room['building_code'] ?? 'Vaigai Hostel',
+                'room_type' => $paid_room_type,
+                'priority' => '1',
+                'request_time' => $now
+            ]
+        );
         echo json_encode([
             "success" => true,
             "message" => "Suggested room allocation generated successfully.",

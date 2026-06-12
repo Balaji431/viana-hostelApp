@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../core/styles.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
@@ -11,7 +12,6 @@ import 'screens/admin_hostel_manager_screen.dart';
 import 'screens/hostel_detail_screen.dart';
 import 'screens/category_manager_screen.dart';
 import 'screens/room_master_screen.dart';
-import 'package:vianasoft_stay/core/models/hierarchical_hostel_model.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 import '../shared/user_provider.dart';
 import '../shared/main_layout.dart';
@@ -24,8 +24,6 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
-  int _selectedIndex = 0; // 0: Launchpad, 1: Category, 2: Hostel, 3: Mapping
-  HierarchicalHostel? _selectedHostel;
   int _roomCount = 0;
 
   @override
@@ -35,10 +33,24 @@ class _AdminScreenState extends State<AdminScreen> {
       _refreshData();
       NotificationService.fcmRefreshNotifier.addListener(_onNotificationReceived);
     });
+    _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
+    context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
+  }
+
+  int _lastRefreshTick = 0;
+
+  void _handleGlobalRefreshListener() {
+    if (!mounted) return;
+    final user = context.read<UserProvider>();
+    if (user.dashboardRefreshTick > _lastRefreshTick) {
+      _lastRefreshTick = user.dashboardRefreshTick;
+      _refreshData();
+    }
   }
 
   @override
   void dispose() {
+    context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
     NotificationService.fcmRefreshNotifier.removeListener(_onNotificationReceived);
     super.dispose();
   }
@@ -77,33 +89,32 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
-
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: SkeuomorphicNavBar(
-        title: 'Admin Dashboard',
-        onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
-        onBack: null,
-        rightAction: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-              onPressed: _refreshData,
-              constraints: const BoxConstraints(),
-              padding: EdgeInsets.zero,
-            ),
-            const SizedBox(width: 8),
-            ProfileButton(
-              onTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(2),
-            ),
-          ],
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: SkeuomorphicNavBar(
+          title: 'Admin Dashboard',
+          onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
+          rightAction: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                onPressed: _refreshData,
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
+              ),
+              const SizedBox(width: 8),
+              ProfileButton(
+                onTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(3),
+              ),
+            ],
+          ),
         ),
+        body: _buildLaunchpad(),
       ),
-      body: _buildLaunchpad(),
     );
   }
 
@@ -116,10 +127,15 @@ class _AdminScreenState extends State<AdminScreen> {
     final hostelCount = hostelProvider.hostels.length;
     final mappingCount = mappingProvider.mappings.length;
 
-    return LinenGridBackground(
-      child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: SingleChildScrollView(
+    final isDesktop = kIsWeb
+        ? MediaQuery.of(context).size.width >= 1024
+        : (defaultTargetPlatform == TargetPlatform.windows ||
+           defaultTargetPlatform == TargetPlatform.macOS ||
+           defaultTargetPlatform == TargetPlatform.linux);
+
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           child: Column(
             children: [
@@ -129,7 +145,12 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFFB08900),
                 iconBg: const Color(0xFFB08900),
                 count: categoryCount,
-                onTap: () => Navigator.of(context).pushNamed('/category_manager'),
+                onTap: () => Navigator.of(context).push(
+                  InstantPageRoute(
+                    settings: const RouteSettings(name: '/category_manager'),
+                    builder: (_) => const CategoryManagerScreen(showAppBar: true),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -138,7 +159,20 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFF2A4A8C),
                 iconBg: const Color(0xFF2A4A8C),
                 count: hostelCount,
-                onTap: () => Navigator.of(context).pushNamed('/hostel_manager'),
+                onTap: () => Navigator.of(context).push(
+                  InstantPageRoute(
+                    settings: const RouteSettings(name: '/hostel_manager'),
+                    builder: (_) => AdminHostelManagerScreen(
+                      showAppBar: true,
+                      onHostelSelected: (hostel) => Navigator.of(context).push(
+                        InstantPageRoute(
+                          settings: const RouteSettings(name: '/hostel_detail'),
+                          builder: (_) => HostelDetailScreen(hostel: hostel),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -147,7 +181,12 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFF7B3FC4),
                 iconBg: const Color(0xFF7B3FC4),
                 count: mappingCount,
-                onTap: () => Navigator.of(context).pushNamed('/mapping_manager'),
+                onTap: () => Navigator.of(context).push(
+                  InstantPageRoute(
+                    settings: const RouteSettings(name: '/mapping_manager'),
+                    builder: (_) => const StaffMappingManagerScreen(showAppBar: true),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               _buildManagerCard(
@@ -156,15 +195,40 @@ class _AdminScreenState extends State<AdminScreen> {
                 accentColor: const Color(0xFF2E7D32),
                 iconBg: const Color(0xFF2E7D32),
                 count: _roomCount,
+                subtitle: isDesktop ? null : 'Desktop Only',
                 onTap: () {
-                  Navigator.of(context, rootNavigator: true).pushNamed('/room_master');
+                  if (!isDesktop) {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Access Restricted'),
+                        content: const Text(
+                          'Room Master is available only on Desktop/Laptop.\n\nPlease use a desktop browser to access this feature.'
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                    return;
+                  }
+                  // BREAK OUT of the mobile container by pushing to root navigator
+                  Navigator.of(context, rootNavigator: true).push(
+                    InstantPageRoute(
+                      settings: const RouteSettings(name: '/room_master'),
+                      builder: (context) => const RoomMasterScreen(),
+                    ),
+                  );
                 },
               ),
+              const SizedBox(height: 100),
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildManagerCard({
@@ -174,6 +238,7 @@ class _AdminScreenState extends State<AdminScreen> {
     required Color iconBg,
     required int count,
     required VoidCallback onTap,
+    String? subtitle,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -205,14 +270,31 @@ class _AdminScreenState extends State<AdminScreen> {
                 ),
               ),
               Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1A2744),
-                    fontFamily: 'Georgia',
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1A2744),
+                        fontFamily: 'Georgia',
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               if (count > 0)
@@ -237,7 +319,7 @@ class _AdminScreenState extends State<AdminScreen> {
               Padding(
                 padding: const EdgeInsets.only(left: 8, right: 14),
                 child: Icon(
-                  Icons.keyboard_arrow_down_rounded,
+                  Icons.keyboard_arrow_right_rounded,
                   color: Colors.grey.shade400,
                   size: 24,
                 ),
@@ -250,3 +332,15 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 }
 
+class InstantPageRoute<T> extends PageRouteBuilder<T> {
+  final WidgetBuilder builder;
+
+  InstantPageRoute({
+    required this.builder,
+    super.settings,
+  }) : super(
+          pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        );
+}

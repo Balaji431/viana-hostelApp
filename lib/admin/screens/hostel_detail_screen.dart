@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
 import 'dart:convert';
 import '../../core/api_service.dart';
+import '../../core/styles.dart';
 
 import '../../core/providers/hierarchical_hostel_provider.dart';
 import 'package:vianasoft_stay/core/models/hierarchical_hostel_model.dart';
@@ -136,7 +137,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
               ),
             )
           : null,
-      body: body,
+      body: LinenGridBackground(child: body),
     );
   }
 

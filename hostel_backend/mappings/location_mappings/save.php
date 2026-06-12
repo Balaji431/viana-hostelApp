@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../../config/database.php';
+require_once '../../utils/activity_logger.php';
 
 $data = json_decode(file_get_contents("php://input"), true);
 
@@ -56,6 +57,9 @@ try {
         ]);
     }
     
+    $actionType = isset($data['id']) && $data['id'] ? "UPDATE_STAFF_MAPPING" : "CREATE_STAFF_MAPPING";
+    logAudit(null, null, null, $actionType, "Staff Mappings", null, $data);
+
     $pdo->commit();
     echo json_encode(["status" => "success", "id" => $mappingId]);
 
