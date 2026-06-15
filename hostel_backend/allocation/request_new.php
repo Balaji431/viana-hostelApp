@@ -89,7 +89,7 @@ try {
     
     // Fallback lookup internally if HTTP request fails (extremely robust!)
     $paid_data = null;
-    $url = "$protocol://$host/hostelapp/hostel_backend/director/get_paid_hostel_type.php?register_no=" . urlencode($reg_no);
+    $url = "$protocol://$host/hostelapp/hostel_backend/paid_students_api/get_paid_hostel_type.php?register_no=" . urlencode($reg_no);
     
     $api_ctx = stream_context_create([
         "http" => [

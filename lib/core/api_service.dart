@@ -9,7 +9,7 @@ import 'app_logger.dart';
 class ApiService {
   // Simply change this single URL to switch between environments:
 
-  static const String baseUrl = 'https://vstay.saveetha.com/api/';
+  static const String baseUrl = 'http://localhost:8081/';
 
   static String? currentUserId;
   static String? currentUsername;
@@ -287,7 +287,7 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> getPaidHostelType(String registerNo) async {
-    return await getRequest('allocation/get_paid_hostel_type.php?register_no=$registerNo');
+    return await getRequest('paid_students_api/get_paid_hostel_type.php?register_no=$registerNo');
   }
 
   static Future<Map<String, dynamic>> requestNewStudentAllocation(int studentId) async {

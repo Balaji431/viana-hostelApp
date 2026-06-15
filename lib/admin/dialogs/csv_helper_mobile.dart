@@ -18,3 +18,7 @@ void downloadCSV(String csvContent, String fileName) async {
     // Fallback if platform does not support saveFile
   }
 }
+
+void triggerImportAndExport(String url) {
+  // Mobile stub/implementation
+}

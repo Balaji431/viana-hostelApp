@@ -570,7 +570,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       scrollDirection: Axis.horizontal,
                       physics: const NeverScrollableScrollPhysics(),
                       child: Text(
-                        user.isParent ? user.linkedStudentName : user.userName,
+                        (user.isParent ? user.linkedStudentName : user.userName).toUpperCase(),
                         style: const TextStyle(
                           fontFamily: 'Playfair Display', 
                           fontSize: 15,
@@ -1682,10 +1682,19 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     }
 
     final hType = paidData['hostel_type'] ?? 'Girls';
+    final hostelName = paidData['hostel_name'] ?? hType;
     final rType = paidData['room_type'] ?? 'AC - B ATTACHED (6 IN 1)';
     final facility = paidData['facility'] ?? 'AC';
     final amount = paidData['paid_amount'] ?? 68000.00;
     final inst = paidData['institution'] ?? 'Saveetha School of Engineering';
+
+    final paymentStatus = paidData['payment_status'] ?? 'Paid';
+    final appStatus = paidData['application_status'] ?? 'Application Verified';
+    final gender = paidData['gender'] ?? (hType == 'Girls' ? 'Female' : 'Male');
+    final academicYear = paidData['academic_year'] ?? '1st Year';
+    final hostelPref = paidData['hostel_preference'] ?? rType;
+
+    final bool isPaid = paymentStatus.toString().toLowerCase() == 'paid';
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -1717,10 +1726,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                         ),
                       ),
                       Text(
-                        'Application Verified',
+                        appStatus,
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.green.shade700,
+                          color: isPaid ? Colors.green.shade700 : Colors.orange.shade700,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -1746,13 +1755,17 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               ),
               child: Column(
                 children: [
-                  _buildRowDetail('Hostel Category', '$hType Hostel'),
+                  _buildRowDetail('Paid Status', paymentStatus),
                   const SizedBox(height: 8),
-                  _buildRowDetail('Room Specification', rType),
+                  _buildRowDetail('Hostel Name', hostelName),
                   const SizedBox(height: 8),
-                  _buildRowDetail('Facility', facility),
+                  _buildRowDetail('Hostel Preference', hostelPref),
                   const SizedBox(height: 8),
                   _buildRowDetail('Institution', inst),
+                  const SizedBox(height: 8),
+                  _buildRowDetail('Gender', gender),
+                  const SizedBox(height: 8),
+                  _buildRowDetail('Academic Year', academicYear),
                   const SizedBox(height: 8),
                   _buildRowDetail('Fee Paid', '₹${amount.toStringAsFixed(2)}'),
                 ],
@@ -1761,7 +1774,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             const SizedBox(height: 20),
             ds.SkeuomorphicButton(
               text: 'Request Room Allocation',
-              onPressed: () async {
+              onPressed: isPaid ? () async {
                 setState(() => _isCheckingWarden = true);
                 final response = await alloc.requestNewStudentAllocation(user.dbId!, user.username);
                 if (mounted) {
@@ -1783,7 +1796,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     );
                   }
                 }
-              },
+              } : null,
             ),
           ],
         ),

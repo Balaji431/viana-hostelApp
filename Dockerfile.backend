@@ -1,7 +1,14 @@
 FROM php:8.2-apache
 
-# Install MySQL extensions
+# Install MySQL extensions and cron
+RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
 RUN docker-php-ext-install mysqli pdo pdo_mysql
+
+# Configure custom PHP limits (increase upload/post size and execution timeout)
+RUN echo "upload_max_filesize = 10M\n\
+post_max_size = 10M\n\
+memory_limit = 256M\n\
+max_execution_time = 300" > /usr/local/etc/php/conf.d/uploads.ini
 
 # Enable Apache modules
 RUN a2enmod rewrite headers
@@ -16,7 +23,7 @@ RUN echo "<Directory /var/www/html>\n\
     Require all granted\n\
     Header set Access-Control-Allow-Origin \"*\"\n\
     Header set Access-Control-Allow-Methods \"GET, POST, PUT, DELETE, OPTIONS\"\n\
-    Header set Access-Control-Allow-Headers \"Content-Type, Authorization, X-Requested-With, Origin, Accept\"\n\
+    Header set Access-Control-Allow-Headers \"Content-Type, Authorization, X-Requested-With, Origin, Accept, X-User-Id, X-User-Username, X-User-Role\"\n\
 </Directory>" > /etc/apache2/conf-available/custom.conf && a2enconf custom
 
 WORKDIR /var/www/html
@@ -24,11 +31,15 @@ WORKDIR /var/www/html
 # Copy backend files directly to root
 COPY hostel_backend/ /var/www/html/
 
+# Copy cron job configuration and setup permissions
+COPY hostel_backend/config/hostel_cron /etc/cron.d/hostel_cron
+RUN chmod 0644 /etc/cron.d/hostel_cron
+
 # Ensure Apache has write permissions to uploads/ and other directories
 RUN chown -R www-data:www-data /var/www/html
 
 # Expose port 80
 EXPOSE 80
 
-# Start Apache
-CMD ["apache2-foreground"]
+# Start Apache and Cron
+CMD ["sh", "-c", "cron && apache2-foreground"]

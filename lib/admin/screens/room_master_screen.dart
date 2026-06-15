@@ -2,8 +2,13 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:data_table_2/data_table_2.dart';
+import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
+import '../dialogs/csv_helper_stub.dart'
+    if (dart.library.html) '../dialogs/csv_helper_web.dart'
+    if (dart.library.io) '../dialogs/csv_helper_mobile.dart';
 
 class RoomMasterScreen extends StatefulWidget {
   const RoomMasterScreen({super.key});
@@ -243,23 +248,27 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
     });
   }
 
-  // IMPORT TASK: Store external details to local database
+  // IMPORT TASK: Store external details to local database and download the Excel file
   Future<void> _importToMaster() async {
+    final String downloadUrl = '${ApiService.baseUrl}rooms/import_and_export.php';
+    
+    // 1. Trigger the download synchronously inside the click gesture handler context.
+    // This bypasses Chrome's automatic download blocking policy, showing it directly
+    // in the downloads history (Ctrl+J).
+    triggerImportAndExport(downloadUrl);
+    
     setState(() => _isLoading = true);
     try {
-      final res = await ApiService.postRequest('rooms/import_locations.php', {});
-      if (res['success'] == true || res['status'] == 'success') {
-        final int imported = res['imported'] ?? 0;
-        final int duplicates = res['duplicates'] ?? 0;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Import completed. Imported: $imported, Duplicates: $duplicates')
-        ));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Import failed: ${res['message'] ?? 'Unknown error'}')
-        ));
-      }
+      // 2. Wait 4 seconds for the server to download external locations, import them, and stream the file
+      await Future.delayed(const Duration(seconds: 4));
+      
+      // 3. Fetch the fresh database records and rebuild the UI table
       await _fetchInitialData();
+      
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Import initiated. File added to downloads history successfully.'),
+        backgroundColor: Colors.green,
+      ));
     } catch (e) {
       debugPrint('Import error: $e');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -268,6 +277,11 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  void _exportToCSV() {
+    const csvContent = "Hostel Name,Room Code,Room Type,Capacity\n";
+    downloadCSV(csvContent, 'room_master_template.csv');
   }
 
   @override
@@ -314,17 +328,10 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
           const Text('Room Master Management', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2744), fontFamily: 'Georgia')),
           const Spacer(),
           ElevatedButton.icon(
-            onPressed: _fetchInitialData,
-            icon: const Icon(Icons.refresh, size: 16, color: Colors.white),
-            label: const Text('Refresh', style: TextStyle(color: Colors.white, fontSize: 12)),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            onPressed: _importToMaster,
-            icon: const Icon(Icons.download, size: 16, color: Colors.white),
-            label: const Text('Import All', style: TextStyle(color: Colors.white, fontSize: 12)),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            onPressed: _exportToCSV,
+            icon: const Icon(Icons.file_download, size: 16, color: Colors.white),
+            label: const Text('Export Excel', style: TextStyle(color: Colors.white, fontSize: 12)),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
           ),
         ],
       ),
@@ -459,7 +466,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
             width: 0.5,
           ),
           columnSpacing: 24,
-          minWidth: 1500,
+          minWidth: 1000,
           dataRowHeight: 64,
           headingRowHeight: 56,
           headingRowColor: WidgetStateProperty.all(const Color(0xFFF8F9FA)),
@@ -467,12 +474,8 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
           availableRowsPerPage: const [10, 15, 25, 50, 100],
           columns: const [
             DataColumn2(label: Text('Hostel Name', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 264),
-            DataColumn2(label: Text('Building Code', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
-            DataColumn2(label: Text('Floor No', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
-            DataColumn2(label: Text('Block No', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
-            DataColumn2(label: Text('Room No', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 130),
-            DataColumn2(label: Text('Room Code', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 180),
-            DataColumn2(label: Text('Room Type', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 260),
+            DataColumn2(label: Text('Room Code', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 240),
+            DataColumn2(label: Text('Room Type', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 300),
             DataColumn2(label: Text('Edit', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 80, numeric: false),
             DataColumn2(label: Text('Save', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 90),
           ],
@@ -723,22 +726,6 @@ class RoomDataTableSource extends DataTableSource {
         DataCell(Text(
           cleanHostelName(r['location_name'] ?? ''),
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF1A2744)),
-        )),
-        DataCell(Text(
-          r['building_code'] ?? '',
-          style: const TextStyle(fontSize: 13, color: Color(0xFF555555)),
-        )),
-        DataCell(Text(
-          r['floor_no'] ?? '',
-          style: const TextStyle(fontSize: 13, color: Color(0xFF555555)),
-        )),
-        DataCell(Text(
-          r['block_no'] ?? '',
-          style: const TextStyle(fontSize: 13, color: Color(0xFF555555)),
-        )),
-        DataCell(Text(
-          r['room_no'] ?? '',
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)),
         )),
         DataCell(Text(
           r['location_code'] ?? '',

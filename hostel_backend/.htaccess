@@ -1,15 +1,28 @@
-# CORS is handled by the PHP files directly
-# Header always set Access-Control-Allow-Origin "*"
-# Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
-# Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
-# Header always set Access-Control-Max-Age "86400"
+# CORS configuration
+<IfModule mod_headers.c>
+    # Unset existing Access-Control headers from both tables to prevent duplicates
+    Header always unset Access-Control-Allow-Origin
+    Header always unset Access-Control-Allow-Methods
+    Header always unset Access-Control-Allow-Headers
+    Header always unset Access-Control-Expose-Headers
+    Header always unset Access-Control-Allow-Credentials
+    
+    Header unset Access-Control-Allow-Origin
+    Header unset Access-Control-Allow-Methods
+    Header unset Access-Control-Allow-Headers
+    Header unset Access-Control-Expose-Headers
+    Header unset Access-Control-Allow-Credentials
 
-# Handle preflight OPTION requests
-# RewriteEngine On
-# RewriteCond %{REQUEST_METHOD} OPTIONS
-# RewriteRule ^(.*)$ $1 [R=200,L]
+    # Set Access-Control headers in the always table
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Origin, Accept, X-User-Id, X-User-Username, X-User-Role"
+    Header always set Access-Control-Expose-Headers "Content-Type, Authorization, X-Requested-With, Origin, Accept, X-User-Id, X-User-Username, X-User-Role"
+    Header always set Access-Control-Allow-Credentials "true"
+</IfModule>
 
-# RewriteEngine On
-# RewriteCond %{REQUEST_FILENAME} !-f
-# RewriteCond %{REQUEST_FILENAME} !-d
-# RewriteRule ^(.*)$ $1.php [L]
+# Handle preflight OPTIONS requests directly
+RewriteEngine On
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
+

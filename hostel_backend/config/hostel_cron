@@ -1,0 +1,2 @@
+*/15 * * * * root /usr/local/bin/php /var/www/html/paid_students_api/sync_payments.php >> /var/log/cron_sync.log 2>&1
+# An empty line is required at the end of a cron file for cron daemon compatibility
