@@ -8,7 +8,7 @@ services:
     ports:
       - "8080:80"
     environment:
-      - API_BASE_URL=http://10.110.126.26:8081/
+      - API_BASE_URL=https://vstay.saveetha.com/api/
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -57,8 +57,8 @@ services:
     environment:
       - PMA_HOST=db
       - MYSQL_ROOT_PASSWORD=vstay2026
-      - PMA_ABSOLUTE_URI=http://10.110.126.26:8081/
-      - UPLOAD_LIMIT=10M
+      - PMA_ABSOLUTE_URI=https://vstay.saveetha.com/api/
+      - UPLOAD_LIMIT=500M
       
 volumes:
   db_data:

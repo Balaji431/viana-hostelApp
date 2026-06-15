@@ -5,10 +5,10 @@ RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
 RUN docker-php-ext-install mysqli pdo pdo_mysql
 
 # Configure custom PHP limits (increase upload/post size and execution timeout)
-RUN echo "upload_max_filesize = 10M\n\
-post_max_size = 10M\n\
-memory_limit = 256M\n\
-max_execution_time = 300" > /usr/local/etc/php/conf.d/uploads.ini
+RUN echo "upload_max_filesize = 500M\n\
+post_max_size = 500M\n\
+memory_limit = 512M\n\
+max_execution_time = 600" > /usr/local/etc/php/conf.d/uploads.ini
 
 # Enable Apache modules
 RUN a2enmod rewrite headers

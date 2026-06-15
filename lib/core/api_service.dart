@@ -9,7 +9,7 @@ import 'app_logger.dart';
 class ApiService {
   // Simply change this single URL to switch between environments:
 
-  static const String baseUrl = 'http://localhost:8081/';
+  static const String baseUrl = 'https://vstay.saveetha.com/api/';
 
   static String? currentUserId;
   static String? currentUsername;
