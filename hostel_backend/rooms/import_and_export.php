@@ -41,13 +41,49 @@ try {
         return json_decode($response, true);
     }
     
-    $groupsData = callExternalApi($apiUrl . '?search=hostel');
+    $groupsData = callExternalApi($apiUrl . '?search=Hostel');
     if (isset($groupsData['success']) && $groupsData['success']) {
         $groups = $groupsData['data']['items'] ?? [];
-        $allowedBuildings = ['T09', 'T10', 'T12', 'T14', 'T19', 'T22', 'T30', 'T32', 'P05'];
+        
+        // Explicitly append SCON Ponni building (T09) if not returned by search=Hostel
+        $hasT09 = false;
+        foreach ($groups as $g) {
+            if (($g['group_code'] ?? '') === 'T09') {
+                $hasT09 = true;
+                break;
+            }
+        }
+        if (!$hasT09) {
+            $groups[] = [
+                'group_name' => 'SCON Ponni building',
+                'group_code' => 'T09',
+                'group_status' => 'Active'
+            ];
+        }
+
+        // Explicitly append Stunners Den (P10) if not returned by search=Hostel
+        $hasP10 = false;
+        foreach ($groups as $g) {
+            if (($g['group_code'] ?? '') === 'P10') {
+                $hasP10 = true;
+                break;
+            }
+        }
+        if (!$hasP10) {
+            $groups[] = [
+                'group_name' => 'Stunners Den Boys Hosptel',
+                'group_code' => 'P10',
+                'group_status' => 'Active'
+            ];
+        }
+        
+        $allowedBuildings = ['T09', 'T10', 'T12', 'T14', 'T19', 'T22', 'T30', 'T32', 'P05', 'P10'];
         
         foreach ($groups as $group) {
             $groupCode = $group['group_code'] ?? '';
+            if ($groupCode === 'P05' || $groupCode === 'T05') {
+                continue;
+            }
             $normalizedGroupCode = str_replace('-', '', $groupCode);
             
             if (!in_array($normalizedGroupCode, $allowedBuildings)) {
@@ -96,11 +132,21 @@ try {
                     continue;
                 }
                 
-                $finalBuildingCode = ($normalizedBuildingCode === 'T30') ? 'T-30' : $normalizedBuildingCode;
-                if ($normalizedBuildingCode === 'P05') {
-                    $locationName = 'Radiants INN Ladies Hostel Building';
-                }
+                // Use the actual API group code as the building code
+                $finalBuildingCode = $groupCode;
                 
+                if ($finalBuildingCode === 'P-05') {
+                    $locationName = 'Radiance Inn';
+                } elseif ($finalBuildingCode === 'P05') {
+                    $locationName = 'Max Fax';
+                } elseif ($finalBuildingCode === 'P10') {
+                    $locationName = 'Stunners Den';
+                }
+
+                // Keep original location_code exactly as returned by API (no prefix remapping)
+                $locationCode = str_replace('=', '-', $locationCode);
+                
+
                 $isRoom = false;
                 $hasRoomKeyword = (stripos($locationName, 'ROOM') !== false);
                 $hasRCodePattern = preg_match('/^R\d+/i', $roomCode);
@@ -193,17 +239,18 @@ try {
 
     function cleanHostelNameImportAndExport($rawName) {
         $hostelMapping = [
-            'KAVERI' => 'KAVERI HOSTEL',
-            'VAIGAI' => 'VAIGAI HOSTEL',
-            'KRISHNA' => 'KRISHNA HOSTEL',
-            'KRISHAN' => 'KRISHNA HOSTEL',
-            'NOYYAL' => 'NOYYAL HOSTEL',
-            'PONNI' => 'PONNI HOSTEL',
-            'SIRUVANI' => 'SIRUVANI HOSTEL',
-            'PORUNAI' => 'PORUNAI HOSTEL',
-            'PALAR' => 'PALAR HOSTEL',
-            'ALLIED' => 'ALLIED HEALTH SCIENCES',
-            'RADIANTS' => 'Radiants INN Ladies Hostel Building',
+            'KAVERI' => 'Kaveri Hostel',
+            'VAIGAI' => 'Vaigai Hostel',
+            'KRISHNA' => 'Krishna Hostel',
+            'KRISHAN' => 'Krishna Hostel',
+            'NOYYAL' => 'Noyyal Hostel',
+            'PONNI' => 'Ponni Hostel',
+            'SIRUVANI' => 'Siruvani Hostel',
+            'PORUNAI' => 'Porunai Hostel (4F - 8F )',
+            'PALAR' => 'Palar Hostel',
+            'ALLIED' => 'Allied Health Sciences',
+            'RADIANTS' => 'Radiance Inn',
+            'STUNNER' => 'Stunners Den',
         ];
         $upperName = strtoupper($rawName);
         foreach ($hostelMapping as $key => $value) {

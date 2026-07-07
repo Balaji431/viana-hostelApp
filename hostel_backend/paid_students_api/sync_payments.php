@@ -28,6 +28,7 @@ try {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'x-client-id: ' . VSTUDY_CLIENT_ID,
         'x-client-secret: ' . VSTUDY_CLIENT_SECRET,
@@ -151,10 +152,10 @@ try {
     // Insert user
     $insert_user_sql = "INSERT INTO users (
         full_name, username, password, role, Status, source, 
-        RegisterNumber, Gender, Campus, Institution, Course, Academic, Designation, email, phone_number
+        Gender, Campus, Institution, Course, Academic, Designation, email, phone_number
     ) VALUES (
         :full_name, :username, :password, 'student', 'Active', 'paid_api_sync',
-        :register_number, :gender, :campus, :institution, :course, :academic, 'Student', :email, :phone_number
+        :gender, :campus, :institution, :course, :academic, 'Student', :email, :phone_number
     )";
     $stmt_insert_user = $conn->prepare($insert_user_sql);
     
@@ -191,6 +192,31 @@ try {
         $campus = $hostel['campus'] ?? $record['campus'] ?? 'Saveetha School of Engineering';
         $hostel_preference = $room['roomType'] ?? $record['hostel_preference'] ?? null;
         $hostel_name = $hostel['name'] ?? $record['hostel_name'] ?? null;
+        
+        // Fallback mapping for empty/null hostel_name
+        if (empty($hostel_name)) {
+            $isFemale = (stripos((string)$gender, 'female') !== false);
+            if (stripos((string)$campus, 'Poonamallee') !== false) {
+                $hostel_name = $isFemale ? 'Radiance Inn' : 'Stunners Den';
+            } else {
+                if ($isFemale) {
+                    if (stripos((string)$hostel_preference, 'non ac') !== false || stripos((string)$hostel_preference, 'non-ac') !== false) {
+                        $hostel_name = 'Ponni Hostel';
+                    } else {
+                        $hostel_name = 'Vaigai Hostel';
+                    }
+                } else {
+                    if (stripos((string)$hostel_preference, 'super deluxe') !== false) {
+                        $hostel_name = 'Noyyal Hostel';
+                    } else if (stripos((string)$hostel_preference, 'semi deluxe') !== false) {
+                        $hostel_name = 'Kaveri Hostel';
+                    } else {
+                        $hostel_name = 'Krishna Hostel';
+                    }
+                }
+            }
+        }
+
         $payment_status = $record['payment_status'] ?? 'Paid';
         $application_status = $record['application_status'] ?? 'Verified';
         $paid_date = $record['paidAt'] ?? $record['paid_date'] ?? date('Y-m-d H:i:s');
@@ -245,7 +271,6 @@ try {
                 ':full_name' => $student_name,
                 ':username' => $roll_number,
                 ':password' => $default_password_hash,
-                ':register_number' => $roll_number,
                 ':gender' => $gender,
                 ':campus' => $campus,
                 ':institution' => $campus,
@@ -393,6 +418,68 @@ try {
     }
 
     $conn->commit();
+
+    // Auto-update matched_student_payments table
+    try {
+        $conn->exec("DROP TABLE IF EXISTS matched_student_payments");
+        $conn->exec("
+            CREATE TABLE matched_student_payments (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                roll_number VARCHAR(50) UNIQUE,
+                student_name VARCHAR(255),
+                gender VARCHAR(50),
+                campus VARCHAR(255),
+                hostel_preference VARCHAR(255),
+                allocated_hostel VARCHAR(255),
+                allocated_room VARCHAR(255),
+                new_req_hostel VARCHAR(255),
+                new_room_request__room_type VARCHAR(255),
+                new_payment_status VARCHAR(50),
+                new_room_req_payed_date VARCHAR(100),
+                transaction_reference VARCHAR(255),
+                new_hostel_paid DECIMAL(10,2),
+                old_check_in_date VARCHAR(100),
+                old_renewal_date VARCHAR(100),
+                matched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        ");
+
+        $conn->exec("
+            INSERT INTO matched_student_payments (
+                roll_number, student_name, gender, campus, hostel_preference, allocated_hostel, allocated_room,
+                new_req_hostel, new_room_request__room_type, new_payment_status, new_room_req_payed_date, transaction_reference, new_hostel_paid, old_check_in_date, old_renewal_date
+            )
+            SELECT 
+                u.username, u.full_name, u.Gender, u.Campus, vp.hostel_preference, p.hostel_name, p.room_allocation,
+                vp.hostel_name, vp.hostel_preference, vp.payment_status, vp.paid_date, vp.transaction_reference, vp.paid_amount, COALESCE(p.check_in_date, p.valid_from), COALESCE(p.renewal_date, p.valid_to)
+            FROM users u
+            INNER JOIN vstudy_payments vp ON u.username = vp.roll_number
+            INNER JOIN profile p ON u.username = p.reg_no
+            WHERE u.role = 'student'
+              AND p.current_room_id IS NOT NULL
+              AND p.current_room_id > 0
+              AND p.room_allocation IS NOT NULL
+              AND p.room_allocation != ''
+              AND LOWER(vp.payment_status) = 'paid'
+            ON DUPLICATE KEY UPDATE
+                student_name = VALUES(student_name),
+                gender = VALUES(gender),
+                campus = VALUES(campus),
+                hostel_preference = VALUES(hostel_preference),
+                allocated_hostel = VALUES(allocated_hostel),
+                allocated_room = VALUES(allocated_room),
+                new_req_hostel = VALUES(new_req_hostel),
+                new_room_request__room_type = VALUES(new_room_request__room_type),
+                new_payment_status = VALUES(new_payment_status),
+                new_room_req_payed_date = VALUES(new_room_req_payed_date),
+                transaction_reference = VALUES(transaction_reference),
+                new_hostel_paid = VALUES(new_hostel_paid),
+                old_check_in_date = VALUES(old_check_in_date),
+                old_renewal_date = VALUES(old_renewal_date)
+        ");
+    } catch (Throwable $t) {
+        // Suppress exception to ensure main payment sync returns successfully
+    }
 
     echo json_encode([
         "success" => true,

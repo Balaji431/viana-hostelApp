@@ -1,47 +1,61 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../core/api_service.dart';
+import '../user_provider.dart';
 
-/// Room Type Definition
+// ─────────────────────────────────────────────
+// Model
+// ─────────────────────────────────────────────
 class RoomType {
   final String id;
   final String name;
-  final double sixMonthAmount;
+  final double hostelFee;
+  final double foodFee;
+  final double totalFee;
   final double monthlyAmount;
   final String description;
-  final double cautionDeposit;
-  final double messCharges;
+
+  /// backward-compat alias
+  double get sixMonthAmount => hostelFee;
 
   const RoomType({
     required this.id,
     required this.name,
-    required this.sixMonthAmount,
+    required this.hostelFee,
+    required this.foodFee,
+    required this.totalFee,
     required this.monthlyAmount,
     required this.description,
-    this.cautionDeposit = 5000.0,
-    this.messCharges = 0.0,
   });
 }
 
-/// Room Types Available - Vaigai Hostel Configuration
+class FeeBreakdown {
+  final double hostelFee;
+  final double foodFee;
+  final double total;
+  final String selectedRoomName;
 
-/// Fee Breakdown Item
-class FeeBreakdownItem {
-  final String label;
-  final double amount;
-
-  FeeBreakdownItem({required this.label, required this.amount});
+  FeeBreakdown({
+    required this.hostelFee,
+    required this.foodFee,
+    required this.total,
+    required this.selectedRoomName,
+  });
 }
 
-/// Renewal Modal Widget with Room Upgrade
+// ─────────────────────────────────────────────
+// Widget
+// ─────────────────────────────────────────────
 class RenewalModal extends StatefulWidget {
   final bool isOpen;
   final VoidCallback onClose;
   final DateTime currentRenewalDate;
   final String currentRoomTypeId;
-  final Function(DateTime newDate, String receiptNumber, double amount, String newRoomType) onRenewalSuccess;
+  final Function(DateTime newDate, String receiptNumber, double amount,
+      String newRoomType) onRenewalSuccess;
   final VoidCallback? onRoomChangeRequested;
-  final String requestStatus; // 'pending', 'approved', 'rejected', 'none'
+  final String requestStatus; // 'pending' | 'approved' | 'rejected' | 'none'
   final String? approvedRoomType;
   final String currentRoomFacility;
   final String currentRoomBathAttached;
@@ -65,170 +79,180 @@ class RenewalModal extends StatefulWidget {
 }
 
 class _RenewalModalState extends State<RenewalModal> {
-  String _selectedRoomId = '8-sharing';
-  bool _isUpgrading = false;
+  String _selectedRoomId = '';
   bool _isProcessing = false;
   bool _isLoading = true;
-  List<RoomType> _dynamicRoomTypes = [];
+  List<RoomType> _roomTypes = [];
+
+  // ── number formatter ──────────────────────────────────────────────────────
+  final _fmt = NumberFormat('#,##,##0', 'en_IN');
+  String _rupees(double v) => '₹${_fmt.format(v.round())}';
+
+  // ── colours ───────────────────────────────────────────────────────────────
+  static const _navy = Color(0xFF1A2744);
+  static const _gold = Color(0xFFD4AF37);
+  static const _currentBlue = Color(0xFF1565C0);
+  static const _currentBlueBg = Color(0xFFE3F2FD);
+  static const _currentBlueBorder = Color(0xFF90CAF9);
 
   @override
   void initState() {
     super.initState();
-    _selectedRoomId = widget.approvedRoomType ?? widget.currentRoomTypeId.trim();
-    // Automatically set to upgrade mode if we have an approved room type
-    _isUpgrading = widget.requestStatus.toLowerCase() == 'approved' && widget.approvedRoomType != null;
+    _selectedRoomId =
+        widget.approvedRoomType ?? widget.currentRoomTypeId.trim();
     _fetchRoomTypes();
   }
 
+  // ── fetch ─────────────────────────────────────────────────────────────────
   Future<void> _fetchRoomTypes() async {
     try {
-      final response = await ApiService.getRoomTypes();
+      final user = Provider.of<UserProvider>(context, listen: false);
+      final response =
+          await ApiService.getRoomTypes(username: user.displayStudentId);
       if (response['status'] == 'success') {
         final List<dynamic> data = response['data'];
+        final types = data.asMap().entries.map((entry) {
+          final i = entry.key;
+          final j = entry.value;
+          final roomId =
+              j['room_code']?.toString() ?? j['name']?.toString() ?? 'room_$i';
+          return RoomType(
+            id: roomId,
+            name: j['name']?.toString() ?? 'Standard Room',
+            hostelFee: (j['hostel_fee'] as num?)?.toDouble() ??
+                (j['six_month_amount'] as num?)?.toDouble() ??
+                0.0,
+            foodFee: (j['food_fee'] as num?)?.toDouble() ?? 50000.0,
+            totalFee: (j['total_fee'] as num?)?.toDouble() ?? 0.0,
+            monthlyAmount:
+                (j['monthly_amount'] as num?)?.toDouble() ?? 2000.0,
+            description:
+                j['description']?.toString() ?? 'No description available',
+          );
+        }).toList();
+
         setState(() {
-          _dynamicRoomTypes = data.asMap().entries.map((entry) {
-            final index = entry.key;
-            final json = entry.value;
-            // Use room_code if available, else name, else unique index
-            String roomId = json['room_code']?.toString() ?? json['name']?.toString() ?? 'room_$index';
-              return RoomType(
-                id: roomId,
-                name: json['name']?.toString() ?? 'Standard Room',
-                sixMonthAmount: (json['six_month_amount'] as num?)?.toDouble() ?? 0.0,
-                monthlyAmount: (json['monthly_amount'] as num?)?.toDouble() ?? 0.0,
-                description: json['description']?.toString() ?? 'No description available',
-                cautionDeposit: (json['caution_deposit'] as num?)?.toDouble() ?? 5000.0,
-                messCharges: (json['mess_charges'] as num?)?.toDouble() ?? 0.0,
-              );
-          }).toList();
+          _roomTypes = types;
           _isLoading = false;
-          
-          final currentId = (widget.approvedRoomType ?? _selectedRoomId).trim();
-          final exists = _dynamicRoomTypes.any((r) => r.id.trim() == currentId);
-          
-          if (exists) {
-             _selectedRoomId = currentId;
-          } else {
-             // Try to resolve based on capacity/sharing mapping if not approved upgrade
-             if (widget.approvedRoomType == null) {
-               final String currentCap = widget.currentRoomTypeId.split('-')[0];
-               final matched = _dynamicRoomTypes.firstWhere(
-                 (r) => r.id.trim().toLowerCase() == widget.currentRoomTypeId.trim().toLowerCase() ||
-                        r.name.contains('($currentCap IN 1)'), 
-                 orElse: () => _dynamicRoomTypes.first
-               );
-               _selectedRoomId = matched.id;
-             } else {
-               _selectedRoomId = _dynamicRoomTypes.first.id;
-             }
+
+          // resolve selected id
+          final wantId =
+              (widget.approvedRoomType ?? widget.currentRoomTypeId).trim();
+          final found = types.any(
+              (r) => r.id.trim().toLowerCase() == wantId.toLowerCase());
+          if (found) {
+            _selectedRoomId = wantId;
+          } else if (types.isNotEmpty) {
+            _selectedRoomId = types.first.id;
           }
         });
+      } else {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      debugPrint("Error fetching room types: $e");
+      debugPrint('Error fetching room types: $e');
       setState(() => _isLoading = false);
     }
   }
 
+  // ── helpers ───────────────────────────────────────────────────────────────
+  RoomType? get _currentRoom {
+    final cid = widget.currentRoomTypeId.trim().toLowerCase();
+    try {
+      return _roomTypes
+          .firstWhere((r) => r.id.trim().toLowerCase() == cid);
+    } catch (_) {
+      // fuzzy fallback
+      try {
+        return _roomTypes.firstWhere((r) =>
+            r.name.toLowerCase().contains(cid) ||
+            cid.contains(r.name.toLowerCase()));
+      } catch (_) {
+        return _roomTypes.isNotEmpty ? _roomTypes.first : null;
+      }
+    }
+  }
+
+  RoomType? get _selectedRoom {
+    final sid = _selectedRoomId.trim().toLowerCase();
+    try {
+      return _roomTypes.firstWhere((r) => r.id.trim().toLowerCase() == sid);
+    } catch (_) {
+      return _currentRoom;
+    }
+  }
+
+  bool _isCurrentRoom(RoomType r) =>
+      r.id.trim().toLowerCase() ==
+      widget.currentRoomTypeId.trim().toLowerCase();
+
+  bool _isSelectedRoom(RoomType r) =>
+      r.id.trim() == _selectedRoomId.trim();
+
+  bool get _isPaymentDisabled {
+    final s = widget.requestStatus.toLowerCase();
+    if (s == 'pending') return true;
+    if (s == 'approved') {
+      return _selectedRoomId.trim().toLowerCase() !=
+          (widget.approvedRoomType?.trim().toLowerCase() ?? '');
+    }
+    return false;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Build
+  // ─────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     if (!widget.isOpen) return const SizedBox.shrink();
-    
+
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return Container(
+        height: 300,
+        decoration: const BoxDecoration(
+          color: Color(0xFFF9F6F0),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: _gold),
+              SizedBox(height: 16),
+              Text('Loading room types…',
+                  style: TextStyle(color: Colors.grey, fontSize: 14)),
+            ],
+          ),
+        ),
+      );
     }
 
-    final today = DateTime.now();
     final currentDate = widget.currentRenewalDate;
-    
-    final newDate = DateTime(currentDate.year, currentDate.month + 6, currentDate.day);
+    final newDate =
+        DateTime(currentDate.year, currentDate.month + 12, currentDate.day);
 
-    final remainingMonths = _calculateRemainingMonths(today, currentDate);
-
-    final listToUse = _dynamicRoomTypes;
-
-    final String currentCap = widget.currentRoomTypeId.split('-')[0]; // e.g. "4"
-    final isAcUser = widget.currentRoomFacility.toUpperCase().trim() == 'AC';
-    final isBathAttachedUser = widget.currentRoomBathAttached.toLowerCase().trim() == 'yes';
-
-    final currentRoom = listToUse.firstWhere(
-      (r) {
-        final rName = r.name.toUpperCase();
-        // 1. Must match capacity code e.g. "4 IN 1" or "4 sharing" or similar
-        final matchesCapacity = rName.contains('($currentCap IN 1)') || rName.contains('$currentCap SHARING');
-        if (!matchesCapacity) return false;
-        
-        // 2. Check AC / NON AC facility match
-        final isRoomAc = rName.contains('AC') && !rName.contains('NON AC');
-        if (isAcUser != isRoomAc) return false;
-        
-        // 3. Check bath attached match
-        final isRoomBath = rName.contains('B ATTACHED') || rName.contains('B&T ATTACHED') || rName.contains('B-ATTACHED') || rName.contains('B & T ATTACHED');
-        if (isBathAttachedUser != isRoomBath) return false;
-        
-        return true;
-      },
-      orElse: () {
-        // Fallback: match by capacity only
-        return listToUse.firstWhere(
-          (r) => r.id.trim().toLowerCase() == widget.currentRoomTypeId.trim().toLowerCase() ||
-                 r.name.contains('($currentCap IN 1)'),
-          orElse: () => listToUse.first,
-        );
-      },
-    );
-    final selectedRoom = _isUpgrading 
-        ? listToUse.firstWhere(
-            (r) => r.id.trim().toLowerCase() == _selectedRoomId.trim().toLowerCase(),
-            orElse: () => currentRoom,
+    final sel = _selectedRoom;
+    final fees = sel != null
+        ? FeeBreakdown(
+            hostelFee: sel.hostelFee,
+            foodFee: sel.foodFee,
+            total: sel.hostelFee + sel.foodFee,
+            selectedRoomName: sel.name,
           )
-        : currentRoom;
-
-    final monthlyMarkup = _isUpgrading ? (selectedRoom.monthlyAmount - currentRoom.monthlyAmount).toDouble() : 0.0;
-    // If already approved, we don't show the mid-term adjustment, we just charge the new room's fee
-    final midTermAdjustment = (widget.requestStatus.toLowerCase() == 'approved') ? 0.0 : (remainingMonths * monthlyMarkup).toDouble();
-    final renewalRoomRent = selectedRoom.sixMonthAmount;
-
-    final fees = FeeBreakdown(
-      roomRent: renewalRoomRent,
-      upgradeAdjustment: midTermAdjustment,
-      messCharges: selectedRoom.messCharges,
-      maintenance: selectedRoom.cautionDeposit,
-      total: renewalRoomRent + midTermAdjustment + selectedRoom.cautionDeposit + selectedRoom.messCharges,
-      selectedRoomName: selectedRoom.name,
-      remainingMonths: remainingMonths,
-    );
-
-    bool isPaymentDisabled = false;
-    if (widget.requestStatus.toLowerCase() == 'pending') {
-      isPaymentDisabled = true;
-    } else if (_isUpgrading) {
-      // In upgrade mode, only enable if already approved for this specific type
-      if (widget.requestStatus.toLowerCase() == 'approved') {
-        final currentSelected = _selectedRoomId.trim().toLowerCase();
-        final approved = widget.approvedRoomType?.trim().toLowerCase();
-        isPaymentDisabled = currentSelected != approved;
-      } else {
-        // If not approved, student can only preview types, not pay yet
-        isPaymentDisabled = true;
-      }
-    }
+        : FeeBreakdown(hostelFee: 0, foodFee: 0, total: 0, selectedRoomName: '');
 
     return Container(
       width: double.infinity,
       constraints: BoxConstraints(
-        maxWidth: 550,
-        maxHeight: MediaQuery.of(context).size.height * 0.72,
+        maxWidth: 580,
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
       ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9F6F0),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 30,
-            offset: const Offset(0, 15),
-          ),
+              color: Colors.black26, blurRadius: 30, offset: Offset(0, -8)),
         ],
       ),
       child: Column(
@@ -237,75 +261,189 @@ class _RenewalModalState extends State<RenewalModal> {
           _buildHeader(),
           Flexible(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildExpiryDates(currentDate, newDate),
-                  const SizedBox(height: 24),
-                  _buildRoomSelection(currentRoom, selectedRoom, remainingMonths, monthlyMarkup, midTermAdjustment, listToUse),
-                  const SizedBox(height: 24),
-                  _buildFeeBreakdown(fees, _isUpgrading),
+                  const SizedBox(height: 20),
+                  _buildSectionTitle(
+                      'All Room Types', Icons.apartment_rounded),
+                  const SizedBox(height: 10),
+                  _buildRoomLegend(),
+                  const SizedBox(height: 10),
+                  // ── ALL 41 room type cards ────────────────────────────
+                  ..._roomTypes
+                      .map((r) => _buildRoomCard(r))
+                      .toList(),
+                  const SizedBox(height: 20),
+                  _buildFeeBreakdown(fees),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
           ),
-          _buildFooter(fees.total, newDate, selectedRoom.name, isPaymentDisabled),
+          _buildFooter(fees.total, newDate, fees.selectedRoomName),
         ],
       ),
     );
   }
 
-  int _calculateRemainingMonths(DateTime today, DateTime currentDate) {
-    if (currentDate.isBefore(today)) return 0;
-    final difference = currentDate.difference(today);
-    return (difference.inDays / 30.44).ceil().clamp(0, 12);
-  }
-
+  // ── Header ────────────────────────────────────────────────────────────────
   Widget _buildHeader() {
+    final status = widget.requestStatus.toLowerCase();
     return Container(
-      padding: const EdgeInsets.fromLTRB(25, 20, 20, 20),
+      padding: const EdgeInsets.fromLTRB(24, 20, 20, 16),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
         ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE0D8CC))),
       ),
       child: Column(
         children: [
+          // drag handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Renew Your Stay',
-                style: TextStyle(
-                  color: Color(0xFF1B2B48),
-                  fontFamily: 'Georgia',
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Renew Your Stay',
+                      style: TextStyle(
+                        color: _navy,
+                        fontFamily: 'Lato',
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Select your room type for renewal',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
-              GestureDetector(
-                onTap: widget.onClose,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    shape: BoxShape.circle,
+              // action buttons
+              Row(
+                children: [
+                  if (widget.onRoomChangeRequested != null)
+                    _headerBtn(
+                      label: 'Room Change',
+                      icon: Icons.swap_horiz,
+                      onTap: (status == 'approved')
+                          ? null
+                          : widget.onRoomChangeRequested,
+                    ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: widget.onClose,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close,
+                          color: Colors.grey, size: 20),
+                    ),
                   ),
-                  child: const Icon(Icons.close, color: Colors.grey, size: 20),
-                ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 15),
-          const Divider(height: 1, color: Color(0xFFE0D8CC)),
+          // status banner
+          if (status == 'pending' || status == 'approved')
+            _buildStatusBanner(status),
         ],
       ),
     );
   }
 
+  Widget _headerBtn(
+      {required String label,
+      required IconData icon,
+      VoidCallback? onTap}) {
+    return ElevatedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 15),
+      label: Text(label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: _navy,
+        side: const BorderSide(color: _gold),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        minimumSize: const Size(0, 32),
+        textStyle:
+            const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+        elevation: 0,
+      ),
+    );
+  }
+
+  Widget _buildStatusBanner(String status) {
+    final isPending = status == 'pending';
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: isPending
+            ? const Color(0xFFFFF8E1)
+            : const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isPending
+              ? const Color(0xFFFFE082)
+              : const Color(0xFFA5D6A7),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isPending ? Icons.hourglass_top_rounded : Icons.check_circle,
+            size: 16,
+            color: isPending
+                ? const Color(0xFFF57F17)
+                : const Color(0xFF2E7D32),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isPending
+                  ? 'Your room change request is pending approval.'
+                  : 'Room change approved! Select the approved type to pay.',
+              style: TextStyle(
+                fontSize: 12,
+                color: isPending
+                    ? const Color(0xFFF57F17)
+                    : const Color(0xFF2E7D32),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Date boxes ────────────────────────────────────────────────────────────
   Widget _buildExpiryDates(DateTime currentDate, DateTime newDate) {
     return Row(
       children: [
@@ -330,184 +468,171 @@ class _RenewalModalState extends State<RenewalModal> {
     );
   }
 
-  Widget _buildDateBox(String label, String date, Color bgColor, Color textColor) {
+  Widget _buildDateBox(
+      String label, String date, Color bg, Color textColor) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.calendar_today_outlined, size: 14, color: textColor.withOpacity(0.6)),
-              const SizedBox(width: 6),
-              Text(label, style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.6))),
+              Icon(Icons.calendar_today_outlined,
+                  size: 13, color: textColor.withOpacity(0.6)),
+              const SizedBox(width: 5),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: textColor.withOpacity(0.6))),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             date,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+            style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: _navy),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRoomSelection(
-    RoomType currentRoom,
-    RoomType selectedRoom,
-    int remainingMonths,
-    double monthlyMarkup,
-    double midTermAdjustment,
-    List<RoomType> listToUse,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  // ── Section title ─────────────────────────────────────────────────────────
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Row(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  Icon(Icons.apartment, size: 18, color: Colors.grey.shade600),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      widget.requestStatus.toLowerCase() == 'approved' ? 'Approved' : 'Select',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade700,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Row(
-              children: [
-                if (widget.onRoomChangeRequested != null) ...[
-                  ElevatedButton.icon(
-                    onPressed: (widget.requestStatus.toLowerCase() == 'approved') 
-                      ? null // Already approved, cannot change again until paid/processed
-                      : () {
-                          // Do NOT close the modal here.
-                          // _handleRoomChangePressed will close it only after
-                          // confirming a floorwise warden is assigned.
-                          // If no warden, the user returns to this modal after dismissing the alert.
-                          widget.onRoomChangeRequested!();
-                        },
-                    icon: const Icon(Icons.swap_horiz, size: 16),
-                    label: const Text('Room Change'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF1A2744),
-                      side: const BorderSide(color: Color(0xFFD4AF37)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      minimumSize: const Size(0, 32),
-                      textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                if (widget.requestStatus.toLowerCase() != 'approved')
-                  ElevatedButton.icon(
-                    onPressed: (widget.requestStatus.toLowerCase() == 'pending')
-                      ? null // Disable while pending
-                      : () {
-                          setState(() {
-                            _isUpgrading = !_isUpgrading;
-                            if (!_isUpgrading) _selectedRoomId = currentRoom.id;
-                          });
-                        },
-                    icon: Icon(_isUpgrading ? Icons.close : Icons.upgrade, size: 16),
-                    label: Text(_isUpgrading ? 'Cancel' : 'Upgrade'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _isUpgrading ? const Color(0xFF1A2744) : const Color(0xFFD4AF37),
-                      foregroundColor: _isUpgrading ? Colors.white : const Color(0xFF1A2744),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      minimumSize: const Size(0, 32),
-                      textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-              ],
-            ),
-          ],
+        Icon(icon, size: 18, color: Colors.grey.shade600),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700),
         ),
-        const SizedBox(height: 12),
-        if (_isUpgrading) ...[
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 280),
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                children: listToUse.map((room) => _buildRoomCard(room, selectedRoom, currentRoom)).toList(),
-              ),
-            ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: _navy.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
           ),
-          if (remainingMonths > 0 && _selectedRoomId != widget.currentRoomTypeId.trim() && monthlyMarkup > 0)
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE3F2FD),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFBBDEFB)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline, size: 16, color: Color(0xFF1976D2)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Mid-term Adjustment: ₹${midTermAdjustment.toStringAsFixed(0)} for remaining $remainingMonths months.',
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF1565C0), fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ] else
-          _buildStaticRoomDisplay(currentRoom),
+          child: Text(
+            '${_roomTypes.length} types',
+            style: const TextStyle(
+                fontSize: 10,
+                color: _navy,
+                fontWeight: FontWeight.w600),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildRoomCard(RoomType room, RoomType selectedRoom, RoomType currentRoom) {
-    final isCurrent = room.id.trim().toLowerCase() == currentRoom.id.trim().toLowerCase();
-    final isSelected = _selectedRoomId == room.id;
-    
+  // ── Legend ────────────────────────────────────────────────────────────────
+  Widget _buildRoomLegend() {
+    return Row(
+      children: [
+        _legendDot(_currentBlue, 'Your Current Room'),
+        const SizedBox(width: 16),
+        _legendDot(_gold, 'Selected'),
+      ],
+    );
+  }
+
+  Widget _legendDot(Color c, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+        const SizedBox(width: 5),
+        Text(label,
+            style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    );
+  }
+
+  // ── Room Card ─────────────────────────────────────────────────────────────
+  Widget _buildRoomCard(RoomType room) {
+    final isCurrent = _isCurrentRoom(room);
+    final isSelected = _isSelectedRoom(room);
+
+    // styling logic
+    Color bg = Colors.white;
+    Color borderColor = const Color(0xFFE8E0D5);
+    double borderWidth = 1;
+
+    if (isCurrent && isSelected) {
+      bg = _currentBlueBg;
+      borderColor = _currentBlue;
+      borderWidth = 2;
+    } else if (isCurrent) {
+      bg = _currentBlueBg.withOpacity(0.6);
+      borderColor = _currentBlueBorder;
+      borderWidth = 1.5;
+    } else if (isSelected) {
+      bg = const Color(0xFFFFF9C4).withOpacity(0.5);
+      borderColor = _gold;
+      borderWidth = 2;
+    }
+
     return GestureDetector(
       onTap: () => setState(() => _selectedRoomId = room.id),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
         margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFFFF9C4).withOpacity(0.3) : Colors.white,
+          color: bg,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? const Color(0xFFD4AF37) : const Color(0xFFE8E0D5),
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: isSelected ? [
-            BoxShadow(
-              color: const Color(0xFFD4AF37).withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            )
-          ] : [],
+          border: Border.all(color: borderColor, width: borderWidth),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: (isCurrent ? _currentBlue : _gold)
+                        .withOpacity(0.12),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )
+                ]
+              : [],
         ),
         child: Row(
           children: [
+            // ── selection indicator ──────────────────────────────────
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 20,
+              height: 20,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected
+                      ? (isCurrent ? _currentBlue : _gold)
+                      : Colors.grey.shade300,
+                  width: 2,
+                ),
+                color: isSelected
+                    ? (isCurrent ? _currentBlue : _gold)
+                    : Colors.transparent,
+              ),
+              child: isSelected
+                  ? const Icon(Icons.check,
+                      size: 12, color: Colors.white)
+                  : null,
+            ),
+            // ── room info ────────────────────────────────────────────
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -518,63 +643,60 @@ class _RenewalModalState extends State<RenewalModal> {
                         child: Text(
                           room.name,
                           style: TextStyle(
-                            fontSize: 14, // Slightly smaller to fit better
+                            fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: isSelected ? const Color(0xFF1A2744) : Colors.black87,
+                            color: isSelected ? _navy : Colors.black87,
                           ),
                           overflow: TextOverflow.ellipsis,
+                          maxLines: 2,
                         ),
                       ),
-                      if (isCurrent) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1A2744),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'Current',
-                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
+                      const SizedBox(width: 6),
+                      if (isCurrent)
+                        _tag('Your Room', _currentBlue, Colors.white),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   Text(
                     room.description,
                     style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
+                        fontSize: 11, color: Colors.grey.shade600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
+            // ── fee info ─────────────────────────────────────────────
+            const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '₹${room.sixMonthAmount.toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontSize: 17,
+                  _rupees(room.totalFee > 0
+                      ? room.totalFee
+                      : room.hostelFee + room.foodFee),
+                  style: TextStyle(
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFFD4AF37),
+                    color: isCurrent ? _currentBlue : _gold,
                   ),
                 ),
                 Text(
-                  'per 6 months',
-                  style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                  'Total / year',
+                  style:
+                      TextStyle(fontSize: 9, color: Colors.grey.shade500),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '₹${room.monthlyAmount.toStringAsFixed(0)} / month',
+                  '${_rupees(room.hostelFee)} hostel',
                   style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[700],
-                    fontWeight: FontWeight.w500,
-                  ),
+                      fontSize: 10, color: Colors.grey.shade600),
+                ),
+                Text(
+                  '${_rupees(room.foodFee)} food',
+                  style: TextStyle(
+                      fontSize: 10, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -584,135 +706,184 @@ class _RenewalModalState extends State<RenewalModal> {
     );
   }
 
-  Widget _buildStaticRoomDisplay(RoomType room) {
+  Widget _tag(String label, Color bg, Color fg) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE0D8CC))),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(room.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text('₹${room.sixMonthAmount.toStringAsFixed(0)}', style: const TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold)),
-        ],
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+          color: bg, borderRadius: BorderRadius.circular(10)),
+      child: Text(label,
+          style: TextStyle(
+              color: fg, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
 
-  Widget _buildFeeBreakdown(FeeBreakdown fees, bool isUpgrading) {
+  // ── Fee Breakdown ─────────────────────────────────────────────────────────
+  Widget _buildFeeBreakdown(FeeBreakdown fees) {
+    if (_selectedRoom == null) return const SizedBox.shrink();
+
+    final sel = _selectedRoom!;
+
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE8E0D5)),
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildFeeRow('Room Rent', fees.roomRent),
-          if (isUpgrading && fees.upgradeAdjustment > 0) _buildFeeRow('Upgrade Adjustment', fees.upgradeAdjustment),
-          _buildFeeRow('Maintenance Charges', fees.maintenance),
-          const Divider(),
-          _buildFeeRow('Total', fees.total, isTotal: true),
+          Row(
+            children: [
+              const Icon(Icons.receipt_long_outlined,
+                  size: 16, color: _navy),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Fee Breakdown – ${sel.name}',
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: _navy),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _feeRow('Hostel Fee', sel.hostelFee,
+              sub: 'Room accommodation (1 year)'),
+          const SizedBox(height: 10),
+          _feeRow('Food Fee', sel.foodFee,
+              sub: 'Mess charges (1 year)'),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(color: Color(0xFFE8E0D5), height: 1),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Total Amount',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: _navy)),
+              Text(
+                _rupees(fees.total),
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                    color: _gold),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildFeeRow(String label, double amount, {bool isTotal = false}) {
+  Widget _feeRow(String label, double amount, {String? sub}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: TextStyle(fontWeight: isTotal ? FontWeight.bold : FontWeight.normal)),
-        Text('₹${amount.toStringAsFixed(0)}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: isTotal ? 18 : 14)),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 13, color: Colors.black87)),
+            if (sub != null)
+              Text(sub,
+                  style: const TextStyle(
+                      fontSize: 10, color: Colors.grey)),
+          ],
+        ),
+        Text(
+          _rupees(amount),
+          style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              color: Colors.black87),
+        ),
       ],
     );
   }
 
-  Widget _buildFooter(double totalAmount, DateTime newDate, String selectedRoomName, bool isPaymentDisabled) {
-    String buttonText = 'Proceed to Payment';
+  // ── Footer / Pay button ───────────────────────────────────────────────────
+  Widget _buildFooter(
+      double totalAmount, DateTime newDate, String selectedRoomName) {
     final status = widget.requestStatus.toLowerCase();
-    
+    final disabled = _isPaymentDisabled;
+
+    String btnLabel = 'Proceed to Payment';
     if (status == 'pending') {
-      buttonText = 'Room Change Pending';
-    } else if (_isUpgrading) {
-      if (status == 'approved') {
-        if (_selectedRoomId.trim().toLowerCase() == widget.approvedRoomType?.trim().toLowerCase()) {
-          buttonText = 'Pay ₹${totalAmount.toStringAsFixed(0)}';
-        } else {
-          buttonText = 'Select Approved Type';
-        }
+      btnLabel = 'Room Change Pending…';
+    } else if (status == 'approved') {
+      if (!disabled) {
+        btnLabel = 'Pay ${_rupees(totalAmount)}';
       } else {
-        buttonText = 'Request Room Change First';
+        btnLabel = 'Select Approved Room Type';
       }
     } else {
-      buttonText = 'Pay ₹${totalAmount.toStringAsFixed(0)}';
+      btnLabel = 'Pay ${_rupees(totalAmount)}';
     }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(25, 10, 25, 25),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          ),
-        ],
+        border: Border(top: BorderSide(color: Color(0xFFE8E0D5))),
       ),
-      child: ElevatedButton(
-        onPressed: (_isProcessing || isPaymentDisabled) ? null : () => _handlePayment(totalAmount, newDate, selectedRoomName),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFD4AF37),
-          foregroundColor: const Color(0xFF1A2744),
-          disabledBackgroundColor: Colors.grey.shade300,
-          disabledForegroundColor: Colors.grey.shade600,
-          minimumSize: const Size(double.infinity, 56),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          elevation: (_isProcessing || isPaymentDisabled) ? 0 : 2,
+      child: SafeArea(
+        top: false,
+        child: ElevatedButton(
+          onPressed: (_isProcessing || disabled)
+              ? null
+              : () => _handlePayment(totalAmount, newDate, selectedRoomName),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _gold,
+            foregroundColor: _navy,
+            disabledBackgroundColor: Colors.grey.shade200,
+            disabledForegroundColor: Colors.grey.shade500,
+            minimumSize: const Size(double.infinity, 56),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
+            elevation: disabled ? 0 : 2,
+          ),
+          child: _isProcessing
+              ? const SizedBox(
+                  height: 22,
+                  width: 22,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2.5, color: _navy),
+                )
+              : Text(
+                  btnLabel,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold),
+                ),
         ),
-        child: _isProcessing 
-          ? const SizedBox(
-              height: 20,
-              width: 20,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1A2744)),
-            )
-          : Text(
-              buttonText,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
       ),
     );
   }
 
-  void _handlePayment(double totalAmount, DateTime newDate, String selectedRoomName) async {
+  void _handlePayment(
+      double totalAmount, DateTime newDate, String roomName) async {
     setState(() => _isProcessing = true);
     await Future.delayed(const Duration(seconds: 2));
-    widget.onRenewalSuccess(newDate, 'RCP${DateTime.now().millisecondsSinceEpoch}', totalAmount, selectedRoomName);
+    widget.onRenewalSuccess(
+        newDate,
+        'RCP${DateTime.now().millisecondsSinceEpoch}',
+        totalAmount,
+        roomName);
     setState(() => _isProcessing = false);
     widget.onClose();
   }
 }
 
-/// Fee Breakdown Model
-class FeeBreakdown {
-  final double roomRent;
-  final double upgradeAdjustment;
-  final double messCharges;
-  final double maintenance;
-  final double total;
-  final String selectedRoomName;
-  final int remainingMonths;
-
-  FeeBreakdown({
-    required this.roomRent,
-    required this.upgradeAdjustment,
-    required this.messCharges,
-    required this.maintenance,
-    required this.total,
-    required this.selectedRoomName,
-    required this.remainingMonths,
-  });
-}
-
-/// Helper function to show the renewal modal
+// ─────────────────────────────────────────────
+// Show helper
+// ─────────────────────────────────────────────
 void showRenewalModal({
   required BuildContext context,
   required DateTime currentRenewalDate,
@@ -742,4 +913,3 @@ void showRenewalModal({
     ),
   );
 }
-

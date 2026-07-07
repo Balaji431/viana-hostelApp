@@ -72,7 +72,7 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    fontFamily: 'Georgia',
+                    fontFamily: 'Lato',
                     color: Color(0xFF1E2F5E),
                   ),
                 ),
@@ -354,7 +354,7 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Reject Request', style: TextStyle(fontFamily: 'Georgia', fontWeight: FontWeight.bold)),
+        title: const Text('Reject Request', style: TextStyle(fontFamily: 'Lato', fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

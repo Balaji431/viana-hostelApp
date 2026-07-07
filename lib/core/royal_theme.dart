@@ -140,6 +140,7 @@ class RoyalTheme {
 
   static ThemeData get theme {
     return ThemeData(
+      fontFamily: 'Lato',
       brightness: Brightness.light,
       scaffoldBackgroundColor: Colors.transparent,
       primaryColor: goldPrimary,

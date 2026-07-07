@@ -9,14 +9,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit();
 }
 
-require_once '../config/database.php';
-require_once '../utils/activity_logger.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/activity_logger.php';
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
 
 try {
-    $data = json_decode(file_get_contents('php://input'), true);
+    if (isset($GLOBALS['mock_input'])) {
+        $data = $GLOBALS['mock_input'];
+    } else {
+        $data = json_decode(file_get_contents('php://input'), true);
+    }
     $student_id = (int)($data['student_id'] ?? 0);
 
     if ($student_id <= 0) throw new Exception("Student ID required");
@@ -25,10 +29,53 @@ try {
     $res = $conn->query("SELECT COUNT(*) as count FROM room_preferences WHERE student_id = $student_id");
     if ($res->fetch_assoc()['count'] == 0) throw new Exception("Please select at least one preference");
 
+    // Fetch student info
+    $st_stmt = $conn->prepare("SELECT full_name, username, Gender FROM users WHERE id = ?");
+    $st_stmt->bind_param("i", $student_id);
+    $st_stmt->execute();
+    $st_res = $st_stmt->get_result()->fetch_assoc();
+    if (!$st_res) {
+        throw new Exception("Student user record not found");
+    }
+    $student_name = $st_res['full_name'] ?? 'Student';
+    $student_reg = $st_res['username'] ?? '';
+    $gender = $st_res['Gender'] ?? 'Female';
+
+    // Fetch paid details
+    $default_hostel_type = (stripos($gender, 'female') !== false || stripos($gender, 'girls') !== false) ? 'Girls' : 'Boys';
+    $stmtPay = $conn->prepare("SELECT * FROM vstudy_payments WHERE TRIM(roll_number) = TRIM(?) LIMIT 1");
+    $stmtPay->bind_param("s", $student_reg);
+    $stmtPay->execute();
+    $payRow = $stmtPay->get_result()->fetch_assoc();
+
+    if ($payRow) {
+        $hPref    = $payRow['hostel_preference'] ?? '';
+        $hType    = (stripos($hPref, 'girls') !== false || stripos($payRow['gender'] ?? '', 'female') !== false) ? 'Girls' : 'Boys';
+        $facility = (stripos($hPref, 'non ac') !== false || stripos($hPref, 'non-ac') !== false || stripos($hPref, 'non a/c') !== false) ? 'Non AC' : 'AC';
+        $paid_hostel_name = $payRow['hostel_name'] ?? (($hType === 'Girls') ? 'Vaigai Hostel' : 'Krishna Hostel');
+        $paid_room_type = $hPref;
+        $payment_status = $payRow['payment_status'] ?? 'Paid';
+    } else {
+        $paid_hostel_name = ($default_hostel_type === 'Girls') ? 'Vaigai Hostel' : 'Krishna Hostel';
+        $paid_room_type = ($default_hostel_type === 'Girls') ? 'AC - B ATTACHED (6 IN 1)' : '4 IN 1 AC';
+        $payment_status = 'Paid';
+    }
+
+    // Resolve paid_hostel_id
+    $paid_hostel_id = 0;
+    $norm_hostel    = preg_replace('/\s*hostel\s*/i', '', $paid_hostel_name);
+    $search_pattern = "%" . trim($norm_hostel) . "%";
+    $h_stmt = $conn->prepare("SELECT id FROM hostel_type WHERE hostel_name LIKE ? LIMIT 1");
+    $h_stmt->bind_param("s", $search_pattern);
+    $h_stmt->execute();
+    $h_row = $h_stmt->get_result()->fetch_assoc();
+    if ($h_row) {
+        $paid_hostel_id = (int)$h_row['id'];
+    }
+
     $conn->begin_transaction();
 
-    // 2. Compute queue position
-    $q_res = $conn->query("SELECT COUNT(*) as count FROM room_allocations WHERE allocation_status != 'draft'");
+    $q_res = $conn->query("SELECT COUNT(*) as count FROM allocation_requests WHERE status != 'draft'");
     $queue_pos = $q_res->fetch_assoc()['count'] + 1;
 
     $now = date('Y-m-d H:i:s');
@@ -38,27 +85,24 @@ try {
     $up_pref->bind_param("si", $now, $student_id);
     $up_pref->execute();
 
-    // 4. Update/Create allocation row
-    $check_alloc = "SELECT id FROM room_allocations WHERE student_id = ?";
+    $check_alloc = "SELECT id FROM allocation_requests WHERE student_id = ?";
     $st_check = $conn->prepare($check_alloc);
     $st_check->bind_param("i", $student_id);
     $st_check->execute();
     
     if ($st_check->get_result()->num_rows > 0) {
-        $up_alloc = $conn->prepare("UPDATE room_allocations SET allocation_status = 'submitted', queue_position = ?, submitted_at = ?, allocated_room_id = NULL, payment_deadline = NULL, approved_by = NULL, approved_at = NULL, notified_of_conflict = 0 WHERE student_id = ?");
-        $up_alloc->bind_param("isi", $queue_pos, $now, $student_id);
+        $up_alloc = $conn->prepare("UPDATE allocation_requests SET status = 'submitted', request_status = 'pending', student_reg_no = ?, student_name = ?, paid_hostel_id = ?, paid_hostel_name = ?, paid_room_type = ?, payment_status = ?, queue_position = ?, created_at = ?, selected_room_id = NULL, payment_deadline = NULL, approved_by_username = NULL, approved_at = NULL, notified_of_conflict = 0 WHERE student_id = ?");
+        $up_alloc->bind_param("ssisssisii", $student_reg, $student_name, $paid_hostel_id, $paid_hostel_name, $paid_room_type, $payment_status, $queue_pos, $now, $student_id);
         $up_alloc->execute();
     } else {
-        $ins_alloc = $conn->prepare("INSERT INTO room_allocations (student_id, allocation_status, queue_position, submitted_at) VALUES (?, 'submitted', ?, ?)");
-        $ins_alloc->bind_param("iis", $student_id, $queue_pos, $now);
+        $ins_alloc = $conn->prepare("INSERT INTO allocation_requests (student_id, student_reg_no, student_name, paid_hostel_id, paid_hostel_name, paid_room_type, payment_status, request_status, status, queue_position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'submitted', ?, ?)");
+        $ins_alloc->bind_param("ississsis", $student_id, $student_reg, $student_name, $paid_hostel_id, $paid_hostel_name, $paid_room_type, $payment_status, $queue_pos, $now);
         $ins_alloc->execute();
     }
 
     $conn->commit();
 
     // Log audit trail
-    $student_name = 'Student';
-    $student_reg = '';
     try {
         $st_stmt = $conn->prepare("SELECT full_name, username FROM users WHERE id = ?");
         $st_stmt->bind_param("i", $student_id);
@@ -106,7 +150,7 @@ try {
         if ($w_res && $w_row = $w_res->fetch_assoc()) {
             $warden_token = $w_row['fcm_token'];
             if (!empty($warden_token)) {
-                require_once '../send_notification.php';
+                require_once __DIR__ . '/../send_notification.php';
                 $title = "New Room Allocation Request: $student_name ($student_reg)";
                 $body = "$student_name ($student_reg) has submitted a new room allocation request.";
                 sendFCM($warden_token, $title, $body, 'allocation_req', $student_id, $student_name, $body, 'room_allocation');

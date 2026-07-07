@@ -14,6 +14,7 @@ class ApiService {
   static String? currentUserId;
   static String? currentUsername;
   static String? currentUserRole;
+  static String? currentToken;
 
   static Future<void> init() async {
     final uri = Uri.tryParse(baseUrl);
@@ -612,8 +613,9 @@ class ApiService {
     return await postRequest('admin_v2/delete_renew_fee.php', {'id': id});
   }
 
-  static Future<Map<String, dynamic>> getRoomTypes() async {
-    return await getRequest('student/get_room_types.php');
+  static Future<Map<String, dynamic>> getRoomTypes({String? username}) async {
+    final url = username != null ? 'student/get_room_types.php?username=$username' : 'student/get_room_types.php';
+    return await getRequest(url);
   }
 
   // ==================== ANNOUNCEMENTS & CATEGORIES ====================

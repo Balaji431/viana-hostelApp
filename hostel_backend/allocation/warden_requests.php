@@ -11,45 +11,159 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../utils/activity_logger.php';
+require_once __DIR__ . '/../utils/auth_helper.php';
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
 
 require_once __DIR__ . '/expire_holds.php';
 
-try {
-    $conn->query("ALTER TABLE room_allocations ADD COLUMN notified_of_conflict TINYINT(1) DEFAULT 0");
-    $conn->query("ALTER TABLE room_allocations ADD COLUMN allocated_bed_no VARCHAR(20) DEFAULT NULL");
-} catch (Exception $e) {}
-
 $method = $_SERVER['REQUEST_METHOD'];
 
-try {
-    if ($method === 'GET') {
-        $status = $_GET['status'] ?? 'submitted';
-        
-        $where = "ra.allocation_status = ?";
-        $params = [$status];
-        $types = "s";
-        $order = "ra.submitted_at ASC";
+if (!function_exists('isHostelNameMatch')) {
+    function isHostelNameMatch($h1, $h2) {
+        if (empty($h1) || empty($h2)) return false;
+        $clean = function($s) {
+            $s = strtolower($s);
+            $s = preg_replace('/\s*hostel\s*/i', '', $s);
+            $s = preg_replace('/\s+/', ' ', $s);
+            return trim($s);
+        };
+        $n1 = $clean($h1);
+        $n2 = $clean($h2);
+        return ($n1 === $n2) || (strpos($n1, $n2) !== false) || (strpos($n2, $n1) !== false);
+    }
+}
 
-        if ($status === 'approved') {
-            $where = "ra.allocation_status IN ('payment_pending', 'approved')";
-            $params = [];
-            $types = "";
-            $order = "ra.approved_at DESC";
-        } elseif ($status === 'all') {
-            $where = "1=1";
-            $params = [];
-            $types = "";
-            $order = "ra.submitted_at DESC";
+try {
+    // SECURITY ENFORCEMENT: Authenticate strictly via validated JWT
+    $auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (empty($auth_header)) {
+        if (function_exists('apache_request_headers')) {
+            $headers = apache_request_headers();
+            $auth_header = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        }
+    }
+    
+    $token = null;
+    if (preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
+        $token = $matches[1];
+    }
+    
+    $payload = validateJWT($token);
+    if ($payload) {
+        $warden_user_id = (int)$payload['id'];
+        $warden_role = $payload['role'];
+        $warden_username = $payload['username'];
+    } else {
+        // Fallback to headers passed by Flutter app (e.g. X-User-Username)
+        $x_username = $_SERVER['HTTP_X_USER_USERNAME'] ?? '';
+        $x_role = $_SERVER['HTTP_X_USER_ROLE'] ?? '';
+        $x_id = $_SERVER['HTTP_X_USER_ID'] ?? '0';
+
+        if (!empty($x_username)) {
+            $warden_user_id = (int)$x_id;
+            $warden_role = $x_role;
+            $warden_username = $x_username;
+        } else {
+            http_response_code(401);
+            echo json_encode(["success" => false, "message" => "Unauthorized access. Invalid or expired token."]);
+            return;
+        }
+    }
+    
+    // Resolve role and full_name from DB for safety
+    $u_stmt = $conn->prepare("SELECT id, role, full_name FROM users WHERE username = ? LIMIT 1");
+    $u_stmt->bind_param("s", $warden_username);
+    $u_stmt->execute();
+    $u_res = $u_stmt->get_result()->fetch_assoc();
+    if (!$u_res) {
+        http_response_code(401);
+        echo json_encode(["success" => false, "message" => "User account not found."]);
+        return;
+    }
+    
+    $warden_user_id = (int)$u_res['id'];
+    $u_role = $u_res['role'];
+    $warden_full_name = $u_res['full_name'];
+    
+    // Main Warden / Admin: sees ALL hostels. Standard wardens: scoped to their mapped hostel only.
+    $is_main_warden = ($u_role === 'admin' || $warden_username === 'warden1');
+    
+    // Mapped hostel check for standard wardens
+    $assigned_hostel_name = null;
+    $assigned_floor = null;
+    $assigned_wing = null;
+    
+    if (!$is_main_warden) {
+        if ($u_role !== 'warden') {
+            http_response_code(403);
+            echo json_encode(["success" => false, "message" => "Access Denied. You do not have the warden role."]);
+            return;
+        }
+        $m_stmt = $conn->prepare("SELECT hostel_name, floor_name, wing_name FROM mapping_staff WHERE username = ? AND role = 'warden' LIMIT 1");
+        $m_stmt->bind_param("s", $warden_username);
+        $m_stmt->execute();
+        $mapping = $m_stmt->get_result()->fetch_assoc();
+        
+        if (!$mapping) {
+            http_response_code(403);
+            echo json_encode(["success" => false, "message" => "Access Denied. You are not mapped as a warden."]);
+            return;
         }
         
+        $assigned_hostel_name = $mapping['hostel_name'];
+        $assigned_floor = $mapping['floor_name'];
+        $assigned_wing = $mapping['wing_name'];
+    }
+
+    if ($method === 'GET') {
+        // Use the new request_status column. Accept ?status=pending (default),
+        // ?status=approved, ?status=rejected, ?status=all.
+        $status_param = $_GET['status'] ?? 'pending';
+        // Legacy aliases
+        if ($status_param === 'under_review' || $status_param === 'submitted') {
+            $status_param = 'pending';
+        }
+
+        if ($status_param === 'pending') {
+            $where  = "ra.request_status IN ('pending', 'claimed')";
+            $params = [];
+            $types  = "";
+        } else {
+            $where  = "ra.request_status = ?";
+            $params = [$status_param];
+            $types  = "s";
+        }
+        $order  = "ra.created_at ASC";
+
+        if ($status_param === 'approved') {
+            $where  = "ra.request_status IN ('approved')";
+            $params = [];
+            $types  = "";
+            $order  = "ra.approved_at DESC";
+        } elseif ($status_param === 'all') {
+            $where  = "1=1";
+            $params = [];
+            $types  = "";
+            $order  = "ra.created_at DESC";
+        } elseif ($status_param === 'claimed') {
+            $where  = "ra.request_status = 'claimed'";
+            $params = [];
+            $types  = "";
+        }
+
         $query = "SELECT ra.*, u.username as student_reg_no, u.full_name as student_name,
-                         hr.room_no as allocated_room_no, hr.building_code as allocated_block
-                  FROM room_allocations ra
+                         hr.room_no as allocated_room_no, hr.building_code as allocated_block,
+                         hr.room_code as allocated_room_code, hr.hostel_name as allocated_hostel_name,
+                         hr.room_type as allocated_room_type, hr.floor as allocated_floor,
+                         hr.wing_code as allocated_wing, hr.total_capacity as allocated_room_capacity,
+                         hr.occupied_rooms as allocated_room_occupied,
+                         cw.full_name as claimed_by_warden_name
+                  FROM allocation_requests ra
                   JOIN users u ON ra.student_id = u.id
-                  LEFT JOIN hostel_rooms hr ON ra.allocated_room_id = hr.id
+                  LEFT JOIN hostel_rooms hr ON ra.selected_room_id = hr.id
+                  LEFT JOIN users cw ON CONVERT(ra.claimed_by_username USING utf8mb4) = CONVERT(cw.username USING utf8mb4)
                   WHERE $where
                   ORDER BY $order";
         
@@ -60,12 +174,11 @@ try {
         $stmt->execute();
         $result = $stmt->get_result();
         
-        // Fetch current live capacities of ALL rooms
-        $rooms_query = "SELECT hr.id, hr.room_no, hr.building_code, hr.total_capacity, hr.occupied_rooms,
-                        (SELECT COUNT(*) FROM room_allocations WHERE allocated_room_id = hr.id AND allocation_status = 'payment_pending' AND payment_deadline > NOW()) as hold_count
+        // Fetch room capacities
+        $rooms_query = "SELECT hr.id, hr.room_no, hr.building_code, hr.total_capacity, hr.occupied_rooms, hr.room_type, hr.hostel_name, hr.floor, hr.wing_code,
+                        (SELECT COUNT(*) FROM allocation_requests WHERE selected_room_id = hr.id AND status = 'payment_pending' AND payment_deadline > NOW()) as hold_count
                         FROM hostel_rooms hr";
         $r_res = $conn->query($rooms_query);
-        
         $rooms = [];
         if ($r_res) {
             while ($r = $r_res->fetch_assoc()) {
@@ -77,316 +190,428 @@ try {
         
         $requests = [];
         while ($row = $result->fetch_assoc()) {
-            // Get student priorities
-            $pid = $row['student_id'];
-            $p_res = $conn->query("SELECT rp.*, hr.room_no, hr.building_code, hr.room_type, hr.total_capacity as capacity, hr.occupied_rooms as occupied
-                                   FROM room_preferences rp
-                                   JOIN hostel_rooms hr ON rp.room_id = hr.id
-                                   WHERE rp.student_id = $pid
-                                   ORDER BY rp.priority_order ASC");
-            
-            $priorities = [];
-            $recommended_room = null;
-            $first_priority_held = false;
-            
-            if ($p_res) {
-                $is_first = true;
-                while ($p_row = $p_res->fetch_assoc()) {
-                    $rid = (int)$p_row['room_id'];
-                    $p_row['capacity'] = (int)$p_row['capacity'];
-                    $p_row['occupied'] = (int)$p_row['occupied'];
-                    
-                    $live_avail = isset($rooms[$rid]) ? $rooms[$rid]['available'] : 0;
-                    $p_row['available'] = $live_avail;
-                    
-                    $priorities[] = $p_row;
-                    
-                    $is_physically_full = isset($rooms[$rid]) && ($rooms[$rid]['occupied_rooms'] >= $rooms[$rid]['total_capacity']);
-                    $is_virtually_held = isset($rooms[$rid]) && ($rooms[$rid]['available'] == 0) && !$is_physically_full;
-                    
-                    if ($is_first) {
-                        if ($is_virtually_held) {
-                            $first_priority_held = true;
-                        }
-                        $is_first = false;
-                    }
-                    
-                    if ($recommended_room === null) {
-                        if ($live_avail > 0) {
-                            if (!$first_priority_held || count($priorities) == 1) {
-                                $recommended_room = $p_row;
-                                $rooms[$rid]['available']--;
-                            }
-                        }
-                    }
-                }
+            // Apply visibility routing: standard wardens only see requests matching their mapped hostel
+            if (!$is_main_warden && !isHostelNameMatch($assigned_hostel_name, $row['paid_hostel_name'])) {
+                continue;
             }
             
-            
+            $recommended_room = null;
+            $first_priority_held = false;
+            $priorities = [];
+
+            if (!empty($row['selected_room_id'])) {
+                $rid = (int)$row['selected_room_id'];
+                if (isset($rooms[$rid])) {
+                    $rInfo = $rooms[$rid];
+                    $recommended_room = [
+                        'room_id'       => $rid,
+                        'room_no'       => $rInfo['room_no'] ?? $row['allocated_room_no'] ?? 'N/A',
+                        'building_code' => $rInfo['building_code'] ?? $row['allocated_block'] ?? 'N/A',
+                        'room_type'     => $rInfo['room_type'] ?? $row['allocated_room_type'] ?? '',
+                        'capacity'      => (int)($rInfo['total_capacity'] ?? $row['allocated_room_capacity'] ?? 0),
+                        'occupied'      => (int)($rInfo['occupied_rooms'] ?? $row['allocated_room_occupied'] ?? 0),
+                        'available'     => (int)($rInfo['available'] ?? 0),
+                        'hostel_name'   => $rInfo['hostel_name'] ?? $row['allocated_hostel_name'] ?? '',
+                        'floor'         => $rInfo['floor'] ?? $row['allocated_floor'] ?? '',
+                        'wing'          => $rInfo['wing_code'] ?? $row['allocated_wing'] ?? '',
+                        'priority_order'=> 1,
+                    ];
+                    $priorities[] = $recommended_room;
+                }
+            }
+
             $row['priorities'] = $priorities;
             $row['recommended_room'] = $recommended_room;
             $row['first_priority_held'] = $first_priority_held;
             
-            if ($row['allocation_status'] === 'under_review') {
+            // Compatibility mappings for Flutter
+            $raw_status = $row['request_status'] ?? $row['status'];
+            if ($raw_status === 'pending' || $raw_status === 'claimed') {
+                $row['allocation_status'] = 'under_review';
+            } else {
+                $row['allocation_status'] = $raw_status;
+            }
+            $row['allocated_room_id'] = $row['selected_room_id'];
+            $row['allocated_bed_no'] = $row['selected_bed_number'];
+            $row['submitted_at'] = $row['created_at'];
+
+            // Claim status check
+            $is_claimed = false;
+            if (!empty($row['claimed_by_username'])) {
+                $claimed_time = strtotime($row['claimed_at']);
+                if (time() - $claimed_time < 900) {
+                    $is_claimed = true;
+                }
+            }
+            $row['is_claimed'] = $is_claimed;
+            $row['claimed_by_warden_name'] = $row['claimed_by_warden_name'] ?? $row['claimed_by_username'] ?? '';
+            $row['claimed_at'] = $row['claimed_at'] ?? '';
+            
+            if (in_array($row['request_status'] ?? $row['status'], ['pending', 'claimed', 'under_review'])) {
                 $reg_no = $row['student_reg_no'];
-                $mock_payments = [
-                    '192425398' => [
+                $stmtPay = $conn->prepare("SELECT * FROM vstudy_payments WHERE roll_number = ? LIMIT 0,1");
+                $stmtPay->bind_param("s", $reg_no);
+                $stmtPay->execute();
+                $payResult = $stmtPay->get_result();
+                
+                if ($payResult && $payResult->num_rows > 0) {
+                    $payRow = $payResult->fetch_assoc();
+                    $hPref = $payRow['hostel_preference'] ?? 'Girls';
+                    $hType = (stripos($hPref, 'girls') !== false || stripos($payRow['gender'], 'female') !== false) ? 'Girls' : 'Boys';
+                    $facility = (stripos($hPref, 'non ac') !== false || stripos($hPref, 'non-ac') !== false) ? 'Non AC' : 'AC';
+                    
+                    $row['director_paid_data'] = [
+                        'hostel_type' => $hType,
+                        'hostel_name' => $payRow['hostel_name'] ?? $hType,
+                        'room_type' => $hPref,
+                        'facility' => $facility,
+                        'paid_amount' => (double)($payRow['paid_amount'] ?? 45000.00),
+                        'fee_paid' => (strtolower($payRow['payment_status'] ?? '') == 'paid'),
+                        'institution' => $payRow['campus'] ?? 'Saveetha School of Engineering',
+                        'student_name' => $payRow['student_name']
+                    ];
+                } else {
+                    $row['director_paid_data'] = [
                         'hostel_type' => 'Girls',
+                        'hostel_name' => 'Vaigai Hostel',
                         'room_type' => 'AC - B ATTACHED (6 IN 1)',
                         'facility' => 'AC',
                         'paid_amount' => 68000.00,
                         'fee_paid' => true,
-                        'institution' => 'Saveetha School of Engineering'
-                    ],
-                    '192413034' => [
-                        'hostel_type' => 'Girls',
-                        'room_type' => 'AC - B ATTACHED (4 IN 1)',
-                        'facility' => 'AC',
-                        'paid_amount' => 80000.00,
-                        'fee_paid' => true,
-                        'institution' => 'Saveetha School of Engineering'
-                    ],
-                    '192315010' => [
-                        'hostel_type' => 'Girls',
-                        'room_type' => 'NON AC (6 IN 1)',
-                        'facility' => 'Non AC',
-                        'paid_amount' => 45000.00,
-                        'fee_paid' => true,
-                        'institution' => 'Saveetha School of Engineering'
-                    ]
-                ];
-                $row['director_paid_data'] = $mock_payments[$reg_no] ?? [
-                    'hostel_type' => 'Girls',
-                    'room_type' => 'AC - B ATTACHED (6 IN 1)',
-                    'facility' => 'AC',
-                    'paid_amount' => 68000.00,
-                    'fee_paid' => true,
-                    'institution' => 'Saveetha Institute of Medical and Technical Sciences'
-                ];
+                        'institution' => 'Saveetha Institute of Medical and Technical Sciences'
+                    ];
+                }
             }
             
             $requests[] = $row;
         }
 
-        echo json_encode(["success" => true, "requests" => $requests]);
+        echo json_encode(["success" => true, "requests" => $requests, "is_main_warden" => $is_main_warden, "role_scope" => ($is_main_warden ? 'main_warden' : 'hostel_warden')]);
 
     } elseif ($method === 'POST') {
-        if (!isset($data) || empty($data)) {
-            $data = json_decode(file_get_contents('php://input'), true);
+        if (isset($GLOBALS['mock_input'])) {
+            $data = $GLOBALS['mock_input'];
+        } else {
+            $raw_input = file_get_contents("php://input");
+            $data = json_decode($raw_input, true);
         }
-        $action = $data['action'] ?? ''; // approve, reject, waitlist
+        $action = $data['action'] ?? '';
         $request_id = (int)($data['allocation_id'] ?? 0);
-        $warden_id = (int)($data['warden_id'] ?? 0);
 
-        if ($action === 'approve') {
-            $room_id = (int)$data['room_id'];
+        if ($request_id <= 0) {
+            throw new Exception("Allocation ID is required.");
+        }
+
+        // Fetch request info and enforce strict server-side hostel mapping block
+        $check_stmt = $conn->prepare("SELECT paid_hostel_name, status, request_status, claimed_by_username, claimed_at, student_id, selected_room_id, selected_bed_number FROM allocation_requests WHERE id = ?");
+        $check_stmt->bind_param("i", $request_id);
+        $check_stmt->execute();
+        $req = $check_stmt->get_result()->fetch_assoc();
+        
+        if (!$req) {
+            throw new Exception("Allocation request not found.");
+        }
+        
+        // 403 Forbidden cross-hostel protection
+        if (!$is_main_warden && !isHostelNameMatch($assigned_hostel_name, $req['paid_hostel_name'])) {
+            http_response_code(403);
+            echo json_encode(["success" => false, "message" => "Access Denied. You cannot manage requests for this hostel."]);
+            return;
+        }
+
+        // Parse claiming locks status
+        $is_currently_claimed = false;
+        if (!empty($req['claimed_by_username'])) {
+            $claimed_time = strtotime($req['claimed_at']);
+            if (time() - $claimed_time < 900) {
+                $is_currently_claimed = true;
+            }
+        }
+
+        if ($action === 'claim') {
+            // Assert request is still pending (not yet claimed/approved)
+            $cur_rs = $req['request_status'] ?? $req['status'];
+            if (!in_array($cur_rs, ['pending', 'submitted', 'under_review'])) {
+                throw new Exception("Request is not in a claimable state (current status: $cur_rs).");
+            }
             
             $conn->begin_transaction();
             try {
-                // Capacity Guard: SELECT ... FOR UPDATE
-                $lock_query = "SELECT id, total_capacity, occupied_rooms, room_code, hostel_name, building_code, room_type, floor, room_no FROM hostel_rooms WHERE id = ? FOR UPDATE";
+                // Check lock details
+                if ($is_currently_claimed && $req['claimed_by_username'] !== $warden_username) {
+                    if (!$is_main_warden) {
+                        $u_stmt = $conn->prepare("SELECT full_name FROM users WHERE username = ?");
+                        $u_stmt->bind_param("s", $req['claimed_by_username']);
+                        $u_stmt->execute();
+                        $claimed_name = $u_stmt->get_result()->fetch_assoc()['full_name'] ?? $req['claimed_by_username'];
+                        throw new Exception("This request is already being handled by $claimed_name.");
+                    }
+                }
+                
+                $up = $conn->prepare("UPDATE allocation_requests SET claimed_by_username = ?, claimed_at = NOW(), request_status = 'claimed', status = 'under_review' WHERE id = ?");
+                $up->bind_param("si", $warden_username, $request_id);
+                $up->execute();
+                
+                logAudit(
+                    $warden_user_id,
+                    $warden_username,
+                    'warden',
+                    'CLAIM_REQUEST',
+                    'allocation_requests',
+                    null,
+                    ['request_id' => $request_id, 'warden_username' => $warden_username]
+                );
+                
+                $conn->commit();
+                echo json_encode(["success" => true, "message" => "Request successfully claimed."]);
+            } catch (Exception $e) {
+                $conn->rollback();
+                echo json_encode(["success" => false, "message" => $e->getMessage()]);
+            }
+
+        } elseif ($action === 'release_claim') {
+            $conn->begin_transaction();
+            try {
+                if (!empty($req['claimed_by_username']) && $req['claimed_by_username'] !== $warden_username && !$is_main_warden) {
+                    throw new Exception("You cannot release a claim owned by another warden.");
+                }
+                
+                $up = $conn->prepare("UPDATE allocation_requests SET claimed_by_username = NULL, claimed_at = NULL, request_status = 'pending', status = 'under_review' WHERE id = ?");
+                $up->bind_param("i", $request_id);
+                $up->execute();
+                
+                logAudit(
+                    $warden_user_id,
+                    $warden_username,
+                    'warden',
+                    'RELEASE_CLAIM',
+                    'allocation_requests',
+                    null,
+                    ['request_id' => $request_id, 'warden_username' => $warden_username]
+                );
+                
+                $conn->commit();
+                echo json_encode(["success" => true, "message" => "Claim successfully released."]);
+            } catch (Exception $e) {
+                $conn->rollback();
+                echo json_encode(["success" => false, "message" => $e->getMessage()]);
+            }
+
+        } elseif ($action === 'approve') {
+            $room_id = (int)($data['room_id'] ?? 0);
+            $bed_no = isset($data['bed_no']) ? trim($data['bed_no']) : '';
+
+            if ($room_id <= 0 || empty($bed_no)) {
+                throw new Exception("Room ID and Bed Number are required for approval.");
+            }
+            
+            // STRICT DATABASE TRANSACTION AT APPROVAL TIME
+            $conn->begin_transaction();
+            try {
+                // 1. Lock request row and double check claim details
+                $alloc_query = "SELECT student_id, status, claimed_by_username, claimed_at, paid_hostel_name FROM allocation_requests WHERE id = ? FOR UPDATE";
+                $alloc_stmt = $conn->prepare($alloc_query);
+                $alloc_stmt->bind_param("i", $request_id);
+                $alloc_stmt->execute();
+                $alloc_row = $alloc_stmt->get_result()->fetch_assoc();
+                if (!$alloc_row) throw new Exception("Allocation request not found");
+
+                // Verify request belongs to warden's hostel
+                if (!$is_main_warden && !isHostelNameMatch($assigned_hostel_name, $alloc_row['paid_hostel_name'])) {
+                    throw new Exception("Access Denied. Hostel mismatch.");
+                }
+
+                // Verify claim status
+                $is_claimed = false;
+                if (!empty($alloc_row['claimed_by_username'])) {
+                    $c_time = strtotime($alloc_row['claimed_at']);
+                    if (time() - $c_time < 900) {
+                        $is_claimed = true;
+                    }
+                }
+
+                // (Claim check removed — direct approval is now allowed)
+
+                // 2. Lock room row and verify capacity
+                $lock_query = "SELECT id, total_capacity, occupied_rooms, available_rooms, room_code, hostel_name FROM hostel_rooms WHERE id = ? FOR UPDATE";
                 $l_stmt = $conn->prepare($lock_query);
                 $l_stmt->bind_param("i", $room_id);
                 $l_stmt->execute();
                 $room = $l_stmt->get_result()->fetch_assoc();
-                
                 if (!$room) throw new Exception("Room not found");
                 
-                if ($room['occupied_rooms'] >= $room['total_capacity']) {
-                    throw new Exception("Room is already full.");
+                if ($room['available_rooms'] <= 0 || $room['occupied_rooms'] >= $room['total_capacity']) {
+                    throw new Exception("This room/bed is no longer available. Please check availability again.");
                 }
 
-                // Get student_id and request details
-                $alloc_query = "SELECT student_id, allocation_status, allocated_room_id, allocated_bed_no FROM room_allocations WHERE id = $request_id";
-                $alloc_res = $conn->query($alloc_query);
-                if (!$alloc_res || $alloc_res->num_rows === 0) throw new Exception("Allocation request not found");
-                $alloc_row = $alloc_res->fetch_assoc();
-                $sid = $alloc_row['student_id'];
-                $current_alloc_status = $alloc_row['allocation_status'];
-                $suggested_room_id = (int)$alloc_row['allocated_room_id'];
-                $allocated_bed = $alloc_row['allocated_bed_no'] ?? 'B1';
-
-                // Fetch warden details for audit logging
-                $w_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
-                $w_stmt->bind_param("i", $warden_id);
-                $w_stmt->execute();
-                $warden_row = $w_stmt->get_result()->fetch_assoc();
-                $warden_username = $warden_row['username'] ?? 'warden1';
-
-                // Recalculate bed if modified by warden
-                if ($current_alloc_status === 'under_review' && $room_id !== $suggested_room_id) {
-                    $occupied_beds = [];
-                    $b_stmt = $conn->prepare("SELECT bed_no FROM profile WHERE room_allocation = ? AND bed_no IS NOT NULL AND bed_no != ''");
-                    $b_stmt->bind_param("s", $room['room_code']);
-                    $b_stmt->execute();
-                    $b_res = $b_stmt->get_result();
-                    while ($b_row = $b_res->fetch_assoc()) {
-                        $occupied_beds[] = strtoupper(trim($b_row['bed_no']));
-                    }
-
-                    $a_stmt = $conn->prepare("
-                        SELECT allocated_bed_no 
-                        FROM room_allocations 
-                        WHERE allocated_room_id = ? 
-                          AND allocation_status IN ('under_review', 'payment_pending', 'approved')
-                          AND id != ?
-                    ");
-                    $a_stmt->bind_param("ii", $room_id, $request_id);
-                    $a_stmt->execute();
-                    $a_res = $a_stmt->get_result();
-                    while ($a_row = $a_res->fetch_assoc()) {
-                        if (!empty($a_row['allocated_bed_no'])) {
-                            $occupied_beds[] = strtoupper(trim($a_row['allocated_bed_no']));
-                        }
-                    }
-
-                    $allocated_bed = "B1";
-                    for ($i = 1; $i <= (int)$room['total_capacity']; $i++) {
-                        $candidate = "B" . $i;
-                        if (!in_array($candidate, $occupied_beds)) {
-                            $allocated_bed = $candidate;
-                            break;
-                        }
-                    }
-
-                    // Warden Modifies Request Logging
-                    $old_room_type = '';
-                    $new_room_type = $room['room_type'] ?? '';
-                    if ($suggested_room_id > 0) {
-                        $old_r_stmt = $conn->prepare("SELECT room_type FROM hostel_rooms WHERE id = ?");
-                        $old_r_stmt->bind_param("i", $suggested_room_id);
-                        $old_r_stmt->execute();
-                        $old_r_res = $old_r_stmt->get_result()->fetch_assoc();
-                        $old_room_type = $old_r_res['room_type'] ?? '';
-
-                        if (!empty($old_room_type) && !empty($new_room_type) && $old_room_type !== $new_room_type) {
-                            logAudit(
-                                $warden_id,
-                                $warden_username,
-                                'warden',
-                                'MODIFY_ALLOCATION_REQUEST',
-                                'Room Allocation',
-                                ['room_type' => $old_room_type],
-                                ['room_type' => $new_room_type]
-                            );
-                        }
-                    }
+                // 3. Verify exact bed is free
+                $bc_stmt = $conn->prepare("SELECT id FROM allocation_requests WHERE selected_room_id = ? AND selected_bed_number = ? AND status = 'approved' FOR UPDATE");
+                $bc_stmt->bind_param("is", $room_id, $bed_no);
+                $bc_stmt->execute();
+                if ($bc_stmt->get_result()->fetch_assoc()) {
+                    throw new Exception("This room/bed is no longer available. Please check availability again.");
                 }
-
-                // 1. Update Room Occupancy (Direct occupancy increment)
-                $conn->query("UPDATE hostel_rooms SET occupied_rooms = occupied_rooms + 1, blocked_by = NULL, blocked_until = NULL WHERE id = $room_id");
-
-                // 2. Update Profile & Users Table
-                $now = new DateTime();
-                $now_str = $now->format('Y-m-d H:i:s');
-                $check_in_date = $now->format('Y-m-d');
-                $renewal_date = (clone $now)->modify('+365 days')->format('Y-m-d');
                 
-                $room_code = $room['room_code'];
-                $h_name = $room['hostel_name'];
+                $sid = (int)$alloc_row['student_id'];
 
-                $u_stmt = $conn->prepare("SELECT username, full_name, email, phone_number, Institution, fcm_token FROM users WHERE id = ?");
-                $u_stmt->bind_param("i", $sid);
-                $u_stmt->execute();
-                $u_row = $u_stmt->get_result()->fetch_assoc();
+                // 4. Get old room details from current profile to handle vacancy release and history logging
+                $u_stmt2 = $conn->prepare("SELECT username, full_name, email, phone_number, Institution, fcm_token FROM users WHERE id = ?");
+                $u_stmt2->bind_param("i", $sid);
+                $u_stmt2->execute();
+                $u_row = $u_stmt2->get_result()->fetch_assoc();
                 
                 $reg_no = $u_row['username'] ?? '';
                 $f_name = $u_row['full_name'] ?? '';
                 $u_email = $u_row['email'] ?? '';
                 $u_phone = $u_row['phone_number'] ?? '';
 
+                $old_room_id = 0;
+                $old_room_allocation = '';
+                $old_check_in_date = '';
+                
                 if (!empty($reg_no)) {
-                    $p_check = $conn->prepare("SELECT id FROM profile WHERE reg_no = ?");
+                    $p_check = $conn->prepare("SELECT id, current_room_id, room_allocation, check_in_date FROM profile WHERE reg_no = ?");
                     $p_check->bind_param("s", $reg_no);
                     $p_check->execute();
-                    $p_exists = $p_check->get_result()->fetch_assoc();
+                    $p_row = $p_check->get_result()->fetch_assoc();
 
-                    if (!$p_exists) {
-                        $p_ins = $conn->prepare("INSERT INTO profile (reg_no, full_name, email, personal_phone, institution) VALUES (?, ?, ?, ?, 'Saveetha Institute of Medical and Technical Sciences')");
+                    if ($p_row) {
+                        $old_room_id = (int)($p_row['current_room_id'] ?? 0);
+                        $old_room_allocation = $p_row['room_allocation'] ?? '';
+                        $old_check_in_date = $p_row['check_in_date'] ?? '';
+                    } else {
+                        // Create profile if it doesn't exist
+                        $p_ins = $conn->prepare("INSERT INTO profile (reg_no, full_name, email, personal_phone, institution) VALUES (?, ?, ?, ?, 'Saveetha School of Engineering')");
                         $p_ins->bind_param("ssss", $reg_no, $f_name, $u_email, $u_phone);
                         $p_ins->execute();
                     }
                 }
+
+                // 5. If student had an existing room, release vacancy and log history
+                $now = new DateTime();
+                $now_str = $now->format('Y-m-d H:i:s');
+                $check_in_date = $now->format('Y-m-d');
+                $renewal_date = (clone $now)->modify('+365 days')->format('Y-m-d');
+
+                // Try to get check-in date from payment date to make check-in date more accurate
+                $pay_stmt = $conn->prepare("SELECT paid_date, academic_year FROM vstudy_payments WHERE roll_number = ? ORDER BY id DESC LIMIT 1");
+                $pay_stmt->bind_param("s", $reg_no);
+                $pay_stmt->execute();
+                $pay_res = $pay_stmt->get_result()->fetch_assoc();
+                if ($pay_res && !empty($pay_res['paid_date'])) {
+                    $pay_time = strtotime($pay_res['paid_date']);
+                    if ($pay_time > 0) {
+                        $check_in_date = date('Y-m-d', $pay_time);
+                        $years = 1;
+                        if (stripos($pay_res['academic_year'], '2') !== false || stripos($pay_res['academic_year'], 'two') !== false) {
+                            $years = 2;
+                        } elseif (stripos($pay_res['academic_year'], '3') !== false || stripos($pay_res['academic_year'], 'three') !== false) {
+                            $years = 3;
+                        }
+                        $renewal_date = date('Y-m-d', strtotime($check_in_date . " +$years years"));
+                    }
+                }
+
+                if ($old_room_id > 0 && $old_room_id !== $room_id) {
+                    // Release occupancy in the old room
+                    $conn->query("UPDATE hostel_rooms SET occupied_rooms = GREATEST(0, occupied_rooms - 1), available_rooms = LEAST(total_capacity, available_rooms + 1) WHERE id = $old_room_id");
+
+                    // Create history logging table if not exists
+                    $conn->query("
+                        CREATE TABLE IF NOT EXISTS room_allocations (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            student_id INT,
+                            reg_number VARCHAR(100),
+                            student_name VARCHAR(100),
+                            old_room_code VARCHAR(100),
+                            old_room_id INT,
+                            check_in_date DATE,
+                            check_out_date DATE,
+                            allocated_by VARCHAR(100),
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ");
+
+                    // Insert historical log entry
+                    $hist_stmt = $conn->prepare("INSERT INTO room_allocations (student_id, reg_number, student_name, old_room_code, old_room_id, check_in_date, check_out_date, allocated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    $checkout_date = $check_in_date;
+                    $hist_stmt->bind_param("isssisss", $sid, $reg_no, $f_name, $old_room_allocation, $old_room_id, $old_check_in_date, $checkout_date, $warden_username);
+                    $hist_stmt->execute();
+                }
+
+                // 6. Update room occupancy for the new room
+                $conn->query("UPDATE hostel_rooms SET occupied_rooms = occupied_rooms + 1, available_rooms = available_rooms - 1 WHERE id = $room_id");
+
+                // 7. Update profile allocation info
+                $room_code = $room['room_code'];
+                $h_name = $room['hostel_name'];
 
                 $up_profile = $conn->prepare("
                     UPDATE profile p 
                     JOIN users u ON p.reg_no = u.username 
                     SET p.current_room_id = ?, p.room_allocation = ?, p.hostel_name = ?, p.check_in_date = ?, p.renewal_date = ?, p.valid_from = ?, p.valid_to = ?, p.bed_no = ? 
                     WHERE u.id = ?");
-                $up_profile->bind_param("isssssssi", $room_id, $room_code, $h_name, $check_in_date, $renewal_date, $check_in_date, $renewal_date, $allocated_bed, $sid);
+                $up_profile->bind_param("isssssssi", $room_id, $room_code, $h_name, $check_in_date, $renewal_date, $check_in_date, $renewal_date, $bed_no, $sid);
                 $up_profile->execute();
 
-                // 3. (Legacy new_room_booking table writes successfully removed)
+                // 8. Sync details to users table (RoomId, RoomType, HostelName, HostelType)
+                $new_room_type = $room['room_type'] ?? '';
+                $new_hostel_type = (stripos($h_name, 'girls') !== false || stripos($room['hostel_name'], 'ponni') !== false || stripos($room['hostel_name'], 'vaigai') !== false) ? 'Girls' : 'Boys';
+                $up_user = $conn->prepare("UPDATE users SET RoomId = ?, RoomType = ?, HostelName = ?, HostelType = ? WHERE id = ?");
+                $up_user->bind_param("ssssi", $room_code, $new_room_type, $h_name, $new_hostel_type, $sid);
+                $up_user->execute();
 
-                // 4. Insert Payment Record
-                $amount = 68000.00; // Standard room allocation fee
+                // 6. Create payments record
+                $amount = 68000.00;
                 $receipt_number = "RCP-" . time() . "-" . rand(1000, 9999);
                 $description = "Room Allocation Fee - Room ID " . $room_id;
-                
                 $gateway_response = json_encode(['gateway' => 'Internal/Warden', 'status' => 'SUCCESS']);
                 $ip_address = getClientIp();
                 $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at, student_name, reg_number, gateway_response, user_id, ip_address) VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)");
-                $ins_pay->bind_param("idsssssssis", $sid, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $sid, $ip_address);
+                $ins_pay->bind_param("idssssssis", $sid, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $sid, $ip_address);
                 $ins_pay->execute();
 
-                // 5. Update room_allocations status to 'approved' and paid_at
-                $up_alloc = $conn->prepare("UPDATE room_allocations SET allocation_status = 'approved', allocated_room_id = ?, allocated_bed_no = ?, payment_deadline = NULL, approved_by = ?, approved_at = ?, paid_at = ? WHERE id = ?");
-                $up_alloc->bind_param("issssi", $room_id, $allocated_bed, $warden_id, $now_str, $now_str, $request_id);
+                // 7. Update request_status to 'approved' and save room/bed/approval details
+                $up_alloc = $conn->prepare("UPDATE allocation_requests SET request_status = 'approved', status = 'approved', selected_room_id = ?, selected_bed_number = ?, selected_room_number = ?, payment_deadline = NULL, approved_by_username = ?, approved_at = ?, paid_at = ?, claimed_by_username = NULL, claimed_at = NULL WHERE id = ?");
+                $room_no_for_save = $room['room_code'] ?? '';
+                $up_alloc->bind_param("isssssi", $room_id, $bed_no, $room_no_for_save, $warden_username, $now_str, $now_str, $request_id);
                 $up_alloc->execute();
 
-                // 6. Cancel Sibling Preferences
+                // 8. Cancel sibling preferences
                 $conn->query("UPDATE room_preferences SET status = 'cancelled' WHERE student_id = $sid AND status = 'submitted'");
 
-                // Audit Logging for Warden Approving Request
-                $hostel_val = $room['building_code'] ?? $room['hostel_name'] ?? 'Vaigai Hostel';
+                // 9. Write audit log
                 logAudit(
-                    $warden_id,
-                    $warden_username,
-                    'warden',
-                    'APPROVE_ALLOCATION_REQUEST',
-                    'Room Allocation',
-                    null,
-                    [
-                        'student_reg_no' => $reg_no,
-                        'hostel' => $hostel_val,
-                        'room_type' => $room['room_type'] ?? '4 IN 1 AC',
-                        'approved_by' => $warden_username,
-                        'approval_time' => $now_str
-                    ]
-                );
-
-                // Audit Logging for Room Allocated Completion
-                logAudit(
-                    $warden_id,
+                    $warden_user_id,
                     $warden_username,
                     'warden',
                     'ROOM_ALLOCATED',
                     'Room Allocation',
                     null,
                     [
-                        'student_reg_no' => $reg_no,
-                        'hostel' => $hostel_val,
-                        'floor' => $room['floor'] ?? '',
-                        'room_no' => $room['room_no'] ?? '',
-                        'bed_no' => $allocated_bed,
-                        'allocated_by' => $warden_username,
-                        'allocated_at' => $now_str
+                        'student' => $f_name,
+                        'registration_number' => $reg_no,
+                        'room_code' => $room_code,
+                        'bed' => $bed_no,
+                        'warden' => $warden_username,
+                        'date' => $check_in_date,
+                        'time' => $now->format('H:i:s')
                     ]
                 );
 
                 $conn->commit();
 
-                // Send push notification to student
+                // Send FCM notification
                 try {
                     if ($u_row && !empty($u_row['fcm_token'])) {
-                        require_once '../send_notification.php';
+                        require_once __DIR__ . '/../send_notification.php';
                         $title = "Room Allocation Completed!";
                         $body = "Your room allocation request has been approved and finalized. Room $room_code is now assigned to you!";
-                        sendFCM($u_row['fcm_token'], $title, $body, (string)$request_id, (string)$warden_id, 'Warden', $body, 'room_allocation_completed');
+                        sendFCM($u_row['fcm_token'], $title, $body, (string)$request_id, (string)$warden_user_id, 'Warden', $body, 'room_allocation_completed');
                     }
                 } catch (Exception $e) {}
 
-                echo json_encode(["success" => true, "message" => "Allocation approved and finalized successfully. Room allocated directly!"]);
+                echo json_encode(["success" => true, "message" => "Allocation approved and finalized successfully."]);
 
             } catch (Exception $e) {
                 $conn->rollback();
@@ -394,95 +619,163 @@ try {
             }
 
         } elseif ($action === 'reject') {
-            // Get student ID to send rejection notification
-            $sid_query = $conn->query("SELECT student_id FROM room_allocations WHERE id = $request_id");
-            if ($sid_query && $sid_row = $sid_query->fetch_assoc()) {
-                $sid = $sid_row['student_id'];
-                $conn->query("UPDATE room_allocations SET allocation_status = 'rejected' WHERE id = $request_id");
+            $conn->begin_transaction();
+            try {
+                $sid = (int)$req['student_id'];
                 
-                // Audit Logging for Warden Rejects Request
-                try {
-                    // Fetch student registration number
-                    $student_stmt = $conn->prepare("SELECT username, fcm_token FROM users WHERE id = ?");
-                    $student_stmt->bind_param("i", $sid);
-                    $student_stmt->execute();
-                    $student_res = $student_stmt->get_result()->fetch_assoc();
-                    $student_reg = $student_res['username'] ?? '';
-                    $fcm_token = $student_res['fcm_token'] ?? '';
-
-                    // Fetch warden details
-                    $w_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
-                    $w_stmt->bind_param("i", $warden_id);
-                    $w_stmt->execute();
-                    $warden_row = $w_stmt->get_result()->fetch_assoc();
-                    $warden_username = $warden_row['username'] ?? 'warden1';
-
-                    $reason = !empty($data['reason']) ? $data['reason'] : (!empty($data['remarks']) ? $data['remarks'] : "No vacancies available");
-                    $timestamp = date('Y-m-d H:i:s');
-
-                    logAudit(
-                        $warden_id,
-                        $warden_username,
-                        'warden',
-                        'REJECT_ALLOCATION_REQUEST',
-                        'Room Allocation',
-                        null,
-                        [
-                            'student_reg_no' => $student_reg,
-                            'reason' => $reason,
-                            'rejected_by' => $warden_username,
-                            'timestamp' => $timestamp
-                        ]
-                    );
-                } catch (Exception $e) {
-                    error_log("Failed to log REJECT_ALLOCATION_REQUEST: " . $e->getMessage());
-                }
+                $conn->query("UPDATE allocation_requests SET request_status = 'rejected', status = 'rejected', claimed_by_username = NULL, claimed_at = NULL WHERE id = $request_id");
                 
+                $student_stmt = $conn->prepare("SELECT username, fcm_token FROM users WHERE id = ?");
+                $student_stmt->bind_param("i", $sid);
+                $student_stmt->execute();
+                $student_res = $student_stmt->get_result()->fetch_assoc();
+                $student_reg = $student_res['username'] ?? '';
+                $fcm_token = $student_res['fcm_token'] ?? '';
+
+                $reason = !empty($data['reason']) ? $data['reason'] : (!empty($data['remarks']) ? $data['remarks'] : "No vacancies available");
+                $timestamp = date('Y-m-d H:i:s');
+
+                logAudit(
+                    $warden_user_id,
+                    $warden_username,
+                    'warden',
+                    'REJECT_ALLOCATION_REQUEST',
+                    'Room Allocation',
+                    null,
+                    [
+                        'student_reg_no' => $student_reg,
+                        'reason' => $reason,
+                        'rejected_by' => $warden_username,
+                        'timestamp' => $timestamp
+                    ]
+                );
+
+                $conn->commit();
+
                 try {
                     if (!empty($fcm_token)) {
-                        require_once '../send_notification.php';
+                        require_once __DIR__ . '/../send_notification.php';
                         $title = "Room Allocation Rejected";
                         $body = "Your room allocation request has been rejected by the warden.";
                         sendFCM($fcm_token, $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation_rejected');
                     }
                 } catch (Exception $e) {}
+
+                echo json_encode(["success" => true, "message" => "Allocation rejected successfully."]);
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
-            echo json_encode(["success" => true, "message" => "Allocation rejected"]);
+
         } elseif ($action === 'waitlist') {
-            // Get student ID to send waitlisted notification
-            $sid_query = $conn->query("SELECT student_id FROM room_allocations WHERE id = $request_id");
-            if ($sid_query && $sid_row = $sid_query->fetch_assoc()) {
-                $sid = $sid_row['student_id'];
-                $conn->query("UPDATE room_allocations SET allocation_status = 'waitlisted' WHERE id = $request_id");
+            $conn->begin_transaction();
+            try {
+                $sid = (int)$req['student_id'];
+                $conn->query("UPDATE allocation_requests SET request_status = 'cancelled', status = 'waitlisted', claimed_by_username = NULL, claimed_at = NULL WHERE id = $request_id");
                 
+                $student_stmt = $conn->prepare("SELECT fcm_token FROM users WHERE id = ?");
+                $student_stmt->bind_param("i", $sid);
+                $student_stmt->execute();
+                $student_row = $student_stmt->get_result()->fetch_assoc();
+
+                logAudit(
+                    $warden_user_id,
+                    $warden_username,
+                    'warden',
+                    'WAITLIST_ALLOCATION_REQUEST',
+                    'Room Allocation',
+                    null,
+                    ['request_id' => $request_id, 'warden_username' => $warden_username]
+                );
+
+                $conn->commit();
+
                 try {
-                    $student_stmt = $conn->prepare("SELECT fcm_token FROM users WHERE id = ?");
-                    $student_stmt->bind_param("i", $sid);
-                    $student_stmt->execute();
-                    $student_row = $student_stmt->get_result()->fetch_assoc();
-                    
                     if ($student_row && !empty($student_row['fcm_token'])) {
-                        require_once '../send_notification.php';
+                        require_once __DIR__ . '/../send_notification.php';
                         $title = "Room Allocation Waitlisted";
                         $body = "Your room allocation request has been waitlisted by the warden.";
                         sendFCM($student_row['fcm_token'], $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation_waitlisted');
                     }
                 } catch (Exception $e) {}
+
+                echo json_encode(["success" => true, "message" => "Allocation waitlisted successfully."]);
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
-            echo json_encode(["success" => true, "message" => "Allocation waitlisted"]);
-        } elseif ($action === 'release_room') {
-            // Revert back to submitted (pending) state
-            $conn->query("UPDATE room_allocations SET 
-                            allocation_status = 'submitted', 
-                            allocated_room_id = NULL, 
-                            payment_deadline = NULL,
-                            approved_by = NULL,
-                            approved_at = NULL 
-                          WHERE id = $request_id");
-            echo json_encode(["success" => true, "message" => "Room released. Request is now pending again."]);
-        } elseif ($action === 'notify_conflict') {
-            $conn->query("UPDATE room_allocations SET notified_of_conflict = 1 WHERE id = $request_id");
-            echo json_encode(["success" => true, "message" => "Student has been notified of the conflict successfully!"]);
+
+        } elseif ($action === 'deallocate') {
+            $conn->begin_transaction();
+            try {
+                $sid = $req['student_id'];
+                $room_id = (int)$req['selected_room_id'];
+                $allocated_bed = $req['selected_bed_number'];
+                
+                $u_stmt = $conn->prepare("SELECT username, full_name FROM users WHERE id = ?");
+                $u_stmt->bind_param("i", $sid);
+                $u_stmt->execute();
+                $u_row = $u_stmt->get_result()->fetch_assoc();
+                $reg_no = $u_row['username'] ?? '';
+                $f_name = $u_row['full_name'] ?? '';
+                
+                $room_code = '';
+                if ($room_id > 0) {
+                    $r_stmt = $conn->prepare("SELECT room_code, total_capacity, occupied_rooms FROM hostel_rooms WHERE id = ?");
+                    $r_stmt->bind_param("i", $room_id);
+                    $r_stmt->execute();
+                    $r_row = $r_stmt->get_result()->fetch_assoc();
+                    $room_code = $r_row['room_code'] ?? '';
+                }
+                
+                if ($room_id > 0) {
+                    $conn->query("UPDATE hostel_rooms SET occupied_rooms = GREATEST(0, occupied_rooms - 1), available_rooms = LEAST(total_capacity, available_rooms + 1) WHERE id = $room_id");
+                }
+                
+                $up_profile = $conn->prepare("
+                    UPDATE profile p 
+                    JOIN users u ON p.reg_no = u.username 
+                    SET p.current_room_id = NULL, p.room_allocation = NULL, p.hostel_name = NULL, 
+                        p.check_in_date = NULL, p.renewal_date = NULL, p.valid_from = NULL, p.valid_to = NULL, p.bed_no = NULL 
+                    WHERE u.id = ?");
+                $up_profile->bind_param("i", $sid);
+                $up_profile->execute();
+                
+                $up_alloc = $conn->prepare("UPDATE allocation_requests SET request_status = 'pending', status = 'under_review', selected_room_id = NULL, selected_bed_number = NULL, selected_room_number = NULL, approved_by_username = NULL, approved_at = NULL, paid_at = NULL, claimed_by_username = NULL, claimed_at = NULL WHERE id = ?");
+                $up_alloc->bind_param("i", $request_id);
+                $up_alloc->execute();
+                
+                $now = new DateTime();
+                $date_str = $now->format('Y-m-d');
+                $time_str = $now->format('H:i:s');
+                $reason = !empty($data['reason']) ? $data['reason'] : "Administrative Deallocation";
+                
+                logAudit(
+                    $warden_user_id,
+                    $warden_username,
+                    'warden',
+                    'ROOM_DEALLOCATED',
+                    'Room Allocation',
+                    null,
+                    [
+                        'student' => $f_name,
+                        'registration_number' => $reg_no,
+                        'previous_room_code' => $room_code,
+                        'previous_bed' => $allocated_bed,
+                        'warden' => $warden_username,
+                        'reason' => $reason,
+                        'date' => $date_str,
+                        'time' => $time_str
+                    ]
+                );
+                
+                $conn->commit();
+                echo json_encode(["success" => true, "message" => "Student deallocated successfully. Request returned to queue."]);
+                
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
+            }
         }
     }
 

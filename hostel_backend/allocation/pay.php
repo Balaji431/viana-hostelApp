@@ -34,7 +34,7 @@ try {
 
     try {
         // 1. Lock allocation record
-        $stmt = $conn->prepare("SELECT * FROM room_allocations WHERE id = ? FOR UPDATE");
+        $stmt = $conn->prepare("SELECT * FROM allocation_requests WHERE id = ? FOR UPDATE");
         $stmt->bind_param("i", $allocation_id);
         $stmt->execute();
         $allocation = $stmt->get_result()->fetch_assoc();
@@ -42,8 +42,8 @@ try {
         if (!$allocation) throw new Exception("Allocation request not found");
         
         // 2. Verify status and deadline
-        if ($allocation['allocation_status'] !== 'payment_pending') {
-            throw new Exception("Allocation is not in payment pending state (Current: " . $allocation['allocation_status'] . ")");
+        if ($allocation['status'] !== 'payment_pending') {
+            throw new Exception("Allocation is not in payment pending state (Current: " . $allocation['status'] . ")");
         }
 
         $now = new DateTime();
@@ -52,14 +52,14 @@ try {
         if ($now > $deadline) {
             // Logic for expiration should ideally be handled by a cron, 
             // but we check it here too for safety.
-            $conn->query("UPDATE room_allocations SET allocation_status = 'payment_expired' WHERE id = $allocation_id");
-            $conn->query("UPDATE hostel_rooms SET blocked_by = NULL, blocked_until = NULL WHERE id = " . $allocation['allocated_room_id']);
+            $conn->query("UPDATE allocation_requests SET status = 'payment_expired' WHERE id = $allocation_id");
+            $conn->query("UPDATE hostel_rooms SET blocked_by = NULL, blocked_until = NULL WHERE id = " . $allocation['selected_room_id']);
             $conn->commit();
             throw new Exception("Payment deadline has expired");
         }
 
         $student_id = $allocation['student_id'];
-        $room_id = $allocation['allocated_room_id'];
+        $room_id = $allocation['selected_room_id'];
 
         // 3. Update Room Occupancy
         $conn->query("UPDATE hostel_rooms SET occupied_rooms = occupied_rooms + 1, blocked_by = NULL, blocked_until = NULL WHERE id = $room_id");
@@ -118,11 +118,11 @@ try {
         $ip_address = getClientIp();
         $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at, student_name, reg_number, gateway_response, user_id, ip_address) VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)");
         $now_str = $now->format('Y-m-d H:i:s');
-        $ins_pay->bind_param("idsssssssis", $student_id, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $student_id, $ip_address);
+        $ins_pay->bind_param("idssssssis", $student_id, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $student_id, $ip_address);
         $ins_pay->execute();
 
         // 6. Finalize Allocation Status
-        $up_alloc = $conn->prepare("UPDATE room_allocations SET allocation_status = 'approved', paid_at = ? WHERE id = ?");
+        $up_alloc = $conn->prepare("UPDATE allocation_requests SET status = 'approved', request_status = 'approved', paid_at = ? WHERE id = ?");
         $up_alloc->bind_param("si", $now_str, $allocation_id);
         $up_alloc->execute();
 
@@ -150,7 +150,7 @@ try {
 
         // Audit Logging for Room Allocation Completion
         $hostel_val = $room_info['building_code'] ?? $room_info['hostel_name'] ?? 'Vaigai Hostel';
-        $allocated_bed = $allocation['allocated_bed_no'] ?? 'B1';
+        $allocated_bed = $allocation['selected_bed_number'] ?? 'B1';
         logAudit(
             $student_id,
             $reg_no,

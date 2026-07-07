@@ -52,7 +52,7 @@ class _WardenRoomChangeRequestsScreenState extends State<WardenRoomChangeRequest
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Request Details', style: TextStyle(fontFamily: 'Georgia', fontWeight: FontWeight.bold)),
+        title: const Text('Request Details', style: TextStyle(fontFamily: 'Lato', fontWeight: FontWeight.bold)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

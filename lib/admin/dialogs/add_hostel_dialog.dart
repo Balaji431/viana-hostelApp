@@ -29,13 +29,18 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
   bool _isEditMode = false;
 
   final List<Map<String, String>> _hostelsList = [
-    {'name': 'KAVERI HOSTEL', 'code': 'T12'},
-    {'name': 'KRISHNA HOSTEL', 'code': 'T-30'},
-    {'name': 'NOYYAL HOSTEL', 'code': 'T22'},
-    {'name': 'PALAR HOSTEL', 'code': 'T10'},
-    {'name': 'PONNI HOSTEL', 'code': 'T09'},
-    {'name': 'SIRUVANI HOSTEL', 'code': 'T14'},
-    {'name': 'VAIGAI HOSTEL', 'code': 'T32'},
+    {'name': 'Kaveri Hostel (T12)', 'code': 'T12'},
+    {'name': 'Kaveri Hostel (T-12)', 'code': 'T-12'},
+    {'name': 'Krishna Hostel', 'code': 'T-30'},
+    {'name': 'Noyyal Hostel', 'code': 'T22'},
+    {'name': 'Palar Hostel', 'code': 'T10'},
+    {'name': 'Ponni Hostel', 'code': 'T09'},
+    {'name': 'Siruvani Hostel', 'code': 'T-14'},
+    {'name': 'Vaigai Hostel', 'code': 'T-32'},
+    {'name': 'Porunai Hostel (4F - 8F )', 'code': 'T-19'},
+    {'name': 'Stunners Den', 'code': 'P10'},
+    {'name': 'Radiance Inn (P-05)', 'code': 'P-05'},
+    {'name': 'Max Fax', 'code': 'P05'},
   ];
 
   List<Map<String, dynamic>> _externalRoomTypes = [];
@@ -155,7 +160,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
   Future<void> _fetchRoomsFromMaster(String buildingCode) async {
     setState(() => _isLoading = true);
     try {
-      final res = await ApiService.getRequest('rooms/fetch_room_master.php?building_code=${Uri.encodeComponent(buildingCode)}');
+      final res = await ApiService.getRequest('rooms/fetch_room_master.php?building_code=${Uri.encodeComponent(buildingCode)}&t=${DateTime.now().millisecondsSinceEpoch}');
       if (res['success'] == true || res['status'] == 'success') {
         final List<dynamic> list = res['data'] ?? [];
         
@@ -185,9 +190,14 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
           final facility = item['room_type'] ?? 'AC';
           final capacity = int.tryParse(item['room_capacity']?.toString() ?? '') ?? _extractCapacity(facility);
           
+          final prefixCode = (buildingCode == 'T-14') ? 'T14' 
+              : ((buildingCode == 'T-12') ? 'T12' 
+              : ((buildingCode == 'P05') ? 'P04' 
+              : ((buildingCode == 'P-05') ? 'P05' 
+              : buildingCode)));
           tempRooms.add({
             'room_number': roomNo,
-            'room_code': '$buildingCode-$floorCode-$wingName-$roomNo',
+            'room_code': '$prefixCode-$floorCode-$wingName-$roomNo',
             'capacity': capacity,
             'floor': floorName,
             'wing': wingName,

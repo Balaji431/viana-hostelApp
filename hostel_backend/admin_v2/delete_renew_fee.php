@@ -20,7 +20,7 @@ try {
     if (isset($data['id'])) {
         $id = intval($data['id']);
 
-        $query = "DELETE FROM renew_fee WHERE id = :id";
+        $query = "DELETE FROM hostel_renew_fee WHERE id = :id";
         $stmt = $db->prepare($query);
         $stmt->bindParam(':id', $id);
 

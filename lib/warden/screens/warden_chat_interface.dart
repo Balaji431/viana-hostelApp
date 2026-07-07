@@ -427,7 +427,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
               Expanded(
                 child: Text(
                   name, 
-                  style: const TextStyle(fontFamily: 'Georgia', fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  style: const TextStyle(fontFamily: 'Lato', fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),

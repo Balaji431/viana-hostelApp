@@ -20,6 +20,9 @@ class HttpClientWrapper {
     if (ApiService.currentUserRole != null) {
       headers['X-User-Role'] = ApiService.currentUserRole!;
     }
+    if (ApiService.currentToken != null) {
+      headers['Authorization'] = 'Bearer ${ApiService.currentToken!}';
+    }
     return headers;
   }
 

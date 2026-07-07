@@ -17,43 +17,37 @@ try {
 
     $data = json_decode(file_get_contents("php://input"), true);
 
-    if (isset($data['hostel_id']) && isset($data['room_type'])) {
-        $hostel_id = intval($data['hostel_id']);
+    if (isset($data['room_type'])) {
         $room_type = $data['room_type'];
-        $six_month = $data['six_month_amount'] ?? 0;
-        $monthly = $data['monthly_amount'] ?? 0;
-        $facility = $data['facility_description'] ?? '';
-        
-        // Get hostel name for redundancy if needed
-        $hStmt = $db->prepare("SELECT name FROM hostels WHERE id = :hid");
-        $hStmt->bindParam(':hid', $hostel_id);
-        $hStmt->execute();
-        $hRow = $hStmt->fetch(PDO::FETCH_ASSOC);
-        $hostel_name = $hRow ? $hRow['name'] : 'Unknown';
+        $hostel_fee = $data['hostel_fee'] ?? $data['six_month_amount'] ?? 0;
+        $food_fee   = $data['food_fee'] ?? 50000;
+        $monthly    = $data['monthly_amount'] ?? 2000;
+        $facility   = $data['facility_description'] ?? '';
 
-        $query = "INSERT INTO renew_fee (room_type, six_month_amount, monthly_amount, facility_description, hostel_id, hostel_name) 
-                  VALUES (:room_type, :six_month, :monthly, :facility, :hostel_id, :hostel_name)";
+        $query = "INSERT INTO hostel_renew_fee (room_type, hostel_fee, food_fee, monthly_amount, facility_description)
+                  VALUES (:room_type, :hostel_fee, :food_fee, :monthly, :facility)
+                  ON DUPLICATE KEY UPDATE hostel_fee = VALUES(hostel_fee), food_fee = VALUES(food_fee), 
+                  monthly_amount = VALUES(monthly_amount), facility_description = VALUES(facility_description)";
         
         $stmt = $db->prepare($query);
-        $stmt->bindParam(':room_type', $room_type);
-        $stmt->bindParam(':six_month', $six_month);
-        $stmt->bindParam(':monthly', $monthly);
-        $stmt->bindParam(':facility', $facility);
-        $stmt->bindParam(':hostel_id', $hostel_id);
-        $stmt->bindParam(':hostel_name', $hostel_name);
+        $stmt->bindParam(':room_type',  $room_type);
+        $stmt->bindParam(':hostel_fee', $hostel_fee);
+        $stmt->bindParam(':food_fee',   $food_fee);
+        $stmt->bindParam(':monthly',    $monthly);
+        $stmt->bindParam(':facility',   $facility);
 
         if ($stmt->execute()) {
             echo json_encode([
-                "status" => "success",
+                "status"  => "success",
                 "success" => true,
                 "message" => "Fee added successfully",
-                "id" => $db->lastInsertId()
+                "id"      => $db->lastInsertId()
             ]);
         } else {
             throw new Exception("Insert failed");
         }
     } else {
-        throw new Exception("Invalid data: hostel_id and room_type are required");
+        throw new Exception("Invalid data: room_type is required");
     }
 } catch (Exception $e) {
     http_response_code(500);

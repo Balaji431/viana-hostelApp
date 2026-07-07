@@ -365,7 +365,7 @@ class _HostelExplorerScreenState extends State<HostelExplorerScreen> {
                           color: Colors.white,
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
-                          fontFamily: 'Playfair Display',
+                          fontFamily: 'Lato',
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -486,7 +486,7 @@ class _HostelDetailSheetState extends State<_HostelDetailSheet> {
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF1A2744),
-                          fontFamily: 'Playfair Display',
+                          fontFamily: 'Lato',
                         ),
                       ),
                       Text(
@@ -684,7 +684,7 @@ class _HostelDetailSheetState extends State<_HostelDetailSheet> {
         context: context,
         builder: (ctx) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Request in Progress', style: TextStyle(fontFamily: 'Playfair Display', fontWeight: FontWeight.bold)),
+          title: const Text('Request in Progress', style: TextStyle(fontFamily: 'Lato', fontWeight: FontWeight.bold)),
           content: const Text('You already have an active room application. Please wait for it to be processed or cancel it from the dashboard before submitting a new one.'),
           actions: [
             ElevatedButton(
@@ -708,7 +708,7 @@ class _HostelDetailSheetState extends State<_HostelDetailSheet> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Confirm Application', style: TextStyle(fontFamily: 'Playfair Display', fontWeight: FontWeight.bold)),
+        title: const Text('Confirm Application', style: TextStyle(fontFamily: 'Lato', fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -168,7 +168,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                         child: Text(
                                           user.userName,
                                           style: const TextStyle(
-                                            fontFamily: 'Georgia',
+                                            fontFamily: 'Lato',
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold,
                                             color: Color(0xFF1B2B48),
@@ -522,7 +522,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
               const Text(
                 'Change Password',
                 style: TextStyle(
-                  fontFamily: 'Georgia',
+                  fontFamily: 'Lato',
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF1B2B48),
@@ -815,7 +815,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                     const Text(
                       'Payment Receipt',
                       style: TextStyle(
-                        fontFamily: 'Georgia',
+                        fontFamily: 'Lato',
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1B2B48),
@@ -841,7 +841,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                 const SizedBox(height: 15),
                 const Text(
                   'Saveetha Hostels',
-                  style: TextStyle(fontFamily: 'Georgia', fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  style: TextStyle(fontFamily: 'Lato', fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
                 ),
                 const Text('Student Hostel', style: TextStyle(fontSize: 14, color: Colors.grey)),
                 const SizedBox(height: 30),

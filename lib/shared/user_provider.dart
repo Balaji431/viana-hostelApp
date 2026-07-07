@@ -54,6 +54,8 @@ class UserProvider with ChangeNotifier {
   int _dashboardRefreshTick = 0;
   
   int? get dbId => _dbId;
+  String? _token;
+  String? get token => _token;
   int get dashboardRefreshTick => _dashboardRefreshTick;
   UserRole get role => _role;
   String get roleName => _roleName; // NEW: Accessor for dynamic role name
@@ -311,6 +313,8 @@ class UserProvider with ChangeNotifier {
     ApiService.currentUserId = userData['id']?.toString();
     ApiService.currentUsername = userData['username']?.toString() ?? userData['register_no']?.toString();
     ApiService.currentUserRole = userData['role']?.toString();
+    _token = userData['token']?.toString();
+    ApiService.currentToken = _token;
 
     // 🔥 SAVE FCM TOKEN TO BACKEND (Works for all users including parents)
     _saveFCMToken();
@@ -428,6 +432,8 @@ class UserProvider with ChangeNotifier {
     ApiService.currentUserId = null;
     ApiService.currentUsername = null;
     ApiService.currentUserRole = null;
+    ApiService.currentToken = null;
+    _token = null;
 
     _isLoggedIn = false;
     AppLogger.currentUserEmail = null;

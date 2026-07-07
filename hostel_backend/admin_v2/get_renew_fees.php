@@ -15,16 +15,9 @@ try {
     $database = new Database();
     $db = $database->getConnection();
 
-    $hostel_id = isset($_GET['hostel_id']) ? intval($_GET['hostel_id']) : null;
-
-    if ($hostel_id) {
-        $query = "SELECT * FROM renew_fee WHERE hostel_id = :hostel_id ORDER BY id ASC";
-        $stmt = $db->prepare($query);
-        $stmt->bindParam(':hostel_id', $hostel_id);
-    } else {
-        $query = "SELECT * FROM renew_fee ORDER BY id ASC";
-        $stmt = $db->prepare($query);
-    }
+    // hostel_renew_fee is a global table (no hostel_id filter needed)
+    $query = "SELECT id, room_type, hostel_fee, food_fee, total_fee, monthly_amount, facility_description, created_at FROM hostel_renew_fee ORDER BY hostel_fee ASC";
+    $stmt = $db->prepare($query);
     
     $stmt->execute();
     $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);

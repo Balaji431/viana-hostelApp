@@ -19,9 +19,9 @@ try {
     // 1. Release expired holds in hostel_rooms (Clean up legacy explorer blocks)
     $release_rooms = "
         UPDATE hostel_rooms r
-        JOIN room_allocations a ON a.allocated_room_id = r.id
+        JOIN allocation_requests a ON a.selected_room_id = r.id
         SET r.blocked_by = NULL, r.blocked_until = NULL
-        WHERE a.allocation_status = 'payment_pending' 
+        WHERE a.status = 'payment_pending' 
         AND a.payment_deadline < NOW()
     ";
     $conn->query($release_rooms);
@@ -29,8 +29,8 @@ try {
     log_msg("Released $affected_rooms legacy room blocks.");
 
     // 2. Fetch all expired allocations
-    $expired_query = "SELECT id, student_id, allocated_room_id FROM room_allocations 
-                      WHERE allocation_status = 'payment_pending' AND payment_deadline < NOW()";
+    $expired_query = "SELECT id, student_id, selected_room_id FROM allocation_requests 
+                      WHERE status = 'payment_pending' AND payment_deadline < NOW()";
     $exp_res = $conn->query($expired_query);
     
     $expired_allocations = [];
@@ -45,7 +45,7 @@ try {
     foreach ($expired_allocations as $alloc) {
         $alloc_id = (int)$alloc['id'];
         $student_id = (int)$alloc['student_id'];
-        $old_room_id = (int)$alloc['allocated_room_id'];
+        $old_room_id = (int)$alloc['selected_room_id'];
         
         log_msg("Processing expired allocation ID $alloc_id for Student ID $student_id (Old Room: $old_room_id)");
         
@@ -77,8 +77,8 @@ try {
             $occupied = (int)$pref['occupied_rooms'];
             
             // Check active holds in this next preference room
-            $hold_query = "SELECT COUNT(*) as hold_count FROM room_allocations 
-                           WHERE allocated_room_id = ? AND allocation_status = 'payment_pending' AND payment_deadline > NOW()";
+            $hold_query = "SELECT COUNT(*) as hold_count FROM allocation_requests 
+                           WHERE selected_room_id = ? AND status = 'payment_pending' AND payment_deadline > NOW()";
             $hold_stmt = $conn->prepare($hold_query);
             $hold_stmt->bind_param("i", $new_room_id);
             $hold_stmt->execute();
@@ -94,9 +94,10 @@ try {
                 $deadline_str = $deadline->format('Y-m-d H:i:s');
                 $now_str = $now->format('Y-m-d H:i:s');
                 
-                $up_query = "UPDATE room_allocations 
-                             SET allocated_room_id = ?, 
-                                 allocation_status = 'payment_pending', 
+                $up_query = "UPDATE allocation_requests 
+                             SET selected_room_id = ?, 
+                                 status = 'payment_pending', 
+                                 request_status = 'approved',
                                  payment_deadline = ?,
                                  approved_by = 1,
                                  approved_at = ?,
@@ -117,8 +118,8 @@ try {
             // No next preferences available or all of them are occupied. Expire request fully.
             log_msg("No remaining preferences available. Expiring allocation completely.");
             
-            $expire_query = "UPDATE room_allocations 
-                             SET allocation_status = 'payment_expired' 
+            $expire_query = "UPDATE allocation_requests 
+                             SET status = 'payment_expired', request_status = 'cancelled' 
                              WHERE id = ?";
             $expire_stmt = $conn->prepare($expire_query);
             $expire_stmt->bind_param("i", $alloc_id);

@@ -446,7 +446,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF01579B),
-                            fontFamily: 'Georgia',
+                            fontFamily: 'Lato',
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -532,7 +532,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1A2744),
-                        fontFamily: 'Georgia',
+                        fontFamily: 'Lato',
                       ),
                     ),
                   ),
@@ -588,7 +588,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1A2744),
-                        fontFamily: 'Georgia',
+                        fontFamily: 'Lato',
                       ),
                     ),
                   ),
@@ -644,7 +644,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1A2744),
-                        fontFamily: 'Georgia',
+                        fontFamily: 'Lato',
                       ),
                     ),
                   ),
@@ -846,7 +846,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF1A2744),
-                      fontFamily: 'Georgia',
+                      fontFamily: 'Lato',
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -1108,7 +1108,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
               fontSize: 24,
               fontWeight: FontWeight.bold,
               color: Color(0xFF2E7D32),
-              fontFamily: 'Georgia',
+              fontFamily: 'Lato',
             ),
           ),
           
@@ -1149,7 +1149,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF1A2744),
-                    fontFamily: 'monospace',
+                    fontFamily: 'Lato',
                   ),
                 ),
               ],
@@ -1261,7 +1261,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF1A2744),
-                    fontFamily: 'Georgia',
+                    fontFamily: 'Lato',
                   ),
                 ),
               ],
@@ -1283,18 +1283,124 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
   }
 
   Widget _buildUpgradeCostRow() {
-    final requestedType = _selectedRoom!.roomType;
-    
-    final requestedTypeData = _roomTypes.firstWhere(
-      (t) => t['id'].toString().trim().toLowerCase() == requestedType.trim().toLowerCase(), 
-      orElse: () => null
-    );
-    
-    if (requestedTypeData != null) {
-      final monthlyAmount = (requestedTypeData['monthly_amount'] as num).toDouble();
-      return _buildDetailRow('Extra Amount', '₹${monthlyAmount.toStringAsFixed(0)}', isHighlighted: true);
+    final user = context.read<UserProvider>();
+    final requestedType = _selectedRoom!.roomType.trim();
+    final currentType  = user.roomType.trim();
+
+    // Find fee data for the requested room type
+    Map<String, dynamic>? reqData;
+    Map<String, dynamic>? curData;
+    for (final t in _roomTypes) {
+      final tName = t['id']?.toString().trim() ?? '';
+      if (tName.toLowerCase() == requestedType.toLowerCase()) reqData = t as Map<String, dynamic>;
+      if (tName.toLowerCase() == currentType.toLowerCase())  curData = t as Map<String, dynamic>;
     }
-    
-    return _buildDetailRow('Extra Amount', 'Calculating...');
+
+    if (reqData == null) {
+      final isLoading = _roomTypes.isEmpty;
+      return Column(
+        children: [
+          _buildDetailRow('Total Amount', isLoading ? 'Loading...' : 'N/A'),
+          const Divider(height: 20, color: Color(0xFFE8E0D5)),
+          _buildDetailRow('Extra Amount', isLoading ? 'Loading...' : 'N/A'),
+        ],
+      );
+    }
+
+    final double reqTotal = (reqData['total_fee'] as num?)?.toDouble() ?? (reqData['hostel_fee'] as num?)?.toDouble() ?? 0.0;
+    final double curTotal = (curData?['total_fee'] as num?)?.toDouble() ?? (curData?['hostel_fee'] as num?)?.toDouble() ?? 0.0;
+    final double extra   = reqTotal - curTotal;
+
+    // Format currency
+    String fmtAmount(double amt) {
+      final abs = amt.abs();
+      final str = abs.toStringAsFixed(0).replaceAllMapped(
+        RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+      return '₹$str';
+    }
+
+    final extraLabel = extra > 0
+        ? '+${fmtAmount(extra)} extra to pay'
+        : extra < 0
+            ? '${fmtAmount(extra.abs())} cheaper'
+            : 'Same price';
+    final extraColor = extra > 0
+        ? const Color(0xFFE53935)
+        : extra < 0
+            ? const Color(0xFF43A047)
+            : const Color(0xFF1A2744);
+
+    return Column(
+      children: [
+        // Total Amount row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Total Amount',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  fmtAmount(reqTotal),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A2744),
+                  ),
+                ),
+                if (reqData['hostel_fee'] != null && reqData['food_fee'] != null)
+                  Text(
+                    'Hostel ${fmtAmount((reqData['hostel_fee'] as num).toDouble())} + Food ${fmtAmount((reqData['food_fee'] as num).toDouble())}',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        const Divider(height: 20, color: Color(0xFFE8E0D5)),
+        // Extra Amount row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Extra Amount',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: extra > 0
+                    ? const Color(0xFFFFEBEE)
+                    : extra < 0
+                        ? const Color(0xFFE8F5E9)
+                        : const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: extra > 0
+                      ? const Color(0xFFEF9A9A)
+                      : extra < 0
+                          ? const Color(0xFFA5D6A7)
+                          : const Color(0xFFD1D5DB),
+                ),
+              ),
+              child: Text(
+                extraLabel,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: extraColor,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }

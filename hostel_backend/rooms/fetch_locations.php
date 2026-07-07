@@ -26,23 +26,52 @@ if (!isset($_GET['force_refresh']) && file_exists($cacheFile) && (time() - filem
     if ($cacheData !== false) {
         $decoded = json_decode($cacheData, true);
         if ($decoded !== null) {
-            echo json_encode([
-                "status" => "success",
-                "success" => true,
-                "data" => $decoded,
-                "cached" => true,
-                "cache_time" => date('Y-m-d H:i:s', filemtime($cacheFile))
-            ]);
-            exit(0);
+            // Self-healing check: if cache contains any unwanted P04 (Max Fax) or T05 (Allied Health) codes, force refresh
+            $hasUnwanted = false;
+            foreach ($decoded as $item) {
+                $code = $item['location_code'] ?? '';
+                if (strpos($code, 'P04-') !== false || strpos($code, 'T05-') !== false) {
+                    $hasUnwanted = true;
+                    break;
+                }
+            }
+            
+            if (!$hasUnwanted) {
+                echo json_encode([
+                    "status" => "success",
+                    "success" => true,
+                    "data" => $decoded,
+                    "cached" => true,
+                    "cache_time" => date('Y-m-d H:i:s', filemtime($cacheFile))
+                ]);
+                exit(0);
+            } else {
+                // Delete stale cache to trigger a fresh filtered fetch
+                @unlink($cacheFile);
+            }
+        }
+    }
+}
+
+function debugLog($msg) {
+    $logFile = __DIR__ . '/../uploads/fetch_debug.log';
+    $timestamp = date('Y-m-d H:i:s');
+    file_put_contents($logFile, "[$timestamp] $msg\n", FILE_APPEND);
+    if (isset($_GET['debug'])) {
+        echo "[$timestamp] $msg\n";
+        flush();
+        if (ob_get_level()) {
+            ob_flush();
         }
     }
 }
 
 function callExternalApi($url) {
+    debugLog("callExternalApi: Start fetching URL: " . $url);
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -54,12 +83,15 @@ function callExternalApi($url) {
     $error = curl_error($ch);
     curl_close($ch);
     if ($error) {
+        debugLog("callExternalApi: Error occurred: " . $error);
         throw new Exception("CURL Error: " . $error);
     }
+    debugLog("callExternalApi: Successfully fetched URL. Response length: " . strlen($response));
     return json_decode($response, true);
 }
 
 function callExternalApiParallel($urls) {
+    debugLog("callExternalApiParallel: Starting parallel fetch for " . count($urls) . " URLs: " . implode(', ', array_keys($urls)));
     $mh = curl_multi_init();
     $handles = [];
     
@@ -67,7 +99,7 @@ function callExternalApiParallel($urls) {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
         curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -94,18 +126,54 @@ function callExternalApiParallel($urls) {
     }
     
     curl_multi_close($mh);
+    debugLog("callExternalApiParallel: Completed parallel fetch.");
     return $results;
 }
 
 try {
+    debugLog("main: Starting fetch_locations.php execution");
     // 1. Fetch groups list (Building list)
-    $groupsData = callExternalApi($apiUrl . '?search=hostel');
+    $groupsData = callExternalApi($apiUrl . '?search=Hostel');
     if (!isset($groupsData['success']) || !$groupsData['success']) {
         throw new Exception("Failed to fetch groups list: " . ($groupsData['message'] ?? 'Unknown error'));
     }
     
     $groups = $groupsData['data']['items'] ?? [];
-    $allowedBuildings = ['T09', 'T10', 'T12', 'T14', 'T19', 'T22', 'T30', 'T32', 'P05'];
+    debugLog("main: Fetched " . count($groups) . " groups");
+    
+    // Explicitly append SCON Ponni building (T09) if not returned by search=Hostel
+    $hasT09 = false;
+    foreach ($groups as $g) {
+        if (($g['group_code'] ?? '') === 'T09') {
+            $hasT09 = true;
+            break;
+        }
+    }
+    if (!$hasT09) {
+        $groups[] = [
+            'group_name' => 'SCON Ponni building',
+            'group_code' => 'T09',
+            'group_status' => 'Active'
+        ];
+    }
+
+    // Explicitly append Stunners Den (P10) if not returned by search=Hostel
+    $hasP10 = false;
+    foreach ($groups as $g) {
+        if (($g['group_code'] ?? '') === 'P10') {
+            $hasP10 = true;
+            break;
+        }
+    }
+    if (!$hasP10) {
+        $groups[] = [
+            'group_name' => 'Stunners Den Boys Hosptel',
+            'group_code' => 'P10',
+            'group_status' => 'Active'
+        ];
+    }
+    
+    $allowedBuildings = ['T22', 'T30'];
     $filtered = [];
     
     // Construct parallel fetch URLs
@@ -113,6 +181,9 @@ try {
     $allowedGroups = [];
     foreach ($groups as $group) {
         $groupCode = $group['group_code'] ?? '';
+        if ($groupCode === 'P05' || $groupCode === 'T05') {
+            continue;
+        }
         $normalizedGroupCode = str_replace('-', '', $groupCode);
         
         if (in_array($normalizedGroupCode, $allowedBuildings)) {
@@ -122,11 +193,14 @@ try {
     }
     
     // 2. Fetch locations in parallel
+    debugLog("main: Starting parallel fetch for " . count($urls) . " URLs");
     $parallelResults = callExternalApiParallel($urls);
+    debugLog("main: Finished parallel fetch");
     
     foreach ($parallelResults as $groupCode => $locData) {
         $normalizedBuildingCode = $allowedGroups[$groupCode];
         $locations = $locData['data']['items'] ?? [];
+        debugLog("main: Processing group $groupCode, locations count: " . count($locations));
         
         foreach ($locations as $location) {
             $name = $location['location_name'] ?? '';
@@ -165,26 +239,24 @@ try {
                 continue;
             }
             
-            // Override location_name for Radiants INN (P-05) — external API returns
-            // verbose names like "Radiants Inn Ladies Hostel Building(SECOND FLOOR) 214".
-            // Display only the clean building name.
-            if ($buildingCodeClean === 'P05') {
-                $location['location_name'] = 'Radiants INN Ladies Hostel Building';
-                $name = 'Radiants INN Ladies Hostel Building';
+            // Use the actual API group code as the building code
+            $finalBuildingCode = $groupCode;
+            
+            // Override location_name using finalBuildingCode
+            if ($finalBuildingCode === 'P-05') {
+                $location['location_name'] = 'Radiance Inn';
+                $name = 'Radiance Inn';
+            } elseif ($finalBuildingCode === 'P05') {
+                $location['location_name'] = 'Max Fax';
+                $name = 'Max Fax';
+            } elseif ($finalBuildingCode === 'P10') {
+                $location['location_name'] = 'Stunners Den';
+                $name = 'Stunners Den';
             }
 
-            
-            // Preserve original building code with dashes (T-30, T-32, T-14, T-19, P-05, etc.)
-            // This matches the F\d+ aware parser on the Dart/Flutter side.
-            $finalBuildingCode = $buildingCode;
-            
-            // Reconstruct location_code with canonical building code
-            if ($floorIdx !== -1) {
-                $reconstructedParts = array_merge([$finalBuildingCode], array_slice($parts, $floorIdx));
-                $location['location_code'] = implode('-', $reconstructedParts);
-            } else {
-                $location['location_code'] = $finalBuildingCode . '-' . $floorCode . '-' . $wingCode . '-' . $roomCode;
-            }
+            // Keep original location_code exactly as returned by API (no prefix remapping)
+            // Just normalize '=' separators to '-'
+            $location['location_code'] = $normalizedCode;
             
             if ($roomCode === 'N/A' || empty($roomCode)) {
                 continue;
@@ -209,13 +281,18 @@ try {
             }
             
             if ($isRoom) {
-                $filtered[] = $location;
+                $filtered[$location['location_code']] = $location;
             }
         }
     }
     
+    // Convert associative array back to indexed array to preserve JSON list format
+    $filtered = array_values($filtered);
+    
     // Save to Cache
+    debugLog("main: Saving " . count($filtered) . " rooms to cache: " . $cacheFile);
     file_put_contents($cacheFile, json_encode($filtered));
+    debugLog("main: Saved cache successfully");
     
     echo json_encode([
         "status" => "success",
@@ -225,6 +302,7 @@ try {
     ]);
     
 } catch (Exception $e) {
+    debugLog("main: Exception occurred: " . $e->getMessage());
     // Fallback to cached content on error (resilient design)
     if (file_exists($cacheFile)) {
         $cacheData = file_get_contents($cacheFile);

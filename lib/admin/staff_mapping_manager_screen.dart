@@ -91,10 +91,12 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
       appBar: widget.showAppBar 
         ? SkeuomorphicNavBar(
             title: 'Staff Mapping',
-            onBack: () {
-              debugPrint("BACK BUTTON CLICKED in StaffMappingManagerScreen");
-              Navigator.of(context).pop();
-            },
+            onBack: Navigator.of(context).canPop() 
+              ? () {
+                  debugPrint("BACK BUTTON CLICKED in StaffMappingManagerScreen");
+                  Navigator.of(context).pop();
+                }
+              : null,
             rightAction: IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
               onPressed: () => mappingProvider.loadMappings(),
@@ -103,13 +105,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             ),
           )
         : null,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showRegisterStaffDialog(context),
-        backgroundColor: const Color(0xFF1A2744),
-        icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
-        label: const Text('New Staff', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Georgia')),
-        elevation: 8,
-      ),
+
       body: mappingProvider.isLoading || hostelProvider.isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
           : Column(
@@ -372,7 +368,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                 color: Color(0xFF7B3FC4),
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
-                fontFamily: 'Georgia',
+                fontFamily: 'Lato',
               ),
             ),
           ],
@@ -525,17 +521,28 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                   const SizedBox(height: 32),
                   const Text('Assigned Staff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   const SizedBox(height: 12),
-                  ...currentStaff.asMap().entries.map((entry) => _buildEditableStaffItem(entry.value, () {
-                    setDialogState(() => currentStaff.removeAt(entry.key));
-                  }, (updated) {
-                    setDialogState(() => currentStaff[entry.key] = updated);
-                  })),
+                  ...currentStaff.asMap().entries.map((entry) => _buildEditableStaffItem(
+                    entry.value, 
+                    () {
+                      setDialogState(() => currentStaff.removeAt(entry.key));
+                    }, 
+                    (updated) {
+                      setDialogState(() => currentStaff[entry.key] = updated);
+                    },
+                    currentStaff,
+                    existingMapping,
+                  )),
                   
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
-                    onPressed: () => _showAddStaffDialog(context, (newStaff) {
-                      setDialogState(() => currentStaff.add(newStaff));
-                    }),
+                    onPressed: () => _showAddStaffDialog(
+                      context, 
+                      (newStaff) {
+                        setDialogState(() => currentStaff.add(newStaff));
+                      },
+                      currentStaff,
+                      existingMapping,
+                    ),
                     icon: const Icon(Icons.add_circle_outline),
                     label: const Text('Add Staff Member'),
                     style: OutlinedButton.styleFrom(
@@ -624,8 +631,19 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                                   );
                                 }).toList(),
                               );
-                              final success = await mappingProvider.saveMapping(updatedMapping);
-                              if (success && context.mounted) Navigator.pop(context);
+                              final error = await mappingProvider.saveMapping(updatedMapping);
+                              if (error == null) {
+                                if (context.mounted) Navigator.pop(context);
+                              } else {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(error),
+                                      backgroundColor: Colors.red.shade800,
+                                    ),
+                                  );
+                                }
+                              }
                             } : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF1A2744),
@@ -669,7 +687,13 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     );
   }
 
-  Widget _buildEditableStaffItem(Staff staff, VoidCallback onRemove, Function(Staff) onEdit) {
+  Widget _buildEditableStaffItem(
+    Staff staff, 
+    VoidCallback onRemove, 
+    Function(Staff) onEdit,
+    List<Staff> currentStaff,
+    LocationMapping? existingMapping,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -683,14 +707,29 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           CircleAvatar(radius: 12, backgroundColor: _getRoleColor(staff.role).withValues(alpha: 0.1), child: Icon(_getRoleIcon(staff.role), size: 12, color: _getRoleColor(staff.role))),
           const SizedBox(width: 12),
           Expanded(child: Text(staff.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
-          IconButton(icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey), onPressed: () => _showAddStaffDialog(context, onEdit, existing: staff)),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey), 
+            onPressed: () => _showAddStaffDialog(
+              context, 
+              onEdit, 
+              currentStaff, 
+              existingMapping, 
+              existing: staff,
+            ),
+          ),
           IconButton(icon: const Icon(Icons.close, size: 16, color: Colors.redAccent), onPressed: onRemove),
         ],
       ),
     );
   }
 
-  void _showAddStaffDialog(BuildContext context, Function(Staff) onAdd, {Staff? existing}) {
+  void _showAddStaffDialog(
+    BuildContext context, 
+    Function(Staff) onAdd, 
+    List<Staff> currentStaff,
+    LocationMapping? existingMapping,
+    {Staff? existing}
+  ) {
     final nameController = TextEditingController(text: existing?.name);
     final phoneController = TextEditingController(text: existing?.phone);
     final usernameController = TextEditingController(text: existing?.username);
@@ -718,6 +757,36 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
               );
             } catch (_) {}
           }
+
+          // 1. Check if another warden is already in currentStaff list
+          final hasWardenInCurrent = currentStaff.any((s) {
+            if (existing != null && s.username.toLowerCase() == existing.username.toLowerCase()) return false;
+            return s.role.toLowerCase() == 'warden';
+          });
+
+          // 2. Check if selected staff user is already assigned elsewhere
+          String? assignedElsewhereLocation;
+          if (selectedStaffUser != null && selectedRole.toLowerCase() == 'warden') {
+            final username = selectedStaffUser!['username']?.toString() ?? '';
+            final mappingProvider = context.read<MappingProvider>();
+            for (var m in mappingProvider.mappings) {
+              if (m.id == existingMapping?.id) continue;
+              final isAssigned = m.assignedStaff.any((s) => s.username.toLowerCase() == username.toLowerCase() && s.role.toLowerCase() == 'warden');
+              if (isAssigned) {
+                assignedElsewhereLocation = mappingProvider.getLocationLabel(m);
+                break;
+              }
+            }
+          }
+
+          final bool isWardenConflictInCurrent = (selectedRole.toLowerCase() == 'warden' && hasWardenInCurrent);
+          final bool isWardenConflictElsewhere = (selectedRole.toLowerCase() == 'warden' && assignedElsewhereLocation != null);
+          
+          final String? errorText = isWardenConflictInCurrent 
+              ? "A warden is already assigned to this location mapping."
+              : isWardenConflictElsewhere 
+                  ? "Warden is already assigned to $assignedElsewhereLocation."
+                  : null;
           
           return AlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -785,6 +854,22 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                         ),
                         hint: Text(availableStaff.isEmpty ? 'No $selectedRole found' : 'Choose staff member...', style: const TextStyle(fontSize: 14)),
                       ),
+                      if (availableStaff.isEmpty && selectedRole.toLowerCase() == 'warden')
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            'No active warden users are available. Create the user first through User Management.',
+                            style: TextStyle(color: Colors.red.shade800, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      if (errorText != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            errorText,
+                            style: TextStyle(color: Colors.red.shade800, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
                     ],
                   ),
                   
@@ -821,7 +906,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
               ElevatedButton(
-                onPressed: (nameController.text.isNotEmpty) ? () {
+                onPressed: (nameController.text.isNotEmpty && errorText == null) ? () {
                   onAdd(Staff(
                     id: selectedStaffUser?['id']?.toString() ?? existing?.id ?? '', 
                     name: nameController.text, 
@@ -898,7 +983,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                       Expanded(
                         child: const Text(
                           'New Staff Member',
-                          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Georgia'),
+                          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Lato'),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),

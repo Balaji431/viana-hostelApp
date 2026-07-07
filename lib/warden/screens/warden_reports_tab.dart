@@ -468,7 +468,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> {
             ],
           ),
           const SizedBox(height: 10),
-          Text(report['id'], style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Colors.blueGrey)),
+          Text(report['id'], style: const TextStyle(fontFamily: 'Lato', fontSize: 10, color: Colors.blueGrey)),
           const SizedBox(height: 10),
           Row(
             children: [

@@ -30,9 +30,9 @@ dependencies:
   # DataTable2 for desktop data grids
   data_table_2: ^2.5.15
 
-  # 🔥 Firebase (stable compatible versions)
-  firebase_core: ^2.30.0
-  firebase_messaging: ^14.9.4
+  # 🔥 Firebase (Xcode 16 compatible versions)
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.4
   flutter_local_notifications: ^17.1.2
   
   # 🔥 LIVE CALLING (Native Dialer Transition)

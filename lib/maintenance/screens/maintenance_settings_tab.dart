@@ -289,7 +289,7 @@ class _MaintenanceSettingsTabState extends State<MaintenanceSettingsTab> {
               const Text(
                 'Change Password',
                 style: TextStyle(
-                  fontFamily: 'Georgia',
+                  fontFamily: 'Lato',
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF1B2B48),

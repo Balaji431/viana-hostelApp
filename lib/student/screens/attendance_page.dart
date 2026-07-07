@@ -193,7 +193,7 @@ class _AttendancePageState extends State<AttendancePage> {
               Text(
                 DateFormat('MMMM').format(_focusedDay),
                 style: const TextStyle(
-                  fontFamily: 'Playfair Display',
+                  fontFamily: 'Lato',
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
@@ -266,7 +266,7 @@ class _AttendancePageState extends State<AttendancePage> {
             Text(
               count,
               style: TextStyle(
-                fontFamily: 'Playfair Display',
+                fontFamily: 'Lato',
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
                 color: color,
@@ -540,10 +540,10 @@ class _AttendancePageState extends State<AttendancePage> {
                   Text(
                     DateFormat('d MMM yyyy').format(_selectedDay!),
                     style: const TextStyle(
-                      fontFamily: 'Playfair Display',
+                      fontFamily: 'Lato',
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1B2744),
+                      color: Color(0xFF1B2B44),
                     ),
                   ),
                 ],
@@ -687,10 +687,10 @@ class _AttendancePageState extends State<AttendancePage> {
                 Text(
                   formattedTime,
                   style: const TextStyle(
-                    fontFamily: 'Playfair Display',
+                    fontFamily: 'Lato',
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF1B2744),
+                    color: Color(0xFF1B2B44),
                   ),
                 ),
               ],

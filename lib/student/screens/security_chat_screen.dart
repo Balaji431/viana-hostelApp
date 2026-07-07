@@ -707,7 +707,7 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
         children: [
           Text(
             context.read<UserProvider>().fullRoomDetails.toUpperCase(),
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Georgia'),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato'),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
           ),
@@ -1109,7 +1109,7 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF1B2B48),
-                  fontFamily: 'Georgia',
+                  fontFamily: 'Lato',
                 ),
               ),
             ),

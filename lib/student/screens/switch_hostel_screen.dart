@@ -93,7 +93,7 @@ class _SwitchHostelScreenState extends State<SwitchHostelScreen> {
         title: Text(
           'Switch to ${hostel.hostelName}?',
           style: const TextStyle(
-            fontFamily: 'Georgia',
+            fontFamily: 'Lato',
             fontWeight: FontWeight.bold,
             color: Color(0xFF1A2744),
           ),

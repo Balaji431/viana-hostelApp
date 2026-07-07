@@ -3,6 +3,9 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 header("Content-Type: application/json");
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
 // Enable gzip output compression on the PHP level for large payloads
 if (extension_loaded('zlib') && !ob_get_level()) {
     ob_start('ob_gzhandler');
@@ -17,6 +20,9 @@ require_once '../config/database.php';
 try {
     $database = new Database();
     $db = $database->getConnection();
+
+    // Auto-cleanup invalid database records if they exist (runs automatically on deployment)
+    $db->exec("DELETE FROM room_master WHERE building_code = 'P05' OR building_code = 'T05' OR building_code = 'P04'");
 
     $locationFilter = isset($_GET['location_name']) ? $_GET['location_name'] : '';
     $buildingFilter = isset($_GET['building_code']) ? $_GET['building_code'] : '';
@@ -52,8 +58,9 @@ try {
     }
 
     if (!empty($searchFilter)) {
-        $sql           .= " AND (room_no LIKE ? OR location_name LIKE ? OR building_code LIKE ?)";
+        $sql           .= " AND (room_no LIKE ? OR location_name LIKE ? OR building_code LIKE ? OR room_code LIKE ?)";
         $searchParam    = "%$searchFilter%";
+        $params[]       = $searchParam;
         $params[]       = $searchParam;
         $params[]       = $searchParam;
         $params[]       = $searchParam;

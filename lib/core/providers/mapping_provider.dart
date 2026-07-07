@@ -29,7 +29,7 @@ class MappingProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> saveMapping(LocationMapping mapping) async {
+  Future<String?> saveMapping(LocationMapping mapping) async {
     try {
       final Map<String, dynamic> data = mapping.toJson();
       
@@ -55,14 +55,15 @@ class MappingProvider extends ChangeNotifier {
       
       if (response['status'] == 'success' || response['success'] == true) {
         await loadMappings();
-        return true;
+        return null;
       }
       
-      AppLogger.error("Save failed: ${response['message'] ?? 'Unknown error'}");
-      return false;
+      final String errorMsg = response['message'] ?? 'Unknown error';
+      AppLogger.error("Save failed: $errorMsg");
+      return errorMsg;
     } catch (e) {
       AppLogger.error("Error saving mapping: $e");
-      return false;
+      return e.toString();
     }
   }
 

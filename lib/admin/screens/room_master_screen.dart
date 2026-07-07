@@ -48,20 +48,25 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
   Future<void> _fetchExternalLocations() async {
     try {
       // 1. Fetch local room master records from database
-      Map<String, Map<String, dynamic>> localRoomsMap = {};
+      Map<String, Map<String, dynamic>> localRoomsByName = {};
+      Map<String, Map<String, dynamic>> localRoomsByCode = {};
       List<Map<String, dynamic>> localRoomsList = [];
       try {
-        final localResponse = await ApiService.getRequest('rooms/fetch_room_master.php');
+        final localResponse = await ApiService.getRequest('rooms/fetch_room_master.php?t=${DateTime.now().millisecondsSinceEpoch}');
         if (localResponse['status'] == 'success' || localResponse['success'] == true) {
           final List<dynamic> localData = localResponse['data'] ?? [];
           for (var item in localData) {
             if (item is Map) {
-              final String name = item['location_name'] ?? '';
+              final Map<String, dynamic> typedItem = Map<String, dynamic>.from(item);
+              final String name = typedItem['location_name'] ?? '';
+              final String code = typedItem['room_code'] ?? '';
               if (name.isNotEmpty) {
-                final Map<String, dynamic> typedItem = Map<String, dynamic>.from(item);
-                localRoomsMap[name] = typedItem;
-                localRoomsList.add(typedItem);
+                localRoomsByName[name] = typedItem;
               }
+              if (code.isNotEmpty) {
+                localRoomsByCode[code] = typedItem;
+              }
+              localRoomsList.add(typedItem);
             }
           }
         }
@@ -72,10 +77,11 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       // Initialize with local rooms by default, mapping to the expected UI model fields
       final List<Map<String, dynamic>> mappedLocalRooms = localRoomsList.map<Map<String, dynamic>>((localRoom) {
         final String roomType = localRoom['room_type'] ?? 'Not Assigned';
+        final String locName = localRoom['location_name'] ?? '';
         return {
           'id': localRoom['id'],
-          'location_name': localRoom['location_name'],
-          'building_code': localRoom['building_code'] ?? '',
+          'location_name': locName,
+          'building_code': _normalizeBuildingCode(localRoom['building_code'] ?? '', locName),
           'floor_no': localRoom['floor_no'] ?? '',
           'block_no': localRoom['block_no'] ?? '',
           'room_no': localRoom['room_no'] ?? '',
@@ -88,7 +94,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       _allRooms = mappedLocalRooms;
 
       // 2. Fetch external locations API via backend proxy to bypass CORS on Web
-      final extResponse = await ApiService.getRequest('rooms/fetch_locations.php');
+      final extResponse = await ApiService.getRequest('rooms/fetch_locations.php?t=${DateTime.now().millisecondsSinceEpoch}');
       if (extResponse['success'] == true || extResponse['status'] == 'success') {
         final dynamic decoded = extResponse['data'];
         List<dynamic> data = (decoded is List) ? decoded : (decoded['data'] ?? []);
@@ -125,10 +131,11 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
               roomCode     = parts.length > 3 ? parts[3] : 'N/A';
             }
           }
+          buildingCode = _normalizeBuildingCode(buildingCode, locationName);
           final normalizedFloor = _normalizeFloor(floorCode);
           
           // Look up local database record for room details
-          final localRoom = localRoomsMap[locationName];
+          final localRoom = (locationCode.isNotEmpty ? localRoomsByCode[locationCode] : null) ?? localRoomsByName[locationName];
           final String roomType = localRoom?['room_type'] ?? 'Not Assigned';
           final int roomCapacity = localRoom?['room_capacity'] != null 
               ? int.tryParse(localRoom!['room_capacity'].toString()) ?? _extractCapacity(locationName)
@@ -153,14 +160,15 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
         
         // Append local rooms that are not in the external list
         final List<Map<String, dynamic>> missingLocalRooms = [];
-        for (var entry in localRoomsMap.entries) {
+        for (var entry in localRoomsByName.entries) {
           if (!processedNames.contains(entry.key)) {
             final localRoom = entry.value;
             final String roomType = localRoom['room_type'] ?? 'Not Assigned';
+            final String locName = localRoom['location_name'] ?? '';
             missingLocalRooms.add({
               'id': localRoom['id'],
-              'location_name': localRoom['location_name'],
-              'building_code': localRoom['building_code'] ?? '',
+              'location_name': locName,
+              'building_code': _normalizeBuildingCode(localRoom['building_code'] ?? '', locName),
               'floor_no': localRoom['floor_no'] ?? '',
               'block_no': localRoom['block_no'] ?? '',
               'room_no': localRoom['room_no'] ?? '',
@@ -241,6 +249,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
         final search = _searchController.text.toLowerCase();
         return (search.isEmpty || 
                 room['room_no'].toString().toLowerCase().contains(search) || 
+                room['location_code'].toString().toLowerCase().contains(search) || 
                 room['location_name'].toString().toLowerCase().contains(search)) &&
                (_selectedBuildingFilter == null || room['building_code'] == _selectedBuildingFilter) &&
                (_selectedFloorFilter == null || room['floor_no'] == _selectedFloorFilter);
@@ -280,8 +289,21 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
   }
 
   void _exportToCSV() {
-    const csvContent = "Hostel Name,Room Code,Room Type,Capacity\n";
-    downloadCSV(csvContent, 'room_master_template.csv');
+    final List<List<dynamic>> rows = [
+      ['Hostel Name', 'Room Code', 'Room Type', 'Capacity']
+    ];
+    
+    for (var room in _filteredRooms) {
+      rows.add([
+        _cleanHostelName(room['location_name'] ?? ''),
+        room['location_code'] ?? '',
+        room['room_type'] ?? 'Not Assigned',
+        room['room_capacity'] ?? 0,
+      ]);
+    }
+    
+    final String csvContent = const ListToCsvConverter().convert(rows);
+    downloadCSV(csvContent, 'room_master_export.csv');
   }
 
   @override
@@ -325,7 +347,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       child: Row(
         children: [
           if (showBack) IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context, rootNavigator: true).pop()),
-          const Text('Room Master Management', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2744), fontFamily: 'Georgia')),
+          const Text('Room Master Management', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2744), fontFamily: 'Lato')),
           const Spacer(),
           ElevatedButton.icon(
             onPressed: _exportToCSV,
@@ -351,7 +373,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
               child: TextField(
                 controller: _searchController,
                 onChanged: (_) => _applyFilters(),
-                decoration: InputDecoration(hintText: 'Search Location or Room...', prefixIcon: const Icon(Icons.search), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                decoration: InputDecoration(hintText: 'Search Location, Room, or Code...', prefixIcon: const Icon(Icons.search), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
               ),
             ),
             const SizedBox(width: 16),
@@ -381,19 +403,39 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
     );
   }
 
+  String _normalizeBuildingCode(String buildingCode, String locationName) {
+    final String code = buildingCode.trim();
+    // Canonical group codes — map parsed room-code prefixes to their group codes
+    if (code == 'T14' || code == 'T-14') return 'T-14';
+    if (code == 'T12' || code == 'T-12') return 'T-12';
+    if (code == 'T30' || code == 'T-30') return 'T-30';
+    if (code == 'T32' || code == 'T-32') return 'T-32';
+    if (code == 'T19' || code == 'T-19') return 'T-19';
+    // P04- prefix rooms belong to the P05 group (Max Fax)
+    if (code == 'P04') return 'P05';
+    // P05- prefix rooms belong to the P-05 group (Radiance Inn)
+    if (code == 'P05') return 'P-05';
+    // P-10 prefix rooms belong to the P10 group (Stunners Den)
+    if (code == 'P-10') return 'P10';
+    return code;
+  }
+
   String _cleanHostelName(String rawName) {
     final Map<String, String> hostelMapping = {
-      'KAVERI': 'KAVERI HOSTEL',
-      'VAIGAI': 'VAIGAI HOSTEL',
-      'KRISHNA': 'KRISHNA HOSTEL',
-      'KRISHAN': 'KRISHNA HOSTEL',
-      'NOYYAL': 'NOYYAL HOSTEL',
-      'PONNI': 'PONNI HOSTEL',
-      'SIRUVANI': 'SIRUVANI HOSTEL',
-      'PORUNAI': 'PORUNAI HOSTEL',
-      'PALAR': 'PALAR HOSTEL',
-      'ALLIED': 'ALLIED HEALTH SCIENCES',
-      'RADIANTS': 'Radiants INN Ladies Hostel Building',
+      'KAVERI': 'Kaveri Hostel',
+      'VAIGAI': 'Vaigai Hostel',
+      'KRISHNA': 'Krishna Hostel',
+      'KRISHAN': 'Krishna Hostel',
+      'NOYYAL': 'Noyyal Hostel',
+      'PONNI': 'Ponni Hostel',
+      'SIRUVANI': 'Siruvani Hostel',
+      'PORUNAI': 'Porunai Hostel (4F - 8F )',
+      'PALAR': 'Palar Hostel',
+      'ALLIED': 'Allied Health Sciences',
+      'RADIANTS': 'Radiance Inn',
+      'MAXFAX': 'Max Fax',
+      'MAX FAX': 'Max Fax',
+      'STUNNER': 'Stunners Den',
     };
     
     final upperName = rawName.toUpperCase();
@@ -729,7 +771,7 @@ class RoomDataTableSource extends DataTableSource {
         )),
         DataCell(Text(
           r['location_code'] ?? '',
-          style: const TextStyle(fontSize: 12, color: Colors.grey, fontFamily: 'monospace'),
+          style: const TextStyle(fontSize: 12, color: Colors.grey, fontFamily: 'Lato'),
         )),
         DataCell(
           SizedBox(

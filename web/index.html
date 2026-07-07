@@ -15,6 +15,7 @@
   <link rel="icon" type="image/png" href="favicon.png"/>
   <title>Saveetha Hostels</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="index.css">
 
   <style>
     body {
@@ -39,6 +40,35 @@
   </style>
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        if (registrations.length > 0) {
+          var promises = [];
+          for (var i = 0; i < registrations.length; i++) {
+            promises.push(registrations[i].unregister());
+          }
+          Promise.all(promises).then(function() {
+            console.log('All service workers unregistered. Reloading...');
+            window.location.reload();
+          });
+        } else {
+          loadBootstrap();
+        }
+      }).catch(function() {
+        loadBootstrap();
+      });
+    } else {
+      loadBootstrap();
+    }
+    
+    function loadBootstrap() {
+      // Dynamically load flutter_bootstrap.js with cache-buster query parameter
+      var script = document.createElement('script');
+      script.src = 'flutter_bootstrap.js?t=' + new Date().getTime();
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  </script>
 </body>
 </html>

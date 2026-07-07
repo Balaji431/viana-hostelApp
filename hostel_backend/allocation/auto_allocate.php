@@ -15,6 +15,9 @@ require_once '../utils/activity_logger.php';
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
 
+echo json_encode(["success" => false, "message" => "Auto-allocation has been disabled."]);
+exit();
+
 $data = json_decode(file_get_contents('php://input'), true);
 $action = $data['action'] ?? 'preview'; // 'preview' or 'confirm'
 $request_ids = $data['request_ids'] ?? [];
@@ -155,7 +158,7 @@ try {
                 $gateway_response = json_encode(['gateway' => 'AutoAllocation', 'status' => 'SUCCESS', 'method' => 'System']);
                 $ip_address = getClientIp();
                 $ins_pay = $conn->prepare("INSERT INTO payments (student_id, amount, receipt_number, status, description, paid_at, student_name, reg_number, gateway_response, user_id, ip_address) VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)");
-                $ins_pay->bind_param("idsssssssis", $sid, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $sid, $ip_address);
+                $ins_pay->bind_param("idssssssis", $sid, $amount, $receipt_number, $description, $now_str, $f_name, $reg_no, $gateway_response, $sid, $ip_address);
                 $ins_pay->execute();
 
                 // 5. Update room_allocations status to 'approved' and paid_at

@@ -11,14 +11,13 @@ import '../widgets/warden_modals.dart';
 import '../widgets/room_change_history_dialog.dart';
 import 'warden_chat_interface.dart';
 import '../../shared/category_provider.dart';
-import '../../core/models/room_change_request_model.dart';
 import 'warden_main_screen.dart';
 import 'warden_allocation_screen.dart';
 import '../../core/design_system.dart' as ds;
-import '../../core/models/request_model.dart';
-import '../../shared/chat/request_details_screen.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/main_layout.dart';
+
+
 
 class WardenHomeTab extends StatefulWidget {
   const WardenHomeTab({super.key});
@@ -30,13 +29,8 @@ class WardenHomeTab extends StatefulWidget {
 class _WardenHomeTabState extends State<WardenHomeTab> {
   List<Map<String, dynamic>> _announcements = [];
   bool _isLoadingAnnouncements = true;
-  List<RoomChangeRequest> _pendingRequests = [];
-  bool _isRoomChangeLoading = false;
-  List<Map<String, dynamic>> _pendingApprovals = [];
   Map<String, dynamic>? _systemStats;
   bool _isLoadingStats = true;
-  List<Map<String, dynamic>> _pendingWardenRequests = [];
-  bool _isLoadingWardenRequests = true;
   Timer? _refreshTimer;
 
   @override
@@ -74,23 +68,18 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
   }
 
   Future<void> _refreshAllData({bool silent = false}) async {
-     if (!silent) {
-       setState(() {
-         _isLoadingAnnouncements = true;
-         _isLoadingStats = true;
-         _isLoadingWardenRequests = true;
-         _isRoomChangeLoading = true;
-       });
+    if (!silent) {
+      setState(() {
+        _isLoadingAnnouncements = true;
+        _isLoadingStats = true;
+      });
     }
-    
+
     final user = Provider.of<UserProvider>(context, listen: false);
-    
+
     await Future.wait([
       _fetchAnnouncements(),
-      _loadPendingRequests(),
-      _loadPendingApprovals(),
       _fetchSystemStats(),
-      _loadGeneralRequests(),
       context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username),
     ]);
   }
@@ -109,60 +98,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
     }
   }
 
-  Future<void> _loadPendingRequests() async {
-    try {
-      final user = context.read<UserProvider>();
-      final response = await ApiService.getRoomChangeRequests(
-        status: 'pending',
-        wardenUsername: user.username,
-      );
-      if (response['success'] == true) {
-        final List<dynamic> data = response['data'] ?? [];
-        if (mounted) {
-          setState(() {
-            _pendingRequests = data.map((json) => RoomChangeRequest.fromJson(json)).toList();
-            _isRoomChangeLoading = false;
-          });
-        }
-      } else {
-        if (mounted) setState(() => _isRoomChangeLoading = false);
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isRoomChangeLoading = false);
-    }
-  }
 
-  Future<void> _loadPendingApprovals() async {
-    try {
-      // Use real API call for pending renewals
-      final response = await ApiService.getPendingRenewals();
-      
-      if (response['success'] == true) {
-        final List<dynamic> data = response['data'] ?? [];
-        if (mounted) {
-          setState(() {
-            _pendingApprovals = data.map((item) => {
-              'id': item['id'],
-              'name': item['student_name'] ?? item['name'] ?? 'Unknown',
-              'room': item['room_number'] ?? item['room'] ?? 'N/A',
-              'request_id': item['request_id'] ?? item['id'],
-            }).toList();
-          });
-        }
-      }
-    } catch (e) {
-    }
-  }
-
-  Future<void> _loadGeneralRequests() async {
-    // General category requests should only show in the chat screen, not in the Warden request sections.
-    if (mounted) {
-      setState(() {
-        _pendingWardenRequests = [];
-        _isLoadingWardenRequests = false;
-      });
-    }
-  }
 
   Future<void> _fetchAnnouncements() async {
     final response = await ApiService.getAnnouncements();
@@ -179,149 +115,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
   }
 
 
-  Widget buildPendingApprovalCard(int count, VoidCallback onTap) {
-    if (count == 0) return const SizedBox();
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3EFE9),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD4AF37),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.group, color: Colors.black),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Pending Approvals",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      fontFamily: 'Georgia',
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "$count students awaiting renewal",
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFFC107), Color(0xFFFF9800)],
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                "$count New",
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget buildRoomChangeRequestCard(int count, VoidCallback onTap) {
-    if (count == 0) return const SizedBox();
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3EFE9),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2196F3),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.swap_horiz, color: Colors.white),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Pending Room Requests",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      fontFamily: 'Georgia',
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "$count room change requests",
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                "$count New",
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildSystemStatsSection() {
     if (_isLoadingStats || _systemStats == null) return const SizedBox.shrink();
@@ -421,7 +215,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
                       color: Colors.white,
-                      fontFamily: 'Georgia',
+                      fontFamily: 'Lato',
                     ),
                   ),
                   SizedBox(height: 4),
@@ -465,15 +259,13 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
                 children: [
                   _buildHeaderSection(user),
                   const SizedBox(height: 15),
-                  if (user.username == 'warden1') ...[
+                  if (user.role == UserRole.warden || user.role == UserRole.admin) ...[
                     _buildAllocationQueueCard(),
                     const SizedBox(height: 10),
                   ],
                   _buildQuickActionsHeader(),
                   _buildQuickActions(context),
                   const SizedBox(height: 20),
-                  _buildPendingRequestsSection(),
-                  const SizedBox(height: 16),
                   _buildAnnouncementsSection(context),
                   const SizedBox(height: 16),
                   _buildSystemStatsSection(),
@@ -489,189 +281,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
 }
 
 
-  Widget _buildPendingRequestsSection() {
-    if (_isLoadingWardenRequests || _isRoomChangeLoading) return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
-    
-    final allPending = [
-      ..._pendingRequests.map((r) => {'type': 'room_change', 'data': r}),
-      ..._pendingWardenRequests.map((r) => {'type': 'service', 'data': r}),
-    ];
 
-    if (allPending.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 25),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: const [
-                  Icon(Icons.pending_actions, color: Color(0xFFD4AF37), size: 18),
-                  SizedBox(width: 8),
-                  Text('PENDING REQUESTS', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                ],
-              ),
-              if (allPending.length > 3)
-                TextButton(
-                  onPressed: () {
-                    final mainResponsive = context.findAncestorStateOfType<MainResponsiveLayoutState>();
-                    if (mainResponsive != null) {
-                      mainResponsive.setSelectedIndex(2);
-                    } else {
-                      WardenMainScreen.of(context)?.setTabIndex(2);
-                    }
-                  },
-                  child: const Text('View All', style: TextStyle(fontSize: 11, color: Color(0xFF1E2F5E)))
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...allPending.take(3).map((item) {
-            if (item['type'] == 'room_change') {
-              return _buildWardenRoomChangeCard(item['data'] as RoomChangeRequest);
-            } else {
-              return _buildDashboardRequestCard(item['data'] as Map<String, dynamic>);
-            }
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWardenRoomChangeCard(RoomChangeRequest request) {
-    return GestureDetector(
-      onTap: () {
-        showDialog(
-          context: context,
-          builder: (context) => WardenRoomChangeDetailsModal(
-            request: request,
-            onActionComplete: () {
-              _loadPendingRequests();
-              _loadGeneralRequests();
-            },
-          ),
-        );
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1.5),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.hourglass_bottom, color: Colors.orange, size: 20),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("Room Change Request", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.orange)),
-                        Text(request.requestId, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                      ],
-                    ),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                  child: const Text("PENDING", style: TextStyle(color: Colors.orange, fontSize: 9, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 15),
-              decoration: BoxDecoration(color: Colors.grey.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(request.currentRoom, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B2B48))),
-                  const SizedBox(width: 10),
-                  const Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
-                  const SizedBox(width: 10),
-                  Text(request.requestedRoom, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFFD4AF37))),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            RichText(
-              text: TextSpan(
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
-                children: [
-                  const TextSpan(text: "REASON: ", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey, fontSize: 10)),
-                  TextSpan(text: request.reason),
-                ],
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text("Student: ${request.studentName} (${request.studentRegNo})", style: const TextStyle(fontSize: 10, color: Colors.blueGrey, fontWeight: FontWeight.w500)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDashboardRequestCard(Map<String, dynamic> req) {
-    return GestureDetector(
-      onTap: () {
-         showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          barrierColor: Colors.transparent,
-          useRootNavigator: false,
-          builder: (context) => FractionallySizedBox(
-            heightFactor: 0.85,
-            child: RequestDetailsScreen(
-              request: RequestModel.fromJson(req),
-              canAction: true,
-            ),
-          ),
-        ).then((_) => _loadGeneralRequests());
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: SkeuomorphicStyles.skeuomorphicCard,
-        child: Row(
-          children: [
-            Container(
-              width: 40, height: 40,
-              decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SkeuomorphicColors.goldGlossyGradient),
-              child: Center(child: Icon(Icons.description_outlined, color: Colors.white, size: 20)),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(req['request_type'] ?? 'Service Request', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1B2B48))),
-                  const SizedBox(height: 2),
-                  Text('${req['student_name']} • ${req['room_number']}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildHeaderSection(UserProvider user) {
     String displayName = user.userName;
@@ -1104,7 +714,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          fontFamily: 'Georgia',
+                          fontFamily: 'Lato',
                         ),
                       ),
                     ),
@@ -1192,300 +802,31 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
       },
     );
   }
-
-  void showRoomChangeRequestsModal(List<RoomChangeRequest> requests) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF3EFE9),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // HEADER
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        "Pending Room Requests",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Georgia',
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.close, size: 18),
-                      ),
-                    )
-                  ],
-                ),
-
-                const Divider(height: 20),
-
-                // LIST
-                ...requests.map((request) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF9F6F0),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.black12),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                request.studentName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
-                              ),
-                              Text(
-                                "${request.currentRoom} -> ${request.requestedRoom}",
-                                style: const TextStyle(color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Reject
-                        GestureDetector(
-                          onTap: () => _rejectRoomRequest(request),
-                          child: Container(
-                            margin: const EdgeInsets.only(right: 8),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.close, color: Colors.red),
-                          ),
-                        ),
-
-                        // Approve
-                        GestureDetector(
-                          onTap: () => _approveRoomRequest(request),
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.check, color: Colors.green),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList()
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _approveStudent(int id) async {
     try {
-      // Use real API call for approving renewal
       final response = await ApiService.approveRenewal(id);
-      
-      if (response['success'] == true) {
-        if (mounted) {
-          setState(() {
-            _pendingApprovals.removeWhere((e) => e['id'] == id);
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Student approved successfully!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          
-          Navigator.pop(context);
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Failed to approve student'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      if (response['success'] == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response['message'] ?? 'Student approved!'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
   }
 
   void _rejectStudent(int id) async {
     try {
-      // Use real API call for rejecting renewal
       final response = await ApiService.rejectRenewal(id);
-      
-      if (response['success'] == true) {
-        if (mounted) {
-          setState(() {
-            _pendingApprovals.removeWhere((e) => e['id'] == id);
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Student rejected'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          
-          Navigator.pop(context);
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Failed to reject student'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      if (response['success'] == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response['message'] ?? 'Student rejected'), backgroundColor: Colors.red),
+        );
+        Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _approveRoomRequest(RoomChangeRequest request) async {
-    try {
-      // Use real API call for approving room change request
-      final user = context.read<UserProvider>();
-      final wardenId = user.dbId ?? 1;
-      
-      final response = await ApiService.updateRoomChangeRequest(
-        requestId: request.requestId,
-        status: 'approved',
-        wardenId: wardenId,
-      );
-      
-      if (response['success'] == true) {
-        if (mounted) {
-          setState(() {
-            _pendingRequests.removeWhere((r) => r.requestId == request.requestId);
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Room change request for ${request.studentName} approved!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          
-          Navigator.pop(context);
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Failed to approve room change request'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _rejectRoomRequest(RoomChangeRequest request) async {
-    try {
-      // Use real API call for rejecting room change request
-      final user = context.read<UserProvider>();
-      final wardenId = user.dbId ?? 1;
-      
-      final response = await ApiService.updateRoomChangeRequest(
-        requestId: request.requestId,
-        status: 'rejected',
-        wardenId: wardenId,
-      );
-      
-      if (response['success'] == true) {
-        if (mounted) {
-          setState(() {
-            _pendingRequests.removeWhere((r) => r.requestId == request.requestId);
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Room change request for ${request.studentName} rejected'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          
-          Navigator.pop(context);
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Failed to reject room change request'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
   }
 }

@@ -65,8 +65,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         if (!user.isParent && user.role == UserRole.student) {
           final allocProvider = context.read<AllocationProvider>();
           allocProvider.loadAllocation(fetchId).then((_) {
-            if (mounted && !user.isRoomAllocated && allocProvider.allocationStatus == 'none') {
-              allocProvider.fetchPaidHostelType(user.username);
+            if (mounted) {
+              if (!user.isRoomAllocated || (allocProvider.allocationStatus != 'approved' && allocProvider.allocationStatus != 'confirmed')) {
+                allocProvider.fetchPaidHostelType(user.username);
+              }
             }
           });
         }
@@ -106,8 +108,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       if (!user.isParent && user.role == UserRole.student) {
         final allocProvider = context.read<AllocationProvider>();
         allocProvider.loadAllocation(fetchId).then((_) {
-          if (mounted && !user.isRoomAllocated && allocProvider.allocationStatus == 'none') {
-            allocProvider.fetchPaidHostelType(user.username);
+          if (mounted) {
+            if (!user.isRoomAllocated || (allocProvider.allocationStatus != 'approved' && allocProvider.allocationStatus != 'confirmed')) {
+              allocProvider.fetchPaidHostelType(user.username);
+            }
           }
         });
       }
@@ -246,7 +250,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                 if (!user.isParent && user.role == UserRole.student) {
                   final allocProvider = context.read<AllocationProvider>();
                   await allocProvider.loadAllocation(user.dbId!);
-                  if (!user.isRoomAllocated && allocProvider.allocationStatus == 'none') {
+                  if (!user.isRoomAllocated || (allocProvider.allocationStatus != 'approved' && allocProvider.allocationStatus != 'confirmed')) {
                     await allocProvider.fetchPaidHostelType(user.username);
                   }
                 }
@@ -260,8 +264,15 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   children: [
                     _buildProfileHeader(user),
                     const SizedBox(height: 10),
-                    if (user.isRoomAllocated || context.watch<AllocationProvider>().allocationStatus == 'approved') ...[
+                    if (user.isRoomAllocated) ...[
                       _buildAllocationCard(context, user),
+                      const SizedBox(height: 10),
+                      if (!user.isParent &&
+                          context.watch<AllocationProvider>().paidHostelData != null &&
+                          context.watch<AllocationProvider>().allocationStatus != 'approved' &&
+                          context.watch<AllocationProvider>().allocationStatus != 'confirmed') ...[
+                        _buildNewStudentAllocationCard(context, user),
+                      ],
                     ] else if (!user.isParent) ...[
                       _buildNewStudentAllocationCard(context, user),
                     ],
@@ -427,7 +438,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF1A2744),
-                          fontFamily: 'Georgia',
+                          fontFamily: 'Lato',
                         ),
                       ),
                       const Spacer(),
@@ -551,7 +562,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   fontSize: 14,
                   fontWeight: FontWeight.w900,
                   color: Color(0xFF1B2B48),
-                  fontFamily: 'Georgia',
+                  fontFamily: 'Lato',
                 ),
               ),
             ),
@@ -572,7 +583,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       child: Text(
                         (user.isParent ? user.linkedStudentName : user.userName).toUpperCase(),
                         style: const TextStyle(
-                          fontFamily: 'Playfair Display', 
+                          fontFamily: 'Lato', 
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
@@ -708,7 +719,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     children: [
                       Text(
                         'Room ${allocation['room_no'] ?? allocation['room_allocation'] ?? 'N/A'}',
-                        style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold),
+                        style: GoogleFonts.lato(fontSize: 24, fontWeight: FontWeight.bold),
                       ),
                       Text(
                         'Block ${allocation['building_code'] ?? allocation['block'] ?? ''} • ${allocation['floor'] ?? allocation['floor_name'] ?? ''} Floor',
@@ -940,7 +951,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                 children: [
                   Text(
                     title,
-                    style: GoogleFonts.playfairDisplay(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   Text(
                     subtitle,
@@ -1036,7 +1047,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           const Text(
                             'Room Allocation',
                             style: TextStyle(
-                              fontFamily: 'Georgia',
+                              fontFamily: 'Lato',
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF1B2B48),
@@ -1080,7 +1091,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   Text(
                     '${daysRemaining > 0 ? daysRemaining : 0}',
                     style: const TextStyle(
-                      fontFamily: 'Georgia',
+                      fontFamily: 'Lato',
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFFC5A358), 
@@ -1588,7 +1599,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       children: [
                         Text(
                           'Suggested Room Allocation',
-                          style: GoogleFonts.playfairDisplay(
+                          style: GoogleFonts.lato(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
                             color: const Color(0xFF1B2B48),
@@ -1666,16 +1677,108 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       );
     }
 
+    // ── Paid hostel loading / error / not-found states ─────────────────────
     if (paidData == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        alloc.fetchPaidHostelType(user.username);
-      });
+      // Trigger fetch once (guard inside provider prevents re-entry)
+      if (!alloc.paidFetchDone && !alloc.paidFetchLoading) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          context.read<AllocationProvider>().fetchPaidHostelType(user.username);
+        });
+      }
+
+      if (alloc.paidFetchLoading) {
+        // In-flight: show spinner
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          child: const ds.SkeuomorphicCard(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                    SizedBox(height: 12),
+                    Text(
+                      'Fetching paid hostel specifications…',
+                      style: TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // Error or not-found state
+      final errorMsg = alloc.paidFetchError;
+      final httpStatus = alloc.paidFetchHttpStatus;
+
+      if (errorMsg != null || alloc.paidFetchDone) {
+        final is404 = httpStatus == 404;
+        final isRetryable = !is404; // 503, 0 (timeout/network) are retryable
+
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          child: ds.SkeuomorphicCard(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    is404 ? Icons.info_outline : Icons.error_outline,
+                    color: is404 ? Colors.grey : Colors.orange.shade700,
+                    size: 36,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    is404
+                        ? 'No paid hostel application found for this roll number.'
+                        : (errorMsg ?? 'Unable to fetch payment details.'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: is404 ? Colors.grey : Colors.red.shade700,
+                      height: 1.4,
+                    ),
+                  ),
+                  if (isRetryable) ...[
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        context.read<AllocationProvider>().resetPaidFetch();
+                        context.read<AllocationProvider>().fetchPaidHostelType(user.username);
+                      },
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('Retry'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A2744),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+
+      // Still not triggered yet (first frame) — show brief loading
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 20),
         child: const ds.SkeuomorphicCard(
           child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(child: Text("Fetching paid hostel specifications...")),
+            padding: EdgeInsets.all(24),
+            child: Center(
+              child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+            ),
           ),
         ),
       );
@@ -1719,7 +1822,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     children: [
                       Text(
                         'Hostel Fee Paid',
-                        style: GoogleFonts.playfairDisplay(
+                        style: GoogleFonts.lato(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                           color: const Color(0xFF1B2B48),

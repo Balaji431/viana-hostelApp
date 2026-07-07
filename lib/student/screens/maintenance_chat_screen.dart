@@ -635,7 +635,7 @@ class _MaintenanceChatScreenState extends State<MaintenanceChatScreen> {
   }
 
   Widget _buildSubHeader() {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05)))), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text(context.read<UserProvider>().fullRoomDetails.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Georgia'))]));
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05)))), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text(context.read<UserProvider>().fullRoomDetails.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato'))]));
   }
 
   Widget _buildDateSeparator(String date) {

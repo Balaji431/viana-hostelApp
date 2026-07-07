@@ -53,15 +53,15 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
         }
     }
     
-    // Look up in renew_fee table for other types
-    $query = "SELECT six_month_amount, monthly_amount FROM renew_fee WHERE UPPER(TRIM(room_type)) = ?";
+    // Look up in hostel_renew_fee table for other types
+    $query = "SELECT hostel_fee, monthly_amount FROM hostel_renew_fee WHERE UPPER(TRIM(room_type)) = ?";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("s", $normalized);
     $stmt->execute();
     $res = $stmt->get_result()->fetch_assoc();
     
     if ($res) {
-        if (floatval($res['six_month_amount']) > 0) return (float)$res['six_month_amount'];
+        if (floatval($res['hostel_fee']) > 0) return (float)$res['hostel_fee'];
         if (floatval($res['monthly_amount']) > 0) return (float)$res['monthly_amount'] * 12;
     }
     
@@ -126,7 +126,7 @@ try {
                 $amount = getFeeForRoomType($conn, $room_type, $request_id);
                 if ($amount <= 0) $amount = (float)$room_data['amount'];
                 
-                if ($amount <= 0) throw new Exception("Fee amount not found for '$room_type'. Please update renew_fee table.");
+                if ($amount <= 0) throw new Exception("Fee amount not found for '$room_type'. Please update hostel_renew_fee table.");
         
                 // 2. Reject others
                 $conn->query("UPDATE room_change_requests SET status = 'rejected', remarks = 'Room filled by another student' WHERE requested_room = '$requested_room' AND status = 'pending' AND request_id != '$request_id'");
@@ -186,19 +186,19 @@ try {
                 $occupied_beds[] = strtoupper(trim($b_row['bed_no']));
             }
 
-            // Also check virtually locked beds in room_allocations
+            // Also check virtually locked beds in allocation_requests
             $a_stmt = $conn->prepare("
-                SELECT allocated_bed_no 
-                FROM room_allocations 
-                WHERE allocated_room_id = ? 
-                  AND allocation_status IN ('under_review', 'payment_pending', 'approved')
+                SELECT selected_bed_number 
+                FROM allocation_requests 
+                WHERE selected_room_id = ? 
+                  AND status IN ('under_review', 'payment_pending', 'approved')
             ");
             $a_stmt->bind_param("i", $room_id_db);
             $a_stmt->execute();
             $a_res = $a_stmt->get_result();
             while ($a_row = $a_res->fetch_assoc()) {
-                if (!empty($a_row['allocated_bed_no'])) {
-                    $occupied_beds[] = strtoupper(trim($a_row['allocated_bed_no']));
+                if (!empty($a_row['selected_bed_number'])) {
+                    $occupied_beds[] = strtoupper(trim($a_row['selected_bed_number']));
                 }
             }
 

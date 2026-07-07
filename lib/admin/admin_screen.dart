@@ -78,7 +78,7 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Future<void> _fetchRoomCount() async {
     try {
-      final response = await ApiService.getRequest('rooms/fetch_room_master.php');
+      final response = await ApiService.getRequest('rooms/fetch_room_master.php?t=${DateTime.now().millisecondsSinceEpoch}');
       if (response['status'] == 'success' || response['success'] == true) {
         setState(() {
           _roomCount = (response['data'] as List?)?.length ?? 0;
@@ -108,7 +108,7 @@ class _AdminScreenState extends State<AdminScreen> {
               ),
               const SizedBox(width: 8),
               ProfileButton(
-                onTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(3),
+                onTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(4),
               ),
             ],
           ),
@@ -280,7 +280,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1A2744),
-                        fontFamily: 'Georgia',
+                        fontFamily: 'Lato',
                       ),
                     ),
                     if (subtitle != null) ...[

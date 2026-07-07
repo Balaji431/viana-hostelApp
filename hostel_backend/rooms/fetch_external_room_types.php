@@ -3,45 +3,44 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 header("Content-Type: application/json");
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
 
-if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit(0);
 }
 
-require_once '../config/api_config.php';
+require_once dirname(__DIR__) . '/config/database.php';
 
 try {
-    $externalApiUrl = 'https://vstudy.saveetha.com/api/hostel-settings/room-types/external';
-    
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $externalApiUrl);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'x-client-id: ' . VSTUDY_CLIENT_ID,
-        'x-client-secret: ' . VSTUDY_CLIENT_SECRET
-    ]);
-    
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    
-    if ($httpCode == 200 && $response) {
-        $data = json_decode($response, true);
-        $list = isset($data['data']) ? $data['data'] : (is_array($data) ? $data : []);
-        echo json_encode([
-            "status" => "success",
-            "success" => true,
-            "data" => $list
-        ]);
-    } else {
-        echo json_encode([
-            "status" => "error",
-            "success" => false,
-            "message" => "Failed to fetch room types from external API"
-        ]);
+    $database = new Database();
+    $db = $database->getConnection();
+
+    if (!$db) {
+        throw new Exception("Database connection failed");
     }
+
+    $stmt = $db->query("
+        SELECT DISTINCT room_type 
+        FROM room_master 
+        WHERE room_type IS NOT NULL AND room_type != '' AND room_type != 'Not Assigned'
+        ORDER BY room_type
+    ");
+    
+    $list = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $list[] = [
+            'id' => $row['room_type'],
+            'name' => $row['room_type']
+        ];
+    }
+
+    echo json_encode([
+        "status" => "success",
+        "success" => true,
+        "data" => $list
+    ]);
 } catch (Exception $e) {
     echo json_encode([
         "status" => "error",

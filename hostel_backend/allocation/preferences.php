@@ -27,10 +27,14 @@ if ($student_id <= 0) {
 try {
     if ($method === 'GET') {
         // 1. Get current allocation status with room details if applicable
-        $alloc_query = "SELECT ra.*, hr.room_no, hr.building_code, hr.floor, hr.room_type, hr.facility, hr.amount
-                        FROM room_allocations ra
-                        LEFT JOIN hostel_rooms hr ON ra.allocated_room_id = hr.id
-                        WHERE ra.student_id = ?";
+        $alloc_query = "SELECT ra.*,
+                               ra.request_status AS allocation_status,
+                               hr.room_no, hr.building_code, hr.floor, hr.room_type, hr.facility, hr.amount
+                        FROM allocation_requests ra
+                        LEFT JOIN hostel_rooms hr ON ra.selected_room_id = hr.id
+                        WHERE ra.student_id = ?
+                        ORDER BY ra.id DESC
+                        LIMIT 1";
         $stmt = $conn->prepare($alloc_query);
         $stmt->bind_param("i", $student_id);
         $stmt->execute();
@@ -60,7 +64,7 @@ try {
             $first_room_id = (int)$first_pref['room_id'];
 
             $cap_query = "SELECT total_capacity, occupied_rooms,
-                          (SELECT COUNT(*) FROM room_allocations WHERE allocated_room_id = hr.id AND allocation_status = 'payment_pending' AND payment_deadline > NOW()) as hold_count
+                          (SELECT COUNT(*) FROM allocation_requests WHERE selected_room_id = hr.id AND request_status IN ('claimed','approved')) as hold_count
                           FROM hostel_rooms hr
                           WHERE id = ?";
             $cap_stmt = $conn->prepare($cap_query);
@@ -78,11 +82,11 @@ try {
         }
 
         echo json_encode([
-            "success" => true, 
-            "allocation" => $allocation,
-            "preferences" => $preferences,
+            "success"                      => true,
+            "allocation"                   => $allocation,
+            "preferences"                  => $preferences,
             "first_priority_held_by_pending" => $first_priority_held_by_pending,
-            "has_second_priority" => $has_second_priority
+            "has_second_priority"          => $has_second_priority
         ]);
 
     } elseif ($method === 'POST') {
@@ -90,7 +94,7 @@ try {
         $room_id = (int)($data['room_id'] ?? 0);
 
         // Check if already submitted
-        $check_sub = "SELECT allocation_status FROM room_allocations WHERE student_id = ?";
+        $check_sub = "SELECT status as allocation_status FROM allocation_requests WHERE student_id = ?";
         $stmt = $conn->prepare($check_sub);
         $stmt->bind_param("i", $student_id);
         $stmt->execute();
@@ -120,7 +124,7 @@ try {
         $room_id = (int)($_GET['room_id'] ?? 0);
         
         // Check if draft
-        $check_sub = "SELECT allocation_status FROM room_allocations WHERE student_id = ?";
+        $check_sub = "SELECT status as allocation_status FROM allocation_requests WHERE student_id = ?";
         $stmt = $conn->prepare($check_sub);
         $stmt->bind_param("i", $student_id);
         $stmt->execute();

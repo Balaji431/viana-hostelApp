@@ -15,16 +15,7 @@ require_once __DIR__ . '/../utils/activity_logger.php';
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
 
-// Run lightweight inline migration to ensure the bed number column exists
-try {
-    $conn->query("ALTER TABLE room_allocations ADD COLUMN allocated_bed_no VARCHAR(20) DEFAULT NULL");
-} catch (Exception $e) {
-    // Ignore error if column already exists
-}
-
-if (!isset($data) || empty($data)) {
-    $data = json_decode(file_get_contents('php://input'), true);
-}
+$data = json_decode(file_get_contents('php://input'), true);
 $student_id = isset($data['student_id']) ? (int)$data['student_id'] : 0;
 
 if ($student_id <= 0) {
@@ -33,9 +24,9 @@ if ($student_id <= 0) {
 }
 
 try {
-    // 1. Fetch student credentials and active allocation details
+    // ── 1. Fetch student details ──────────────────────────────────────────────
     $u_stmt = $conn->prepare("
-        SELECT u.id, u.username as register_no, u.full_name, u.Gender,
+        SELECT u.id, u.username AS register_no, u.full_name, u.Gender,
                p.room_allocation, p.current_room_id
          FROM users u
          LEFT JOIN profile p ON u.username = p.reg_no
@@ -49,218 +40,172 @@ try {
         throw new Exception("Student not found");
     }
 
-    // 2. Validate student is indeed a "New Student" (no existing allocation)
+    // ── 2. Guard: student must not already have a physical room ───────────────
     $r_alloc = trim($student['room_allocation'] ?? '');
-    $r_id = (int)($student['current_room_id'] ?? 0);
+    $r_id    = (int)($student['current_room_id'] ?? 0);
 
-    $has_allocation = false;
-    if ($r_id > 0) {
-        $has_allocation = true;
-    } elseif (!empty($r_alloc) && !in_array(strtoupper($r_alloc), ['N/A', 'NONE', 'NULL', 'N/A, N/A, N/A'])) {
-        $has_allocation = true;
-    }
-
-    if ($has_allocation) {
+    if ($r_id > 0 || (!empty($r_alloc) && !in_array(strtoupper($r_alloc), ['N/A', 'NONE', 'NULL', 'N/A, N/A, N/A']))) {
         throw new Exception("Student already has an active room allocation. Upgrades and transfers must use the existing flows.");
     }
 
-    // 3. Check for existing active allocation request
-    $req_stmt = $conn->prepare("SELECT id, allocation_status, allocated_room_id, allocated_bed_no FROM room_allocations WHERE student_id = ?");
+    // ── 3. Guard: no duplicate active request ─────────────────────────────────
+    $req_stmt = $conn->prepare("
+        SELECT id, request_status, selected_room_id, selected_bed_number,
+               paid_hostel_name, paid_room_type
+        FROM allocation_requests
+        WHERE student_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+    ");
     $req_stmt->bind_param("i", $student_id);
     $req_stmt->execute();
     $existing_req = $req_stmt->get_result()->fetch_assoc();
 
-    if ($existing_req && in_array($existing_req['allocation_status'], ['submitted', 'under_review', 'payment_pending', 'approved'])) {
+    // Block only if there is an active (non-terminal) request
+    if ($existing_req && in_array($existing_req['request_status'], ['pending', 'claimed', 'approved'])) {
         echo json_encode([
-            "success" => true,
-            "message" => "An allocation request is already active.",
-            "status" => $existing_req['allocation_status'],
-            "allocated_room_id" => $existing_req['allocated_room_id'],
-            "allocated_bed_no" => $existing_req['allocated_bed_no']
+            "success"         => false,
+            "message"         => "An allocation request is already active.",
+            "status"          => $existing_req['request_status'],
+            "allocation_id"   => (int)$existing_req['id'],
+            "allocated_hostel_name" => $existing_req['paid_hostel_name'],
         ]);
         exit();
     }
 
-    // 4. Fetch paid hostel parameters from simulated Director API
-    // We fetch it internally by hitting our newly created API to ensure clean service boundary
+    // ── 4. Fetch paid hostel details from vstudy_payments ─────────────────────
     $reg_no = $student['register_no'];
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http";
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8081';
-    
-    // Fallback lookup internally if HTTP request fails (extremely robust!)
+    $gender = $student['Gender'] ?? 'Female';
+    $default_hostel_type = (stripos($gender, 'female') !== false || stripos($gender, 'girls') !== false) ? 'Girls' : 'Boys';
+
     $paid_data = null;
-    $url = "$protocol://$host/hostelapp/hostel_backend/paid_students_api/get_paid_hostel_type.php?register_no=" . urlencode($reg_no);
-    
-    $api_ctx = stream_context_create([
-        "http" => [
-            "timeout" => 2 // Short timeout
-        ]
-    ]);
-    
-    $api_res = @file_get_contents($url, false, $api_ctx);
-    if ($api_res) {
-        $res_json = json_decode($api_res, true);
-        if (isset($res_json['success']) && $res_json['success'] && isset($res_json['data'])) {
-            $paid_data = $res_json['data'];
-        }
-    }
+    $stmtPay = $conn->prepare("SELECT * FROM vstudy_payments WHERE TRIM(roll_number) = TRIM(?) LIMIT 1");
+    $stmtPay->bind_param("s", $reg_no);
+    $stmtPay->execute();
+    $payRow = $stmtPay->get_result()->fetch_assoc();
 
-    // Internal fallback in case webserver loopback is blocked
-    if (!$paid_data) {
-        $mock_payments = [
-            '192425398' => [
-                'hostel_type' => 'Girls',
-                'room_type' => 'AC - B ATTACHED (6 IN 1)',
-                'facility' => 'AC'
-            ],
-            '192413034' => [
-                'hostel_type' => 'Girls',
-                'room_type' => 'AC - B ATTACHED (4 IN 1)',
-                'facility' => 'AC'
-            ],
-            '192315010' => [
-                'hostel_type' => 'Girls',
-                'room_type' => 'NON AC (6 IN 1)',
-                'facility' => 'Non AC'
-            ]
+    if ($payRow) {
+        $hPref    = $payRow['hostel_preference'] ?? '';
+        $hType    = (stripos($hPref, 'girls') !== false || stripos($payRow['gender'] ?? '', 'female') !== false) ? 'Girls' : 'Boys';
+        $facility = (stripos($hPref, 'non ac') !== false || stripos($hPref, 'non-ac') !== false || stripos($hPref, 'non a/c') !== false) ? 'Non AC' : 'AC';
+        $paid_data = [
+            'hostel_type'    => $hType,
+            'hostel_name'    => $payRow['hostel_name'] ?? (($hType === 'Girls') ? 'Vaigai Hostel' : 'Krishna Hostel'),
+            'room_type'      => $hPref,
+            'facility'       => $facility,
+            'payment_status' => $payRow['payment_status'] ?? 'Paid',
         ];
-        $paid_data = $mock_payments[$reg_no] ?? [
-            'hostel_type' => 'Girls',
-            'room_type' => 'AC - B ATTACHED (6 IN 1)',
-            'facility' => 'AC'
+    } else {
+        // Fallback: no payment record — use gender-based default
+        $paid_data = [
+            'hostel_type'    => $default_hostel_type,
+            'hostel_name'    => ($default_hostel_type === 'Girls') ? 'Vaigai Hostel' : 'Krishna Hostel',
+            'room_type'      => ($default_hostel_type === 'Girls') ? 'AC - B ATTACHED (6 IN 1)' : '4 IN 1 AC',
+            'facility'       => 'AC',
+            'payment_status' => 'Paid',
         ];
     }
 
-    $paid_hostel_type = $paid_data['hostel_type'] ?? 'Girls';
-    $paid_room_type = $paid_data['room_type'] ?? 'AC - B ATTACHED (6 IN 1)';
-    $paid_facility = $paid_data['facility'] ?? 'AC';
+    $paid_room_type    = trim($paid_data['room_type'] ?? '');
+    $raw_hostel_name   = trim($paid_data['hostel_name'] ?? '');
+    $payment_status    = $paid_data['payment_status'] ?? 'Paid';
 
-    // 5. Search for a matching room in hostel_rooms with available capacity
-    $room_query = "
-        SELECT id, room_no, room_code, building_code, total_capacity, occupied_rooms, room_type, facility
-        FROM hostel_rooms
-        WHERE hostel_type = ? 
-          AND room_type = ? 
-          AND facility = ? 
-          AND occupied_rooms < total_capacity
-        ORDER BY (total_capacity - occupied_rooms) DESC
-        LIMIT 1
-    ";
-    $r_stmt = $conn->prepare($room_query);
-    $r_stmt->bind_param("sss", $paid_hostel_type, $paid_room_type, $paid_facility);
-    $r_stmt->execute();
-    $matched_room = $r_stmt->get_result()->fetch_assoc();
-
-    if (!$matched_room) {
-        // Soft fallback: Try matching hostel_type and facility with capacity, ignoring room_type capacity format
-        $soft_query = "
-            SELECT id, room_no, room_code, building_code, total_capacity, occupied_rooms, room_type, facility
-            FROM hostel_rooms
-            WHERE hostel_type = ? 
-              AND facility = ? 
-              AND occupied_rooms < total_capacity
-            ORDER BY (total_capacity - occupied_rooms) DESC
-            LIMIT 1
-        ";
-        $r_stmt_soft = $conn->prepare($soft_query);
-        $r_stmt_soft->bind_param("ss", $paid_hostel_type, $paid_facility);
-        $r_stmt_soft->execute();
-        $matched_room = $r_stmt_soft->get_result()->fetch_assoc();
-
-        if (!$matched_room) {
-            throw new Exception("No rooms with available capacity match the paid hostel specifications.");
-        }
+    if (empty($raw_hostel_name)) {
+        throw new Exception("Hostel name is blank in your payment record. Cannot submit allocation request.");
     }
 
-    $room_id = (int)$matched_room['id'];
-    $room_no = $matched_room['room_no'];
-    $room_code = $matched_room['room_code'];
-    $total_capacity = (int)$matched_room['total_capacity'];
+    // ── 5. Normalise the hostel name (strip trailing "Hostel" word for matching)
+    // We store exactly what vstudy_payments says — no lookup in hostel_rooms required.
+    // The warden queue uses isHostelNameMatch() which handles "Noyyal" == "Noyyal Hostel".
+    $paid_hostel_name = $raw_hostel_name;
 
-    // 6. Find the first available bed number in this room
-    // Fetch all occupied beds from profile table
-    $occupied_beds = [];
-    $b_stmt = $conn->prepare("SELECT bed_no FROM profile WHERE room_allocation = ? AND bed_no IS NOT NULL AND bed_no != ''");
-    $b_stmt->bind_param("s", $room_code);
-    $b_stmt->execute();
-    $b_res = $b_stmt->get_result();
-    while ($b_row = $b_res->fetch_assoc()) {
-        $occupied_beds[] = strtoupper(trim($b_row['bed_no']));
+    // Resolve paid_hostel_id from hostel_type (nullable — do not fail if absent)
+    $paid_hostel_id = 0;
+    $norm_hostel    = preg_replace('/\s*hostel\s*/i', '', $paid_hostel_name);
+    $search_pattern = "%" . trim($norm_hostel) . "%";
+    $h_stmt = $conn->prepare("SELECT id FROM hostel_type WHERE hostel_name LIKE ? LIMIT 1");
+    $h_stmt->bind_param("s", $search_pattern);
+    $h_stmt->execute();
+    $h_row = $h_stmt->get_result()->fetch_assoc();
+    if ($h_row) {
+        $paid_hostel_id = (int)$h_row['id'];
     }
 
-    // Fetch virtually locked beds in room_allocations
-    $a_stmt = $conn->prepare("
-        SELECT allocated_bed_no 
-        FROM room_allocations 
-        WHERE allocated_room_id = ? 
-          AND allocation_status IN ('under_review', 'payment_pending', 'approved')
-    ");
-    $a_stmt->bind_param("i", $room_id);
-    $a_stmt->execute();
-    $a_res = $a_stmt->get_result();
-    while ($a_row = $a_res->fetch_assoc()) {
-        if (!empty($a_row['allocated_bed_no'])) {
-            $occupied_beds[] = strtoupper(trim($a_row['allocated_bed_no']));
-        }
-    }
+    // ── 6. Insert or re-open request ──────────────────────────────────────────
+    $now            = date('Y-m-d H:i:s');
+    $request_status = 'pending';
+    $old_status     = 'under_review'; // backward compat with old status column
 
-    // Choose first available bed B1 to B{capacity}
-    $allocated_bed = "B1";
-    for ($i = 1; $i <= $total_capacity; $i++) {
-        $candidate = "B" . $i;
-        if (!in_array($candidate, $occupied_beds)) {
-            $allocated_bed = $candidate;
-            break;
-        }
-    }
-
-    // 7. Insert or update Suggested Room Allocation in room_allocations table
-    $now = date('Y-m-d H:i:s');
-    $status = 'under_review'; // 'under_review' perfectly represents a suggested allocation pending warden review
+    $student_name = $student['full_name'] ?? '';
 
     if ($existing_req) {
+        // Re-open a rejected / cancelled request
         $ins_stmt = $conn->prepare("
-            UPDATE room_allocations 
-            SET allocated_room_id = ?, allocated_bed_no = ?, allocation_status = ?, submitted_at = ?
+            UPDATE allocation_requests
+            SET request_status = ?, status = ?,
+                student_reg_no = ?, student_name = ?,
+                paid_hostel_id = ?, paid_hostel_name = ?, paid_room_type = ?,
+                payment_status = ?,
+                selected_room_id = NULL, selected_bed_number = NULL, selected_room_number = NULL,
+                claimed_by_username = NULL, claimed_at = NULL,
+                approved_by_username = NULL, approved_at = NULL,
+                remarks = NULL, created_at = ?
             WHERE student_id = ?
         ");
-        $ins_stmt->bind_param("isssi", $room_id, $allocated_bed, $status, $now, $student_id);
+        $ins_stmt->bind_param(
+            "ssssissssi",
+            $request_status, $old_status,
+            $reg_no, $student_name,
+            $paid_hostel_id, $paid_hostel_name, $paid_room_type,
+            $payment_status,
+            $now,
+            $student_id
+        );
     } else {
         $ins_stmt = $conn->prepare("
-            INSERT INTO room_allocations (student_id, allocated_room_id, allocated_bed_no, allocation_status, submitted_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO allocation_requests
+                (student_id, student_reg_no, student_name,
+                 paid_hostel_id, paid_hostel_name, paid_room_type, payment_status,
+                 request_status, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $ins_stmt->bind_param("iisss", $student_id, $room_id, $allocated_bed, $status, $now);
+        $ins_stmt->bind_param(
+            "ississssss",
+            $student_id, $reg_no, $student_name,
+            $paid_hostel_id, $paid_hostel_name, $paid_room_type, $payment_status,
+            $request_status, $old_status, $now
+        );
     }
 
-    if ($ins_stmt->execute()) {
-        logAudit(
-            $student_id,
-            $reg_no,
-            'student',
-            'SUBMIT_ALLOCATION_REQUEST',
-            'Room Allocation',
-            null,
-            [
-                'student_reg_no' => $reg_no,
-                'hostel' => $matched_room['building_code'] ?? 'Vaigai Hostel',
-                'room_type' => $paid_room_type,
-                'priority' => '1',
-                'request_time' => $now
-            ]
-        );
-        echo json_encode([
-            "success" => true,
-            "message" => "Suggested room allocation generated successfully.",
-            "status" => $status,
-            "allocated_room_id" => $room_id,
-            "allocated_room_no" => $room_no,
-            "allocated_block" => $matched_room['building_code'],
-            "allocated_bed_no" => $allocated_bed
-        ]);
-    } else {
-        throw new Exception("Failed to generate suggested allocation request.");
+    if (!$ins_stmt->execute()) {
+        throw new Exception("Failed to submit room allocation request: " . $conn->error);
     }
+
+    $alloc_id = $existing_req ? (int)$existing_req['id'] : $conn->insert_id;
+
+    // ── 7. Audit log ──────────────────────────────────────────────────────────
+    logAudit(
+        $student_id, $reg_no, 'student',
+        'SUBMIT_ALLOCATION_REQUEST', 'Room Allocation', null,
+        [
+            'student_reg_no' => $reg_no,
+            'hostel'         => $paid_hostel_name,
+            'room_type'      => $paid_room_type,
+            'request_time'   => $now
+        ]
+    );
+
+    echo json_encode([
+        "success"               => true,
+        "message"               => "Room allocation request submitted successfully.",
+        "status"                => $request_status,
+        "allocation_id"         => $alloc_id,
+        "allocated_hostel_name" => $paid_hostel_name,
+        "allocated_room_type"   => $paid_room_type,
+        "allocated_room_id"     => null,
+        "allocated_room_no"     => null,
+        "allocated_bed_no"      => null,
+    ]);
 
 } catch (Exception $e) {
     echo json_encode(["success" => false, "message" => $e->getMessage()]);

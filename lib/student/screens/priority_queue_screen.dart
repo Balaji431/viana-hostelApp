@@ -115,7 +115,7 @@ class PriorityQueueScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   pref['room_type']?.toString() ?? 'N/A',
-                                  style: GoogleFonts.playfairDisplay(
+                                  style: GoogleFonts.lato(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                     color: ds.RoyalTheme.navyDarker,
@@ -242,7 +242,7 @@ class PriorityQueueScreen extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         title: Text(
           'Confirm Submission',
-          style: GoogleFonts.playfairDisplay(fontWeight: FontWeight.bold),
+          style: GoogleFonts.lato(fontWeight: FontWeight.bold),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,

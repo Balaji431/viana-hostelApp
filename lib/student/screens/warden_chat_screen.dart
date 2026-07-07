@@ -659,7 +659,7 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(context.read<UserProvider>().fullRoomDetails.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Georgia')),
+          Text(context.read<UserProvider>().fullRoomDetails.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato')),
         ],
       ),
     );
@@ -1065,7 +1065,7 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
           children: [
             Text(
               'New ${widget.category}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontFamily: 'Georgia'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontFamily: 'Lato'),
             ),
             const SizedBox(height: 15),
             _buildTextField(_purposeController, "Purpose of Leave / Request...", maxLines: 3),

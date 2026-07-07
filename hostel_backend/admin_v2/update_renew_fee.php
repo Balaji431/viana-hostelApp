@@ -18,32 +18,32 @@ try {
     $data = json_decode(file_get_contents("php://input"), true);
 
     if (isset($data['id'])) {
-        $id = intval($data['id']);
-        $six_month = $data['six_month_amount'] ?? 0;
-        $monthly = $data['monthly_amount'] ?? 0;
-        $room_type = $data['room_type'] ?? '';
-        $facility = $data['facility_description'] ?? '';
-        $hostel_id = $data['hostel_id'] ?? 9;
+        $id         = intval($data['id']);
+        $hostel_fee = $data['hostel_fee'] ?? $data['six_month_amount'] ?? 0;
+        $food_fee   = $data['food_fee'] ?? 50000;
+        $monthly    = $data['monthly_amount'] ?? 2000;
+        $room_type  = $data['room_type'] ?? '';
+        $facility   = $data['facility_description'] ?? '';
 
-        $query = "UPDATE renew_fee SET 
+        $query = "UPDATE hostel_renew_fee SET 
                   room_type = :room_type, 
-                  six_month_amount = :six_month, 
+                  hostel_fee = :hostel_fee, 
+                  food_fee = :food_fee,
                   monthly_amount = :monthly, 
-                  facility_description = :facility,
-                  hostel_id = :hostel_id 
+                  facility_description = :facility
                   WHERE id = :id";
         
         $stmt = $db->prepare($query);
-        $stmt->bindParam(':room_type', $room_type);
-        $stmt->bindParam(':six_month', $six_month);
-        $stmt->bindParam(':monthly', $monthly);
-        $stmt->bindParam(':facility', $facility);
-        $stmt->bindParam(':hostel_id', $hostel_id);
-        $stmt->bindParam(':id', $id);
+        $stmt->bindParam(':room_type',  $room_type);
+        $stmt->bindParam(':hostel_fee', $hostel_fee);
+        $stmt->bindParam(':food_fee',   $food_fee);
+        $stmt->bindParam(':monthly',    $monthly);
+        $stmt->bindParam(':facility',   $facility);
+        $stmt->bindParam(':id',         $id);
 
         if ($stmt->execute()) {
             echo json_encode([
-                "status" => "success",
+                "status"  => "success",
                 "success" => true,
                 "message" => "Fee updated successfully"
             ]);

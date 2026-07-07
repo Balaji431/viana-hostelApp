@@ -96,7 +96,7 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                 color: Color(0xFFB08900),
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
-                fontFamily: 'Georgia',
+                fontFamily: 'Lato',
               ),
             ),
           ],

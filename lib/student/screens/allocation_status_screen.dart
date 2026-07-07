@@ -307,7 +307,7 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
           Text(
             desc,
             textAlign: TextAlign.center,
-            style: GoogleFonts.playfairDisplay(fontSize: 18, fontWeight: FontWeight.bold),
+            style: GoogleFonts.lato(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           if (status == 'submitted' && allocation?['queue_position'] != null) ...[
             const SizedBox(height: 16),
@@ -331,7 +331,7 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
           const Text('Queue Position', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
           Text(
             '#$queuePos',
-            style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold, color: ds.RoyalTheme.primaryGoldEnd),
+            style: GoogleFonts.lato(fontSize: 24, fontWeight: FontWeight.bold, color: ds.RoyalTheme.primaryGoldEnd),
           ),
         ],
       ),
@@ -351,7 +351,7 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Application Progress', style: GoogleFonts.playfairDisplay(fontSize: 16, fontWeight: FontWeight.bold)),
+          Text('Application Progress', style: GoogleFonts.lato(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 20),
           ...List.generate(steps.length, (index) {
             bool isCompleted = index < currentIndex || (index == currentIndex && currentStatus == 'approved');
@@ -600,7 +600,7 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Allocation Fee', style: TextStyle(color: Colors.grey)),
-              Text(amountStr, style: GoogleFonts.playfairDisplay(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text(amountStr, style: GoogleFonts.lato(fontSize: 20, fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 16),
@@ -627,7 +627,7 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Total Amount:', style: TextStyle(fontWeight: FontWeight.bold)),
-              Text(amountStr, style: GoogleFonts.playfairDisplay(fontSize: 22, fontWeight: FontWeight.bold, color: ds.RoyalTheme.primaryGoldEnd)),
+              Text(amountStr, style: GoogleFonts.lato(fontSize: 22, fontWeight: FontWeight.bold, color: ds.RoyalTheme.primaryGoldEnd),),
             ],
           ),
         ],
@@ -682,7 +682,7 @@ class _AllocationStatusScreenState extends State<AllocationStatusScreen> {
                       ),
                       Text(
                         'Room ${allocation?['room_no'] ?? 'N/A'}',
-                        style: GoogleFonts.playfairDisplay(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: GoogleFonts.lato(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       Text(
                         'Block ${allocation?['building_code'] ?? ''} • ${allocation?['floor'] ?? ''} Floor',

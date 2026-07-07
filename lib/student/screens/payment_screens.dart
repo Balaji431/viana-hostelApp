@@ -457,7 +457,7 @@ class PaymentSuccessPage extends StatelessWidget {
                     const Text(
                       'Renew Your Stay',
                       style: TextStyle(
-                        fontFamily: 'Georgia',
+                        fontFamily: 'Lato',
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1B2B48),
@@ -501,7 +501,7 @@ class PaymentSuccessPage extends StatelessWidget {
               const Text(
                 'Payment Successful!',
                 style: TextStyle(
-                  fontFamily: 'Georgia',
+                  fontFamily: 'Lato',
                   fontSize: 26,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF2E7D32),

@@ -44,10 +44,14 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
 
   void _showFeeDialog({Map<String, dynamic>? fee}) {
     final bool isEdit = fee != null;
-    final sixMonthController = TextEditingController(text: isEdit ? fee['six_month_amount'].toString() : '');
-    final monthlyController = TextEditingController(text: isEdit ? fee['monthly_amount'].toString() : '');
-    final roomTypeController = TextEditingController(text: isEdit ? fee['room_type'] : '');
-    final facilityController = TextEditingController(text: isEdit ? fee['facility_description'] : '');
+    final hostelFeeController = TextEditingController(
+        text: isEdit ? (fee['hostel_fee'] ?? fee['six_month_amount'] ?? '').toString() : '');
+    final foodFeeController = TextEditingController(
+        text: isEdit ? (fee['food_fee'] ?? 50000).toString() : '50000');
+    final roomTypeController =
+        TextEditingController(text: isEdit ? fee['room_type'] : '');
+    final facilityController = TextEditingController(
+        text: isEdit ? fee['facility_description'] : '');
 
     showDialog(
       context: context,
@@ -59,31 +63,37 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
             children: [
               TextField(
                 controller: roomTypeController,
-                decoration: const InputDecoration(labelText: 'Room Type (e.g. AC 4 in 1)'),
+                decoration: const InputDecoration(
+                    labelText: 'Room Type (e.g. 4 IN 1 AC)'),
               ),
               const SizedBox(height: 10),
               TextField(
-                controller: sixMonthController,
-                decoration: const InputDecoration(labelText: '6 Month Amount (₹)'),
+                controller: hostelFeeController,
+                decoration: const InputDecoration(
+                    labelText: 'Hostel Fee / year (₹)'),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 10),
               TextField(
-                controller: monthlyController,
-                decoration: const InputDecoration(labelText: 'Monthly Amount (₹)'),
+                controller: foodFeeController,
+                decoration: const InputDecoration(
+                    labelText: 'Food Fee / year (₹)'),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: facilityController,
-                decoration: const InputDecoration(labelText: 'Facility Description'),
+                decoration:
+                    const InputDecoration(labelText: 'Facility Description'),
                 maxLines: 2,
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               if (roomTypeController.text.isEmpty) return;
@@ -91,14 +101,14 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
               final data = {
                 if (isEdit) 'id': fee['id'],
                 'room_type': roomTypeController.text,
-                'six_month_amount': double.tryParse(sixMonthController.text) ?? 0.0,
-                'monthly_amount': double.tryParse(monthlyController.text) ?? 0.0,
+                'hostel_fee': double.tryParse(hostelFeeController.text) ?? 0.0,
+                'food_fee': double.tryParse(foodFeeController.text) ?? 50000.0,
+                'monthly_amount': 2000.0,
                 'facility_description': facilityController.text,
-                'hostel_id': widget.hostelId,
               };
               
               try {
-                final res = isEdit 
+                final res = isEdit
                     ? await ApiService.updateRenewFee(data)
                     : await ApiService.addRenewFee(data);
                 
@@ -200,15 +210,38 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
                       decoration: SkeuomorphicStyles.skeuomorphicCard,
                       child: ListTile(
                         contentPadding: const EdgeInsets.all(16),
-                        title: Text(fee['room_type'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1A2744), fontFamily: 'Georgia')),
+                        title: Text(fee['room_type'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1A2744), fontFamily: 'Lato')),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const SizedBox(height: 8),
-                            Text('6 Months: ₹${fee['six_month_amount']}', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w600)),
-                            Text('Monthly: ₹${fee['monthly_amount']}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
+                            Row(
+                              children: [
+                                const Icon(Icons.hotel, size: 14, color: Colors.blueAccent),
+                                const SizedBox(width: 4),
+                                Text('Hostel: ₹${fee['hostel_fee'] ?? fee['six_month_amount'] ?? '-'}',
+                                    style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const Icon(Icons.restaurant, size: 14, color: Colors.orange),
+                                const SizedBox(width: 4),
+                                Text('Food: ₹${fee['food_fee'] ?? 50000}',
+                                    style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const Icon(Icons.calculate, size: 14, color: Colors.green),
+                                const SizedBox(width: 4),
+                                Text('Total: ₹${fee['total_fee'] ?? ((fee['hostel_fee'] ?? 0) + (fee['food_fee'] ?? 50000))}',
+                                    style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
                             const SizedBox(height: 4),
-                            Text(fee['facility_description'] ?? '', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                            Text(fee['facility_description'] ?? '',
+                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                           ],
                         ),
                         trailing: Row(

@@ -29,7 +29,7 @@ try {
     }
 
     // 1. Fetch student's current allocation record
-    $alloc_query = "SELECT id, allocation_status FROM room_allocations WHERE student_id = ?";
+    $alloc_query = "SELECT id, status FROM allocation_requests WHERE student_id = ?";
     $stmt = $conn->prepare($alloc_query);
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
@@ -39,13 +39,13 @@ try {
         throw new Exception("No active room allocation request found for this student");
     }
 
-    if ($alloc['allocation_status'] !== 'submitted' && $alloc['allocation_status'] !== 'under_review') {
-        throw new Exception("Allocation is already in state: " . $alloc['allocation_status']);
+    if ($alloc['status'] !== 'submitted' && $alloc['status'] !== 'under_review') {
+        throw new Exception("Allocation is already in state: " . $alloc['status']);
     }
 
     // 2. Fetch the 2nd priority room preference
     $pref_query = "SELECT rp.room_id, hr.amount, hr.room_no, hr.building_code, hr.floor, hr.total_capacity, hr.occupied_rooms,
-                   (SELECT COUNT(*) FROM room_allocations WHERE allocated_room_id = hr.id AND allocation_status = 'payment_pending' AND payment_deadline > NOW()) as hold_count
+    (SELECT COUNT(*) FROM allocation_requests WHERE selected_room_id = hr.id AND status = 'payment_pending' AND payment_deadline > NOW()) as hold_count
                    FROM room_preferences rp
                    JOIN hostel_rooms hr ON rp.room_id = hr.id
                    WHERE rp.student_id = ? AND rp.priority_order = 2 LIMIT 1";
@@ -79,9 +79,10 @@ try {
         $deadline_str = $deadline->format('Y-m-d H:i:s');
 
         // We use warden_id = 1 (System / Admin) as the approver
-        $update_query = "UPDATE room_allocations 
-                         SET allocated_room_id = ?, 
-                             allocation_status = 'payment_pending', 
+        $update_query = "UPDATE allocation_requests 
+                         SET selected_room_id = ?, 
+                             status = 'payment_pending', 
+                             request_status = 'approved',
                              payment_deadline = ?,
                              approved_by = 1,
                              approved_at = ?,

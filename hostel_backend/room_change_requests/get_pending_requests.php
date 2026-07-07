@@ -53,15 +53,15 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
         }
     }
     
-    // Look up in renew_fee table for other types
-    $query = "SELECT six_month_amount, monthly_amount FROM renew_fee WHERE UPPER(TRIM(room_type)) = ?";
+    // Look up in hostel_renew_fee table for other types
+    $query = "SELECT hostel_fee, monthly_amount FROM hostel_renew_fee WHERE UPPER(TRIM(room_type)) = ?";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("s", $normalized);
     $stmt->execute();
     $res = $stmt->get_result()->fetch_assoc();
     
     if ($res) {
-        if (floatval($res['six_month_amount']) > 0) return (float)$res['six_month_amount'];
+        if (floatval($res['hostel_fee']) > 0) return (float)$res['hostel_fee'];
         if (floatval($res['monthly_amount']) > 0) return (float)$res['monthly_amount'] * 12;
     }
     

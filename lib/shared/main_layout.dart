@@ -34,6 +34,7 @@ import '../admin/screens/category_manager_screen.dart';
 import '../admin/screens/admin_hostel_manager_screen.dart';
 import '../admin/staff_mapping_manager_screen.dart';
 import '../admin/screens/hostel_detail_screen.dart';
+import '../admin/screens/register_staff_screen.dart';
 import '../core/models/hierarchical_hostel_model.dart';
 import 'widgets/glassmorphic_jelly_navbar.dart';
 import 'role_guard.dart';
@@ -133,7 +134,11 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     _navigatorObserver = _NestedNavigatorObserver(
       onStackChanged: () {
         if (mounted) {
-          setState(() {});
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {});
+            }
+          });
         }
       },
     );
@@ -462,15 +467,15 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                               boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))],
                             ),
                             child: const Center(
-                              child: Text('RR', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF3D2E0A), fontFamily: 'Georgia'))
+                              child: Text('RR', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF3D2E0A), fontFamily: 'Lato'))
                             ),
                           ),
                           const SizedBox(width: 10),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: const [
-                              Text('Royal', style: TextStyle(fontFamily: 'Georgia', fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold, height: 1.2)),
-                              Text('Residences', style: TextStyle(fontFamily: 'Georgia', fontSize: 13, color: Color(0xFFD4AF37), fontWeight: FontWeight.bold, height: 1.2)),
+                              Text('Royal', style: TextStyle(fontFamily: 'Lato', fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold, height: 1.2)),
+                              Text('Residences', style: TextStyle(fontFamily: 'Lato', fontSize: 13, color: Color(0xFFD4AF37), fontWeight: FontWeight.bold, height: 1.2)),
                             ],
                           ),
                         ],
@@ -628,6 +633,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         return [
           const _TabItem(label: 'New Admin', icon: Icons.admin_panel_settings_outlined, activeIcon: Icons.admin_panel_settings, page: AdminScreen()),
           const _TabItem(label: 'Activity Logs', icon: Icons.assignment_outlined, activeIcon: Icons.assignment, page: AdminActivityLogsScreen()),
+          const _TabItem(label: 'New Staff', icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1, page: RegisterStaffScreen()),
           const _TabItem(label: 'Management', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: WardenManagementTab()),
           const _TabItem(label: 'Settings', icon: Icons.person_outline, activeIcon: Icons.person, page: SettingsPage()),
         ];

@@ -13,6 +13,17 @@ class AllocationProvider extends ChangeNotifier {
   bool _firstPriorityHeldByPending = false;
   bool _hasSecondPriority = false;
 
+  // ── paid hostel fetch state ───────────────────────────────────────────────
+  /// true while a fetch is in-flight
+  bool _paidFetchLoading = false;
+  /// true once a fetch has completed (success OR definitive error) — prevents
+  /// repeated re-triggers from addPostFrameCallback rebuild loops
+  bool _paidFetchDone = false;
+  /// set to a user-visible message on failure, null on success
+  String? _paidFetchError;
+  /// HTTP status code returned by the backend (200/404/503/500/0)
+  int _paidFetchHttpStatus = 0;
+
   List<Map<String, dynamic>> get rooms => _rooms;
   List<Map<String, dynamic>> get hostels => _hostels;
   List<Map<String, dynamic>> get preferences => _preferences;
@@ -21,8 +32,20 @@ class AllocationProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get firstPriorityHeldByPending => _firstPriorityHeldByPending;
   bool get hasSecondPriority => _hasSecondPriority;
+  bool  get paidFetchLoading    => _paidFetchLoading;
+  bool  get paidFetchDone       => _paidFetchDone;
+  String? get paidFetchError    => _paidFetchError;
+  int   get paidFetchHttpStatus => _paidFetchHttpStatus;
 
-  String get allocationStatus => _allocation?['allocation_status'] ?? 'none';
+  /// Returns a normalised allocation status string.
+  /// 'pending' and 'claimed' are the new canonical statuses from request_status.
+  /// We map them to 'under_review' so the existing Flutter UI branches continue
+  /// to work without a full UI rewrite.
+  String get allocationStatus {
+    final raw = _allocation?['allocation_status'] ?? _allocation?['request_status'] ?? 'none';
+    if (raw == 'pending' || raw == 'claimed') return 'under_review';
+    return raw as String;
+  }
 
   Future<void> fetchRooms() async {
     _isLoading = true;
@@ -177,20 +200,71 @@ class AllocationProvider extends ChangeNotifier {
     }
   }
 
+  /// Fetches paid hostel details for [registerNo].
+  ///
+  /// Guards against concurrent calls and re-trigger loops:
+  ///  - returns immediately if already loading or already done.
+  ///  - sets [paidFetchDone] = true on first completion (success or definitive failure).
+  ///  - on 503 (service unavailable), [paidFetchDone] remains false so a manual
+  ///    Retry button can call this again.
   Future<void> fetchPaidHostelType(String registerNo) async {
-    _isLoading = true;
+    // Don't re-trigger if already loading or already have a definitive result
+    if (_paidFetchLoading || _paidFetchDone) return;
+
+    _paidFetchLoading = true;
+    _paidFetchError   = null;
+    _isLoading        = true;
     notifyListeners();
+
     try {
-      final response = await ApiService.getPaidHostelType(registerNo);
+      final response = await ApiService.getPaidHostelType(registerNo)
+          .timeout(
+            const Duration(seconds: 20),
+            onTimeout: () => {
+              'success': false,
+              'http_status': 0,
+              'message': 'Request timed out. Please check your connection.',
+            },
+          );
+
+      final httpStatus = (response['http_status'] as num?)?.toInt() ?? 0;
+      _paidFetchHttpStatus = httpStatus;
+
       if (response['success'] == true) {
-        _paidHostelData = response['data'];
+        _paidHostelData = response['data'] as Map<String, dynamic>?;
+        _paidFetchError = null;
+        _paidFetchDone  = true;   // success — no retry needed
+      } else {
+        final msg = (response['message'] as String?) ?? 'Unknown error';
+        _paidFetchError = msg;
+
+        if (httpStatus == 503 || httpStatus == 0) {
+          // Transient failure — allow manual retry
+          _paidFetchDone = false;
+        } else {
+          // 404, 400, 500 — definitive; don't loop
+          _paidFetchDone = true;
+        }
       }
     } catch (e) {
-      debugPrint("Error fetching paid hostel type: $e");
+      debugPrint('fetchPaidHostelType error: $e');
+      _paidFetchError      = 'Connection error. Please try again.';
+      _paidFetchHttpStatus = 0;
+      _paidFetchDone       = false; // allow retry on network errors
     } finally {
-      _isLoading = false;
+      _paidFetchLoading = false;
+      _isLoading        = false;
       notifyListeners();
     }
+  }
+
+  /// Resets paid fetch state so the user can manually retry after a transient error.
+  void resetPaidFetch() {
+    _paidFetchDone       = false;
+    _paidFetchError      = null;
+    _paidFetchHttpStatus = 0;
+    _paidHostelData      = null;
+    notifyListeners();
   }
 
   Future<Map<String, dynamic>> requestNewStudentAllocation(int studentId, String registerNo) async {

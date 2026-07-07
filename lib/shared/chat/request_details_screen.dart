@@ -72,7 +72,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reason for Rejection', style: TextStyle(fontFamily: 'Georgia', fontWeight: FontWeight.bold)),
+        title: const Text('Reason for Rejection', style: TextStyle(fontFamily: 'Lato', fontWeight: FontWeight.bold)),
         content: TextField(
           controller: reasonController,
           decoration: const InputDecoration(
@@ -240,7 +240,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                 Text(
                   widget.request.requestType,
                   style: const TextStyle(
-                    fontFamily: 'Georgia',
+                    fontFamily: 'Lato',
                     fontSize: 24, // Reduced from 32
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF1B2B48),

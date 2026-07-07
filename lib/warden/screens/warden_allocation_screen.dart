@@ -26,6 +26,11 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
   // Right panel state
   Map<String, dynamic>? _selectedRequest;
 
+  final Map<int, Map<String, dynamic>> _selectedAllocations = {};
+
+  String _roleScope = 'floor_warden';
+  String? _errorMessage;
+
   @override
   void initState() {
     super.initState();
@@ -33,24 +38,52 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
   }
 
   Future<void> _fetchRequests() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    final user = context.read<UserProvider>();
     try {
-      final response = await http.get(Uri.parse('${ApiService.baseUrl}/allocation/warden_requests.php?status=$_filterStatus'));
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/allocation/warden_requests.php?status=$_filterStatus'),
+        headers: {
+          'X-User-Id': user.dbId.toString(),
+          'X-User-Role': user.role.name,
+          'X-User-Username': user.username,
+        },
+      );
       final data = json.decode(response.body);
-      if (data['success']) {
+      if (response.statusCode == 200 && data['success'] == true) {
         setState(() {
           _requests = List<Map<String, dynamic>>.from(data['requests']);
+          _roleScope = data['role_scope'] ?? 'floor_warden';
           // Clear selections if they no longer exist in the new data
           _selectedRequestIds.retainWhere((id) => _requests.any((req) => req['id'] == id));
-          if (_selectedRequest != null && !_requests.any((req) => req['id'] == _selectedRequest!['id'])) {
-            _selectedRequest = null;
+          if (_selectedRequest != null) {
+            final idx = _requests.indexWhere((req) => req['id'] == _selectedRequest!['id']);
+            if (idx == -1) {
+              _selectedRequest = null;
+            } else {
+              _selectedRequest = _requests[idx];
+            }
           }
+        });
+      } else {
+        setState(() {
+          _requests = [];
+          _errorMessage = data['message'] ?? 'Failed to load requests';
         });
       }
     } catch (e) {
       debugPrint("Error: $e");
+      setState(() {
+        _requests = [];
+        _errorMessage = 'An error occurred: $e';
+      });
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -325,6 +358,18 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
 
   Widget _buildQueueList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator(color: ds.RoyalTheme.primaryGoldEnd));
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text(
+            _errorMessage!,
+            style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
     if (_requests.isEmpty) return const Center(child: Text('No requests found in this queue.'));
 
     return ListView.builder(
@@ -370,7 +415,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                       children: [
                         Text(
                           req['student_name'] ?? 'Unknown',
-                          style: GoogleFonts.playfairDisplay(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: GoogleFonts.lato(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         Text(
                           'ID: ${req['student_reg_no']}',
@@ -396,7 +441,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(color: ds.RoyalTheme.primaryGoldEnd.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                      child: Text('SUGGESTED', style: TextStyle(color: ds.RoyalTheme.primaryGoldEnd, fontSize: 10, fontWeight: FontWeight.bold)),
+                      child: Text('REQUESTED', style: TextStyle(color: ds.RoyalTheme.primaryGoldEnd, fontSize: 10, fontWeight: FontWeight.bold)),
                     )
                   else if (req['allocation_status'] == 'payment_pending')
                     Container(
@@ -451,6 +496,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
 
   Widget _buildExpandedStudentDetails(Map<String, dynamic> request) {
     final recommendedRoomId = request['recommended_room']?['room_id'];
+    final bool hasSelected = _selectedAllocations.containsKey(request['id']);
     
     return Container(
       color: Colors.white.withOpacity(0.5),
@@ -489,10 +535,12 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                   Text('PAID HOSTEL SPECIFICATIONS', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
                   const SizedBox(height: 12),
                   _buildDirectorPaidSpecsCard(request['director_paid_data']),
-                  const SizedBox(height: 24),
-                  Text('SUGGESTED AUTO-ALLOCATED ROOM & BED', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
-                  const SizedBox(height: 12),
-                  _buildSuggestedAllocationCard(request),
+                  if (_selectedAllocations.containsKey(request['id'])) ...[
+                    const SizedBox(height: 24),
+                    Text('WARDEN SELECTED ROOM & BED', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
+                    const SizedBox(height: 12),
+                    _buildSelectedAllocationCard(_selectedAllocations[request['id']]!),
+                  ],
                 ] else ...[
                   Text('PRIORITY QUEUE', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
                   const SizedBox(height: 16),
@@ -592,29 +640,50 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                     ],
                   )
                 : request['allocation_status'] == 'approved'
-                ? Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      color: ds.RoyalTheme.successMid.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: ds.RoyalTheme.successMid),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.check_circle, color: ds.RoyalTheme.successMid),
-                        const SizedBox(width: 8),
-                        Text(
-                          'ALLOCATED & PAID',
-                          style: TextStyle(
-                            color: ds.RoyalTheme.successMid,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.2,
+                ? Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          decoration: BoxDecoration(
+                            color: ds.RoyalTheme.successMid.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: ds.RoyalTheme.successMid),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.check_circle, color: ds.RoyalTheme.successMid, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'ALLOCATED & PAID',
+                                style: TextStyle(
+                                  color: ds.RoyalTheme.successMid,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _processSingleAction(request['id'], 'deallocate', null),
+                          icon: const Icon(Icons.cancel_outlined, size: 16),
+                          label: const Text('Deallocate', style: TextStyle(fontSize: 11)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: ds.RoyalTheme.dangerMid,
+                            side: const BorderSide(color: ds.RoyalTheme.dangerMid),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
                   )
                 : request['allocation_status'] == 'payment_pending'
                     ? Row(
@@ -661,50 +730,18 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                         ],
                       )
                     : request['allocation_status'] == 'under_review'
-                        ? Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () => _processSingleAction(request['id'], 'reject', null),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: ds.RoyalTheme.dangerMid,
-                                    side: const BorderSide(color: ds.RoyalTheme.dangerMid),
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  child: const Text('Reject'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () => _showModifyRoomDialog(request),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: ds.RoyalTheme.warningMid,
-                                    side: BorderSide(color: ds.RoyalTheme.warningMid),
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  child: const Text('Modify'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                flex: 2,
-                                child: ElevatedButton.icon(
-                                  onPressed: () => _processSingleAction(request['id'], 'approve', (request['allocated_room_id'] != null) ? int.parse(request['allocated_room_id'].toString()) : null),
-                                  icon: const Icon(Icons.check_circle_outline),
-                                  label: const Text('Approve Match', style: TextStyle(fontSize: 12)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: ds.RoyalTheme.primaryGoldStart,
-                                    foregroundColor: ds.RoyalTheme.navyDarker,
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                ),
-                              ),
-                            ],
+                        ? IOS6ApprovalActions(
+                            onReject: () => _processSingleAction(request['id'], 'reject', null),
+                            onCheckAvailability: () => _showRoomSelectionDialog(request),
+                            onApprove: () {
+                              final selection = _selectedAllocations[request['id']];
+                              if (selection != null) {
+                                final int? roomId = int.tryParse(selection['room']['id'].toString());
+                                final String? bedNo = selection['bed'].toString();
+                                _processSingleAction(request['id'], 'approve', roomId, bedNo: bedNo);
+                              }
+                            },
+                            approveEnabled: hasSelected,
                           )
                         : Column(
                             mainAxisSize: MainAxisSize.min,
@@ -864,7 +901,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                       Expanded(
                         child: Text(
                           '${room['room_type']}', 
-                          style: GoogleFonts.playfairDisplay(
+                          style: GoogleFonts.lato(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: ds.RoyalTheme.navyDarker,
@@ -935,16 +972,23 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
     );
   }
 
-  Future<void> _processSingleAction(dynamic allocationId, String action, int? roomId) async {
+  Future<void> _processSingleAction(dynamic allocationId, String action, int? roomId, {String? bedNo}) async {
     final user = context.read<UserProvider>();
     setState(() => _isLoading = true);
     try {
       final response = await http.post(
         Uri.parse('${ApiService.baseUrl}/allocation/warden_requests.php'),
+        headers: {
+          'X-User-Id': user.dbId.toString(),
+          'X-User-Role': user.role.name,
+          'X-User-Username': user.username,
+          'Content-Type': 'application/json',
+        },
         body: json.encode({
           'action': action,
           'allocation_id': allocationId,
           'room_id': roomId,
+          'bed_no': bedNo,
           'warden_id': user.dbId
         }),
       );
@@ -1078,9 +1122,18 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
   }
 
   Widget _buildSuggestedAllocationCard(Map<String, dynamic> request) {
-    final roomNo = request['allocated_room_no'] ?? 'N/A';
+    final roomCode = request['allocated_room_code'] ?? request['allocated_room_no'] ?? 'N/A';
     final block = request['allocated_block'] ?? 'N/A';
     final bed = request['allocated_bed_no'] ?? 'B1';
+    final hostel = request['allocated_hostel_name'] ?? 'N/A';
+    final roomType = request['allocated_room_type'] ?? 'N/A';
+    final int capacity = int.tryParse(request['allocated_room_capacity']?.toString() ?? '') ?? 4;
+    final int occupied = int.tryParse(request['allocated_room_occupied']?.toString() ?? '') ?? 0;
+    // allocated_room_available comes directly from hostel_rooms.available_rooms — ground truth
+    final int available = int.tryParse(request['allocated_room_available']?.toString() ?? '') ?? (capacity - occupied);
+    final int displayNumerator = occupied + 1;
+    final floor = request['allocated_floor'] ?? 'N/A';
+    final wing = request['allocated_wing'] ?? 'N/A';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1089,30 +1142,64 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: ds.RoyalTheme.successMid, width: 2),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: ds.RoyalTheme.successMid,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.bed, color: Colors.white, size: 24),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: ds.RoyalTheme.successMid,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.bed, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Suggested Room',
+                      style: GoogleFonts.lato(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                    ),
+                    Text(
+                      roomCode,
+                      style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 16, color: ds.RoyalTheme.navyDarker),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Suggested Room $roomNo',
-                  style: GoogleFonts.playfairDisplay(fontWeight: FontWeight.bold, fontSize: 16, color: ds.RoyalTheme.navyDarker),
-                ),
-                Text(
-                  'Block: $block • Bed: $bed',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600),
-                ),
-              ],
+          const SizedBox(height: 16),
+          const Divider(height: 1, thickness: 1, color: Colors.black12),
+          const SizedBox(height: 12),
+          _buildSuggestedDetailRow('Bed', bed),
+          _buildSuggestedDetailRow('Hostel', hostel),
+          _buildSuggestedDetailRow('Room Type', roomType),
+          _buildSuggestedDetailRow('Vacant Beds', '$displayNumerator / $capacity'),
+          _buildSuggestedDetailRow('Building', block),
+          _buildSuggestedDetailRow('Floor', floor),
+          _buildSuggestedDetailRow('Wing', wing),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestedDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600)),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(fontSize: 11, color: ds.RoyalTheme.navyDarker, fontWeight: FontWeight.bold),
             ),
           ),
         ],
@@ -1120,11 +1207,76 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
     );
   }
 
-  Future<void> _showModifyRoomDialog(Map<String, dynamic> request) async {
+  Widget _buildSelectedAllocationCard(Map<String, dynamic> selection) {
+    final room = selection['room'];
+    final bed = selection['bed'];
+    final roomCode = room['room_code'] ?? room['number'] ?? 'N/A';
+    final block = room['block'] ?? 'N/A';
+    final hostel = room['hostel_name'] ?? 'N/A';
+    final roomType = room['room_type'] ?? 'N/A';
+    final int capacity = room['capacity'] ?? 4;
+    final int available = room['available'] ?? 0;
+    final floor = room['floor'] ?? 'N/A';
+    final wing = room['wing_code'] ?? 'N/A';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ds.RoyalTheme.successMid.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ds.RoyalTheme.successMid, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: ds.RoyalTheme.successMid,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.bed, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Selected Room',
+                      style: GoogleFonts.lato(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                    ),
+                    Text(
+                      roomCode,
+                      style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 16, color: ds.RoyalTheme.navyDarker),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1, thickness: 1, color: Colors.black12),
+          const SizedBox(height: 12),
+          _buildSuggestedDetailRow('Bed', bed),
+          _buildSuggestedDetailRow('Hostel', hostel),
+          _buildSuggestedDetailRow('Room Type', roomType),
+          _buildSuggestedDetailRow('Vacant Beds Ratio', '$available / $capacity'),
+          _buildSuggestedDetailRow('Building', block),
+          _buildSuggestedDetailRow('Floor', floor),
+          _buildSuggestedDetailRow('Wing', wing),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRoomSelectionDialog(Map<String, dynamic> request) async {
     setState(() => _isLoading = true);
     List<Map<String, dynamic>> allRooms = [];
     try {
-      final response = await http.get(Uri.parse('${ApiService.baseUrl}/allocation/get_rooms.php'));
+      final response = await http.get(Uri.parse('${ApiService.baseUrl}/allocation/get_rooms.php?student_id=${request['student_id']}'));
       final data = json.decode(response.body);
       if (data['success'] == true) {
         allRooms = List<Map<String, dynamic>>.from(data['rooms']);
@@ -1144,22 +1296,21 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
 
     final String targetHostelType = request['director_paid_data']?['hostel_type'] ?? 'Girls';
     final String targetFacility = request['director_paid_data']?['facility'] ?? 'AC';
-    final String targetRoomType = request['director_paid_data']?['room_type'] ?? '';
+    final String targetHostelName = request['director_paid_data']?['hostel_name'] ?? '';
 
     final filteredRooms = allRooms.where((r) {
       final String hType = r['hostel_type'] ?? 'Girls';
       final String facility = r['facility'] ?? 'AC';
-      final String rType = r['room_type'] ?? '';
+      final String hName = r['hostel_name'] ?? '';
       final int available = r['available'] ?? 0;
       
-      bool matchesRoomType = true;
-      if (targetRoomType.isNotEmpty) {
-        matchesRoomType = rType.toLowerCase() == targetRoomType.toLowerCase();
-      }
+      final String normTargetHostel = targetHostelName.replaceAll(' Hostel', '').trim().toLowerCase();
+      final String normRoomHostel = hName.replaceAll(' Hostel', '').trim().toLowerCase();
+      final bool matchesHostel = normRoomHostel.startsWith(normTargetHostel) || normTargetHostel.startsWith(normRoomHostel) || normRoomHostel.contains(normTargetHostel);
 
-      return hType.toLowerCase() == targetHostelType.toLowerCase() &&
+      return matchesHostel &&
+             hType.toLowerCase() == targetHostelType.toLowerCase() &&
              facility.toLowerCase() == targetFacility.toLowerCase() &&
-             matchesRoomType &&
              available > 0;
     }).toList();
 
@@ -1170,12 +1321,12 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: ds.RoyalTheme.linenStart,
         title: Text(
-          'Modify Room Allocation',
-          style: GoogleFonts.playfairDisplay(fontWeight: FontWeight.bold),
+          'Check Availability',
+          style: GoogleFonts.lato(fontWeight: FontWeight.bold),
         ),
         content: SizedBox(
           width: double.maxFinite,
-          height: 350,
+          height: 450,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1197,15 +1348,23 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                         itemCount: filteredRooms.length,
                         itemBuilder: (context, index) {
                           final r = filteredRooms[index];
+                          final int available = r['available'] ?? 0;
+                          final int capacity = r['capacity'] ?? 0;
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
                               title: Text('Room ${r['number']} (${r['block']})'),
-                              subtitle: Text('${r['room_type']} • ${r['available']} beds vacant'),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('${r['hostel_name']} • ${r['room_type']}'),
+                                  Text('Room Code: ${r['room_code'] ?? 'N/A'}'),
+                                  Text('$available / $capacity beds available', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                ],
+                              ),
                               trailing: const Icon(Icons.arrow_forward, color: Color(0xFFC5A358)),
                               onTap: () {
-                                Navigator.pop(ctx);
-                                _processSingleAction(request['id'], 'approve', int.parse(r['id'].toString()));
+                                _showBedSelectionDialog(ctx, request, r);
                               },
                             ),
                           );
@@ -1219,6 +1378,413 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBedSelectionDialog(BuildContext parentCtx, Map<String, dynamic> request, Map<String, dynamic> room) {
+    final int capacity = room['capacity'] ?? 4;
+    final List<dynamic> occupiedBeds = room['occupied_beds'] ?? [];
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ds.RoyalTheme.linenStart,
+        title: Text(
+          'Select Bed - Room ${room['room_code'] ?? room['number']}',
+          style: GoogleFonts.lato(fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: 300,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Capacity: $capacity Beds', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(height: 16),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.2,
+                ),
+                itemCount: capacity,
+                itemBuilder: (context, idx) {
+                  final String bedLabel = 'B${idx + 1}';
+                  final bool isOccupied = occupiedBeds.contains(bedLabel);
+                  
+                  return InkWell(
+                    onTap: isOccupied ? null : () {
+                      setState(() {
+                        _selectedAllocations[request['id']] = {
+                          'room': room,
+                          'bed': bedLabel,
+                        };
+                      });
+                      Navigator.pop(ctx);
+                      Navigator.pop(parentCtx);
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isOccupied ? Colors.grey.shade300 : Colors.white,
+                        border: Border.all(
+                          color: isOccupied ? Colors.grey : ds.RoyalTheme.primaryGoldEnd,
+                          width: 1,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            isOccupied ? Icons.person : Icons.bed_outlined,
+                            color: isOccupied ? Colors.grey.shade600 : ds.RoyalTheme.navyDarker,
+                            size: 20,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            bedLabel,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: isOccupied ? Colors.grey.shade600 : ds.RoyalTheme.navyDarker,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Back'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum ApprovalActionColor { reject, availability, approve }
+
+class IOS6ApprovalActions extends StatelessWidget {
+  final VoidCallback? onReject;
+  final VoidCallback? onCheckAvailability;
+  final VoidCallback? onApprove;
+  final bool approveEnabled;
+
+  const IOS6ApprovalActions({
+    super.key,
+    this.onReject,
+    this.onCheckAvailability,
+    this.onApprove,
+    this.approveEnabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 450;
+        final double fontSize = isNarrow ? 10.0 : 13.0;
+        final double spacing = isNarrow ? 6.0 : 10.0;
+
+        final buttons = [
+          Expanded(
+            flex: 2,
+            child: IOS6ActionButton(
+              label: 'Reject',
+              type: ApprovalActionColor.reject,
+              icon: Icons.close_rounded,
+              onPressed: onReject,
+              fontSize: fontSize,
+            ),
+          ),
+          SizedBox(width: spacing),
+          Expanded(
+            flex: 3,
+            child: IOS6ActionButton(
+              label: 'Check Availability',
+              type: ApprovalActionColor.availability,
+              icon: Icons.calendar_month_outlined,
+              onPressed: onCheckAvailability,
+              fontSize: fontSize,
+            ),
+          ),
+          SizedBox(width: spacing),
+          Expanded(
+            flex: 3,
+            child: IOS6ActionButton(
+              label: 'Approve Match',
+              type: ApprovalActionColor.approve,
+              icon: Icons.check_rounded,
+              onPressed: approveEnabled ? onApprove : null,
+              fontSize: fontSize,
+            ),
+          ),
+        ];
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: buttons,
+        );
+      },
+    );
+  }
+}
+
+class IOS6ActionButton extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final ApprovalActionColor type;
+  final VoidCallback? onPressed;
+  final double fontSize;
+
+  const IOS6ActionButton({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.type,
+    this.onPressed,
+    this.fontSize = 13.0,
+  });
+
+  @override
+  State<IOS6ActionButton> createState() => _IOS6ActionButtonState();
+}
+
+class _IOS6ActionButtonState extends State<IOS6ActionButton> {
+  bool _isPressed = false;
+
+  List<Color> get _gradientColors {
+    switch (widget.type) {
+      case ApprovalActionColor.reject:
+        return const [
+          Color(0xFFFF6A5F),
+          Color(0xFFF0483C),
+          Color(0xFFD62B1F),
+          Color(0xFFC11F14),
+        ];
+
+      case ApprovalActionColor.availability:
+        return const [
+          Color(0xFFFFCF4D),
+          Color(0xFFF7A713),
+          Color(0xFFEF9406),
+          Color(0xFFE07D00),
+        ];
+
+      case ApprovalActionColor.approve:
+        return const [
+          Color(0xFF5FD06F),
+          Color(0xFF2FB14A),
+          Color(0xFF26A041),
+          Color(0xFF1C8A36),
+        ];
+    }
+  }
+
+  Color get _borderColor {
+    switch (widget.type) {
+      case ApprovalActionColor.reject:
+        return const Color(0xFF9C1409);
+      case ApprovalActionColor.availability:
+        return const Color(0xFFB56B00);
+      case ApprovalActionColor.approve:
+        return const Color(0xFF147029);
+    }
+  }
+
+  Color get _bottomShadowColor {
+    switch (widget.type) {
+      case ApprovalActionColor.reject:
+        return const Color(0xFF8F120A);
+      case ApprovalActionColor.availability:
+        return const Color(0xFFA86200);
+      case ApprovalActionColor.approve:
+        return const Color(0xFF126325);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDisabled = widget.onPressed == null;
+    final isSmallIcon = widget.fontSize < 12;
+
+    return AnimatedScale(
+      scale: _isPressed ? 0.98 : 1,
+      duration: const Duration(milliseconds: 80),
+      child: GestureDetector(
+        onTapDown: isDisabled
+            ? null
+            : (_) {
+                setState(() => _isPressed = true);
+              },
+        onTapUp: isDisabled
+            ? null
+            : (_) {
+                setState(() => _isPressed = false);
+                widget.onPressed?.call();
+              },
+        onTapCancel: () {
+          setState(() => _isPressed = false);
+        },
+        child: Opacity(
+          opacity: isDisabled ? 0.42 : 1,
+          child: Container(
+            height: 36,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0.0, 0.50, 0.51, 1.0],
+                colors: _gradientColors,
+              ),
+              border: Border.all(
+                color: _borderColor,
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _bottomShadowColor,
+                  offset: const Offset(0, 2),
+                  blurRadius: 0,
+                ),
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.22),
+                  offset: const Offset(0, 6),
+                  blurRadius: 14,
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                // iOS 6 glossy top highlight
+                Positioned(
+                  top: 1,
+                  left: 1,
+                  right: 1,
+                  height: 16,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(17),
+                      ),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.white.withOpacity(0.52),
+                          Colors.white.withOpacity(0.10),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _GlossyIconChip(
+                          icon: widget.icon,
+                          isSmall: isSmallIcon,
+                        ),
+                        SizedBox(width: isSmallIcon ? 6 : 10),
+                        Flexible(
+                          child: Text(
+                            widget.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: widget.fontSize,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2,
+                              shadows: const [
+                                Shadow(
+                                  color: Color.fromRGBO(0, 0, 0, 0.35),
+                                  offset: Offset(0, -1),
+                                  blurRadius: 1,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlossyIconChip extends StatelessWidget {
+  final IconData icon;
+  final bool isSmall;
+
+  const _GlossyIconChip({
+    required this.icon,
+    this.isSmall = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final double size = isSmall ? 22 : 31;
+    final double iconSize = isSmall ? 14 : 20;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Colors.white.withOpacity(0.60),
+        ),
+        gradient: RadialGradient(
+          center: const Alignment(0, -0.45),
+          colors: [
+            Colors.white.withOpacity(0.42),
+            Colors.white.withOpacity(0.10),
+            Colors.black.withOpacity(0.14),
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.20),
+            offset: const Offset(0, 1),
+            blurRadius: 1,
+          ),
+        ],
+      ),
+      child: Icon(
+        icon,
+        color: Colors.white,
+        size: iconSize,
+        shadows: const [
+          Shadow(
+            color: Color.fromRGBO(0, 0, 0, 0.40),
+            offset: Offset(0, 1),
+            blurRadius: 1,
           ),
         ],
       ),

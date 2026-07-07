@@ -91,9 +91,9 @@ try {
     $clear_prof_stmt->execute();
 
     // 5. Mark active room allocations entries as checked out
-    $update_alloc_sql = "UPDATE room_allocations 
-                         SET allocation_status = 'checked_out' 
-                         WHERE student_id = ? AND allocation_status IN ('approved', 'payment_pending')";
+    $update_alloc_sql = "UPDATE allocation_requests 
+                         SET status = 'checked_out', request_status = 'cancelled', claimed_by_username = NULL, claimed_at = NULL, approved_by_username = NULL
+                         WHERE student_id = ? AND (status IN ('approved', 'payment_pending') OR request_status = 'approved')";
     $alloc_stmt = $conn->prepare($update_alloc_sql);
     $alloc_stmt->bind_param("i", $student_id);
     $alloc_stmt->execute();
