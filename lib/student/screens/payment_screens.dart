@@ -75,7 +75,7 @@ class _PaymentPageState extends State<PaymentPage> {
   void _handlePayment() async {
     if (_formKey.currentState!.validate()) {
       if (_currentAmount <= 0) {
-        _showError("Invalid payment amount (₹${_currentAmount}). Please contact admin to fix the fee.");
+        _showError("Invalid payment amount (₹$_currentAmount). Please contact admin to fix the fee.");
         return;
       }
       

@@ -99,19 +99,21 @@ try {
         $wing_name = $staff['wing_name'] ?? '';
         
         if (strtolower($role) === 'warden') {
-            // A. Verify user exists in users table and users.role = 'warden'
+            // A. Verify user exists in users table OR staff_users table
             $user_chk = $pdo->prepare("SELECT role FROM users WHERE username = ? LIMIT 1");
             $user_chk->execute([$username]);
             $u_row = $user_chk->fetch(PDO::FETCH_ASSOC);
+            
             if (!$u_row) {
-                echo json_encode(["success" => false, "message" => "Warden user '$username' does not exist in the users table."]);
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                return;
-            }
-            if (strtolower($u_row['role']) !== 'warden') {
-                echo json_encode(["success" => false, "message" => "User '$username' does not have the warden role."]);
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                return;
+                $staff_chk = $pdo->prepare("SELECT role FROM staff_users WHERE bio_id = ? LIMIT 1");
+                $staff_chk->execute([$username]);
+                $s_row = $staff_chk->fetch(PDO::FETCH_ASSOC);
+                if (!$s_row) {
+                    echo json_encode(["success" => false, "message" => "Warden '$username' does not exist in users or staff_users table."]);
+                    if ($pdo->inTransaction()) $pdo->rollBack();
+                    return;
+                }
+                // We don't enforce role='warden' strictly on external staff here because their external role might be 'staff' or similar
             }
             
             // B. Validate hostel is one of the hostels registered in hostel_type table
@@ -175,7 +177,7 @@ try {
     }
 
     // Insert new staff members with location details
-    $stmt = $pdo->prepare("INSERT INTO mapping_staff (mapping_id, name, role, phone, username, hostel_name, floor_name, wing_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO mapping_staff (mapping_id, name, role, phone, username, staff_bio_id, hostel_name, floor_name, wing_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     foreach ($data['staff'] as $staff) {
         $stmt->execute([
             $mappingId, 
@@ -183,6 +185,7 @@ try {
             $staff['role'], 
             $staff['phone'], 
             $staff['username'] ?? '',
+            $staff['username'] ?? '', // save bio_id into staff_bio_id as well
             $staff['hostel_name'] ?? '',
             $staff['floor_name'] ?? '',
             $staff['wing_name'] ?? ''

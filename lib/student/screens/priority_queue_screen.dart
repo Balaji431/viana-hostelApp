@@ -253,7 +253,7 @@ class PriorityQueueScreen extends StatelessWidget {
             ...provider.preferences.map((p) => Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text('• Priority ${p['priority_order']}: ${p['room_type']} (Room ${p['room_no']})'),
-            )).toList(),
+            )),
             const SizedBox(height: 12),
             const Text(
               'Once submitted, you cannot change your preferences.',

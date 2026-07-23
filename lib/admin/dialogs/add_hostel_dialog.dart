@@ -599,7 +599,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
           _buildCampusDropdown(),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: hostelController.text.isEmpty ? null : hostelController.text,
+            initialValue: hostelController.text.isEmpty ? null : hostelController.text,
             isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Hostel Name',
@@ -728,7 +728,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: selectedRoomNo,
+                          initialValue: selectedRoomNo,
                           decoration: const InputDecoration(labelText: 'Room No', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
                           items: _getAvailableRoomsForSelectedFloor().map((r) => DropdownMenuItem(value: r, child: Text(r, style: const TextStyle(fontSize: 12)))).toList(),
                           onChanged: (v) => setState(() => selectedRoomNo = v),
@@ -737,7 +737,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: selectedFloor.isEmpty ? 'All' : selectedFloor,
+                          initialValue: selectedFloor.isEmpty ? 'All' : selectedFloor,
                           decoration: const InputDecoration(labelText: 'Floor', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
                           items: [
                             const DropdownMenuItem(value: 'All', child: Text('All', style: TextStyle(fontSize: 12))),
@@ -752,7 +752,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: selectedWing.isEmpty && wings.isNotEmpty ? wings.first['name'] : (selectedWing.isNotEmpty ? selectedWing : null),
+                          initialValue: selectedWing.isEmpty && wings.isNotEmpty ? wings.first['name'] : (selectedWing.isNotEmpty ? selectedWing : null),
                           decoration: const InputDecoration(labelText: 'Wing', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
                           items: wings.map((w) => DropdownMenuItem(value: w['name'], child: Text(w['name']!, style: const TextStyle(fontSize: 12)))).toList(),
                           onChanged: (v) => setState(() => selectedWing = v!),
@@ -765,7 +765,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _roomType,
+                          initialValue: _roomType,
                           decoration: const InputDecoration(labelText: 'Facility / Room Type', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
                           items: _externalRoomTypes.map((t) => DropdownMenuItem(value: t['name'].toString(), child: Text(t['name'].toString(), style: const TextStyle(fontSize: 12)))).toList(),
                           onChanged: (v) => setState(() => _roomType = v!),
@@ -846,7 +846,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                           _buildCampusDropdown(),
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
-                            value: hostelController.text.isEmpty ? null : hostelController.text,
+                            initialValue: hostelController.text.isEmpty ? null : hostelController.text,
                             isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Hostel Name',

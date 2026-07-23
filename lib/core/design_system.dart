@@ -381,7 +381,7 @@ class SkeuomorphicModal extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => SkeuomorphicModal(title: title, child: child, actions: actions),
+      builder: (context) => SkeuomorphicModal(title: title, actions: actions, child: child),
     );
   }
 

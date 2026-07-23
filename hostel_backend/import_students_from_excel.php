@@ -103,7 +103,7 @@ function mapToDbRoomType($type, $hostelName) {
 $files = [
     'Noyyal' => [
         'path' => 'C:/xampp/htdocs/hostelapp/HOSTEL FINAL - NOYYAL.xlsx',
-        'hostel_name' => 'Noyyal',
+        'hostel_name' => 'Noyyal Hostel',
         'hostel_type' => 'Boys',
         'reg_col' => 'C',
         'name_col' => 'D',

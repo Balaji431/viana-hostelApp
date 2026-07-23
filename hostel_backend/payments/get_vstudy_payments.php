@@ -66,7 +66,9 @@ try {
             "total" => $total,
             "page" => $page,
             "limit" => $limit,
-            "totalPages" => $totalPages
+            "totalPages" => $totalPages,
+            "hasNext" => $page < $totalPages,
+            "hasPrev" => $page > 1
         ]
     ]);
 

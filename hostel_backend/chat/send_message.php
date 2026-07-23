@@ -76,7 +76,7 @@ try {
             } else {
                 $prefix = strtoupper(substr($target_dept, 0, 3));
                 $new_request_id = $prefix . "-" . time() . rand(10, 99);
-                $create = $db->prepare("INSERT INTO request1 (request_id, student_id, request_type, department, status, purpose) VALUES (?, ?, 'General Inquiry', ?, 'pending', 'Auto-created via chat')");
+                $create = $db->prepare("INSERT INTO request1 (request_id, student_id, request_type, department, status, purpose) VALUES (?, ?, 'General Inquiry', ?, 'chat', 'Auto-created via chat')");
                 if ($create->execute([$new_request_id, $effective_student_id, $target_dept])) {
                     $request_id = $new_request_id;
                 } else {
@@ -177,10 +177,13 @@ try {
         if ($recv && !empty($recv['fcm_token'])) {
             try {
                 if ($sender_role === 'student') {
-                    $deptName = ($target_dept === 'parent_warden') ? 'Warden' : ucfirst($target_dept);
-                    $title = "New " . $deptName . " Message: " . $sender['full_name'] . " (" . $sender_username . ")";
+                    // Format: Student Name (Reg No) -> e.g. BIRAJ CHAUDHARY (192514071)
+                    $title = $sender['full_name'] . " (" . $sender_username . ")";
                 } else {
-                    $title = "New Message from " . ($sender_role === 'warden' ? 'Warden' : ($sender_role === 'parent' ? 'Parent' : ucfirst($sender_role)));
+                    // Format: Warden Name (Warden) -> e.g. Dr. Ramesh (Warden)
+                    $s_name = !empty($sender['full_name']) ? $sender['full_name'] : $sender_username;
+                    $s_role = ($sender_role === 'warden') ? 'Warden' : (($sender_role === 'parent') ? 'Parent' : ucfirst($sender_role));
+                    $title = $s_name . " (" . $s_role . ")";
                 }
                 sendFCM($recv['fcm_token'], $title, $message, $request_id, $sender_username, $sender['full_name'], $message, 'chat', $target_dept);
             } catch (Exception $e) {}
@@ -191,7 +194,9 @@ try {
             $parent_recv = $parent_recv_stmt->fetch(PDO::FETCH_ASSOC);
             if ($parent_recv && !empty($parent_recv['fcm_token'])) {
                 try {
-                    $title = "New Message from " . ucfirst($sender_role);
+                    $s_name = !empty($sender['full_name']) ? $sender['full_name'] : $sender_username;
+                    $s_role = ($sender_role === 'warden') ? 'Warden' : ucfirst($sender_role);
+                    $title = $s_name . " (" . $s_role . ")";
                     sendFCM($parent_recv['fcm_token'], $title, $message, $request_id, $sender_username, $sender['full_name'], $message, 'chat', 'parent_warden');
                 } catch (Exception $e) {}
             }

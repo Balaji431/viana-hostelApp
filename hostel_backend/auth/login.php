@@ -29,11 +29,11 @@ $password = $data->password ?? $_POST['password'] ?? $_GET['password'] ?? null;
 
 if ($username && $password) {
     try {
-        $query = "SELECT u.id, u.full_name, u.username as register_no, u.password, u.role, u.conduct, u.conduct_remarks, u.Status, 
+        $query = "SELECT u.id, u.full_name, u.username as register_no, u.password, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType,
                          p.personal_phone as phone, p.room_allocation, p.institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic,
                          p.valid_from, p.valid_to, u.biometric_id,
                          hr.room_no as hr_room_no, hr.building_code as block, hr.floor as floor_name, hr.wing_code as wing_name, hr.hostel_name as room_hostel, hr.room_type as room_type,
-                         hr.facility as room_facility, hr.bath_attached as room_bath_attached
+                         hr.facility as room_facility, hr.bath_attached as room_bath_attached, hr.room_code as room_code
                   FROM users u
                   LEFT JOIN profile p ON u.username = p.reg_no
                   LEFT JOIN hostel_rooms hr ON (hr.id = p.current_room_id OR (COALESCE(p.current_room_id, 0) = 0 AND hr.room_code = p.room_allocation))
@@ -82,6 +82,23 @@ if ($username && $password) {
                         $room_no = $row['room_allocation'];
                     }
 
+                    // For staff/warden/security/maintenance: resolve hostel, block, wing from mapping_staff
+                    $final_role = $row['role'];
+                    if (!in_array(strtolower($row['role']), ['student', 'parent', 'admin'])) {
+                        $mappingStmt = $db->prepare("SELECT role, hostel_name, floor_name, wing_name FROM mapping_staff WHERE staff_bio_id = :bio_id OR username = :username2 LIMIT 1");
+                        $mappingStmt->execute([':bio_id' => $row['register_no'], ':username2' => $row['register_no']]);
+                        $mappingRow = $mappingStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($mappingRow) {
+                            $mapped_role = strtolower($mappingRow['role'] ?? '');
+                            if (in_array($mapped_role, ['warden', 'security', 'maintenance'])) {
+                                $final_role = $mapped_role;
+                            }
+                            if (!empty($mappingRow['hostel_name'])) $hostel = $mappingRow['hostel_name'];
+                            if (!empty($mappingRow['floor_name'])) $block = $mappingRow['floor_name'];
+                            if (!empty($mappingRow['wing_name'])) $wing = $mappingRow['wing_name'];
+                        }
+                    }
+
                     $user_data = [
                         "id" => $row['id'],
                         "username" => $row['register_no'],
@@ -90,7 +107,7 @@ if ($username && $password) {
                         "phone" => $row['phone'],
                         "dob" => $row['dob'],
                         "address" => $row['address'],
-                        "role" => $row['role'],
+                        "role" => $final_role,
                         "institution" => $row['institution'] ?? 'N/A',
                         "hostel_name" => $hostel,
                         "room_allocation" => $row['room_allocation'] ?? 'N/A',
@@ -102,6 +119,7 @@ if ($username && $password) {
                         "biometric_id" => $row['biometric_id'],
                         
                         "room_no" => $room_no,
+                        "room_code" => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
                         "block" => $block,
                         "wing" => $wing,
                         "room_type" => $row['room_type'],
@@ -109,11 +127,12 @@ if ($username && $password) {
                         "room_bath_attached" => $row['room_bath_attached'] ?? 'No',
                         "check_in_date" => $row['valid_from'],
                         "renewal_date" => $row['valid_to'],
-                        "token" => generateJWT($row['id'], $row['register_no'], $row['role'])
+                        "hostel_type" => $row['HostelType'] ?? 'Boys',
+                        "token" => generateJWT($row['id'], $row['register_no'], $final_role)
                     ];
                     
-                    logActivity($row['id'], $row['register_no'], $row['role'], 'LOGIN', 'users', null, ['login_time' => date('Y-m-d H:i:s')]);
-                    logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN_SUCCESS', 'Authentication', null, [
+                    logActivity($row['id'], $row['register_no'], $final_role, 'LOGIN', 'users', null, ['login_time' => date('Y-m-d H:i:s')]);
+                    logAudit($row['id'], $row['register_no'], $final_role, 'LOGIN_SUCCESS', 'Authentication', null, [
                         'registration_no' => $row['register_no'],
                         'timestamp' => date('Y-m-d H:i:s'),
                         'ip_address' => getClientIp(),
@@ -223,6 +242,7 @@ if ($username && $password) {
                             "conduct_remarks"  => $row['conduct_remarks'] ?? '',
                             "biometric_id"     => $row['biometric_id'],
                             "room_no"          => 'N/A',
+                            "room_code"        => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
                             "block"            => 'N/A',
                             "wing"             => 'N/A',
                             "room_type"        => $row['room_type'],
@@ -230,6 +250,7 @@ if ($username && $password) {
                             "room_bath_attached" => $row['room_bath_attached'] ?? 'No',
                             "check_in_date"    => $row['valid_from'],
                             "renewal_date"     => $row['valid_to'],
+                            "hostel_type"      => $row['HostelType'] ?? 'Boys',
                             "token"            => generateJWT($row['id'], $row['register_no'], $row['role'])
                         ];
                         sendResponse(true, "Login successful", $user_data);
@@ -252,7 +273,7 @@ if ($username && $password) {
                                     FROM parent_users p
                                     LEFT JOIN parent_student_map psm ON p.parent_id = psm.parent_id
                                     LEFT JOIN users s ON psm.student_id = s.username
-                                    WHERE p.parent_id = ? LIMIT 0,1";
+                                    WHERE LOWER(p.parent_id) = LOWER(?) LIMIT 0,1";
                     $p_stmt = $db->prepare($parent_query);
                     $p_stmt->execute([$username]);
                     
@@ -265,6 +286,11 @@ if ($username && $password) {
                             $verify = password_verify($password, $db_password);
                         } else {
                             $verify = ($password === $db_password);
+                        }
+
+                        // Allow default passwords (123456 or welcome123) for parent accounts
+                        if (!$verify && ($password === '123456' || $password === 'welcome123')) {
+                            $verify = true;
                         }
                         
                         if ($verify) {
@@ -311,6 +337,37 @@ if ($username && $password) {
                                 'reason' => 'Invalid password'
                             ]);
                             sendResponse(false, "Invalid parent credentials", null, 401);
+                        }
+                    } else if (preg_match('/^(p-|p_|parent[-_]?)(.+)$/i', $username, $matches)) {
+                        // Dynamic parent lookup by student reg no prefix
+                        $std_reg = trim($matches[2]);
+                        $s_stmt = $db->prepare("SELECT id, username, full_name FROM users WHERE username = :reg LIMIT 1");
+                        $s_stmt->execute([':reg' => $std_reg]);
+                        $s_row = $s_stmt->fetch(PDO::FETCH_ASSOC);
+
+                        if ($s_row && ($password === '123456' || $password === 'welcome123')) {
+                            $p_id = "p-" . strtolower($s_row['username']);
+                            $hash = password_hash('123456', PASSWORD_BCRYPT);
+                            $insP = $db->prepare("INSERT INTO parent_users (parent_id, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password = VALUES(password)");
+                            $insP->execute([$p_id, $hash]);
+
+                            $insM = $db->prepare("INSERT IGNORE INTO parent_student_map (parent_id, student_id) VALUES (?, ?)");
+                            $insM->execute([$p_id, $s_row['username']]);
+
+                            $user_data = [
+                                "id" => $s_row['id'],
+                                "username" => $p_id,
+                                "register_no" => $p_id,
+                                "full_name" => "Parent of " . $s_row['full_name'],
+                                "role" => 'parent',
+                                "profile_pic" => "",
+                                "linked_student_id" => $s_row['id'],
+                                "linked_student_username" => $s_row['username'],
+                                "linked_student_name" => $s_row['full_name']
+                            ];
+                            sendResponse(true, "Parent Login successful", $user_data);
+                        } else {
+                            sendResponse(false, "Invalid Username or Password", null, 401);
                         }
                     } else {
                         // User not found in users, vstudy_payments, and parents

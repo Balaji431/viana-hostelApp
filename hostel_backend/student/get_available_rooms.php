@@ -24,6 +24,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
 
+function getNormalizedGender($str) {
+    $str = strtolower(trim($str));
+    if (stripos($str, 'girl') !== false || stripos($str, 'female') !== false || stripos($str, 'women') !== false) {
+        return 'girls';
+    }
+    return 'boys';
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 // Auto-release expired reservations
@@ -166,7 +174,57 @@ function getRoomsByType($conn, $roomType) {
  */
 function getVacantRooms($conn) {
     try {
-        $sql = "SELECT hr.*, ht.campus, ht.hostel_name as hostel_name,
+        $student_hostel_type = null;
+        if (!empty($_GET['register_no'])) {
+            $stmt_std = $conn->prepare("SELECT u.HostelType, u.Gender, p.hostel_name 
+                                        FROM users u 
+                                        LEFT JOIN profile p ON u.username = p.reg_no 
+                                        WHERE u.username = ? LIMIT 1");
+            $stmt_std->bind_param("s", $_GET['register_no']);
+            $stmt_std->execute();
+            $res_std = $stmt_std->get_result()->fetch_assoc();
+            if ($res_std) {
+                $student_hostel_type = !empty(trim($res_std['HostelType'] ?? '')) ? $res_std['HostelType'] : null;
+                if ($student_hostel_type === null) {
+                    $student_hostel_type = !empty(trim($res_std['Gender'] ?? '')) ? $res_std['Gender'] : null;
+                }
+                if ($student_hostel_type === null && !empty($res_std['hostel_name'])) {
+                    $hn = strtolower($res_std['hostel_name']);
+                    if (strpos($hn, 'noyal') !== false || strpos($hn, 'vaigai') !== false || strpos($hn, 'girl') !== false) {
+                        $student_hostel_type = 'Girls';
+                    }
+                }
+            }
+        } elseif (!empty($_GET['student_id'])) {
+            $stmt_std = $conn->prepare("SELECT u.HostelType, u.Gender, p.hostel_name 
+                                        FROM users u 
+                                        LEFT JOIN profile p ON u.id = p.user_id 
+                                        WHERE u.id = ? LIMIT 1");
+            $stmt_std->bind_param("i", $_GET['student_id']);
+            $stmt_std->execute();
+            $res_std = $stmt_std->get_result()->fetch_assoc();
+            if ($res_std) {
+                $student_hostel_type = !empty(trim($res_std['HostelType'] ?? '')) ? $res_std['HostelType'] : null;
+                if ($student_hostel_type === null) {
+                    $student_hostel_type = !empty(trim($res_std['Gender'] ?? '')) ? $res_std['Gender'] : null;
+                }
+                if ($student_hostel_type === null && !empty($res_std['hostel_name'])) {
+                    $hn = strtolower($res_std['hostel_name']);
+                    if (strpos($hn, 'noyal') !== false || strpos($hn, 'vaigai') !== false || strpos($hn, 'girl') !== false) {
+                        $student_hostel_type = 'Girls';
+                    }
+                }
+            }
+        }
+
+        // Final fallback if still null: default to 'Boys'
+        if ($student_hostel_type === null) {
+            $student_hostel_type = 'Boys';
+        }
+
+        $student_gender = getNormalizedGender($student_hostel_type);
+
+        $sql = "SELECT hr.*, ht.campus, ht.hostel_name as hostel_name, ht.hostel_type as hostel_type,
                        (hr.available_rooms - COALESCE(res.res_count, 0)) as available_beds_calc
                 FROM hostel_rooms hr
                 JOIN hostel_type ht ON hr.hostel_id = ht.id
@@ -178,11 +236,20 @@ function getVacantRooms($conn) {
                     AND reserved_until > NOW()
                     AND requested_room IS NOT NULL AND requested_room != ''
                     GROUP BY TRIM(requested_room)
-                ) res ON TRIM(hr.room_code) = res.requested_room
-                WHERE (hr.available_rooms - COALESCE(res.res_count, 0)) > 0
-                ORDER BY ht.campus, hr.hostel_id, hr.floor_code, hr.room_no";
+                ) res ON TRIM(hr.room_code) = res.requested_room";
+                
+        if ($student_gender !== null) {
+            $sql .= " WHERE (hr.available_rooms - COALESCE(res.res_count, 0)) > 0 AND (CASE WHEN LOWER(TRIM(ht.hostel_type)) LIKE '%girl%' OR LOWER(TRIM(ht.hostel_type)) LIKE '%female%' OR LOWER(TRIM(ht.hostel_type)) LIKE '%women%' THEN 'girls' ELSE 'boys' END) = ?";
+        } else {
+            $sql .= " WHERE (hr.available_rooms - COALESCE(res.res_count, 0)) > 0";
+        }
+        
+        $sql .= " ORDER BY ht.campus, hr.hostel_id, hr.floor_code, hr.room_no";
         
         $stmt = $conn->prepare($sql);
+        if ($student_gender !== null) {
+            $stmt->bind_param("s", $student_gender);
+        }
         $stmt->execute();
         $result = $stmt->get_result();
         $rooms_raw = $result->fetch_all(MYSQLI_ASSOC);
@@ -200,6 +267,7 @@ function getVacantRooms($conn) {
                 $hostels[$hostelId] = [
                     'hostel_id' => $hostelId,
                     'hostel_name' => $room['hostel_name'],
+                    'hostel_type' => $room['hostel_type'],
                     'campus' => $room['campus'],
                     'rooms' => []
                 ];
@@ -223,7 +291,57 @@ function getVacantRooms($conn) {
  */
 function getAvailableRooms($conn, $filters = []) {
     try {
-        $sql = "SELECT hr.*, ht.campus, ht.hostel_name as hostel_name,
+        $student_hostel_type = null;
+        if (!empty($filters['register_no'])) {
+            $stmt_std = $conn->prepare("SELECT u.HostelType, u.Gender, p.hostel_name 
+                                        FROM users u 
+                                        LEFT JOIN profile p ON u.username = p.reg_no 
+                                        WHERE u.username = ? LIMIT 1");
+            $stmt_std->bind_param("s", $filters['register_no']);
+            $stmt_std->execute();
+            $res_std = $stmt_std->get_result()->fetch_assoc();
+            if ($res_std) {
+                $student_hostel_type = !empty(trim($res_std['HostelType'] ?? '')) ? $res_std['HostelType'] : null;
+                if ($student_hostel_type === null) {
+                    $student_hostel_type = !empty(trim($res_std['Gender'] ?? '')) ? $res_std['Gender'] : null;
+                }
+                if ($student_hostel_type === null && !empty($res_std['hostel_name'])) {
+                    $hn = strtolower($res_std['hostel_name']);
+                    if (strpos($hn, 'noyal') !== false || strpos($hn, 'vaigai') !== false || strpos($hn, 'girl') !== false) {
+                        $student_hostel_type = 'Girls';
+                    }
+                }
+            }
+        } elseif (!empty($filters['student_id'])) {
+            $stmt_std = $conn->prepare("SELECT u.HostelType, u.Gender, p.hostel_name 
+                                        FROM users u 
+                                        LEFT JOIN profile p ON u.id = p.user_id 
+                                        WHERE u.id = ? LIMIT 1");
+            $stmt_std->bind_param("i", $filters['student_id']);
+            $stmt_std->execute();
+            $res_std = $stmt_std->get_result()->fetch_assoc();
+            if ($res_std) {
+                $student_hostel_type = !empty(trim($res_std['HostelType'] ?? '')) ? $res_std['HostelType'] : null;
+                if ($student_hostel_type === null) {
+                    $student_hostel_type = !empty(trim($res_std['Gender'] ?? '')) ? $res_std['Gender'] : null;
+                }
+                if ($student_hostel_type === null && !empty($res_std['hostel_name'])) {
+                    $hn = strtolower($res_std['hostel_name']);
+                    if (strpos($hn, 'noyal') !== false || strpos($hn, 'vaigai') !== false || strpos($hn, 'girl') !== false) {
+                        $student_hostel_type = 'Girls';
+                    }
+                }
+            }
+        }
+
+        // Final fallback if still null: default to 'Boys'
+        if ($student_hostel_type === null) {
+            $student_hostel_type = 'Boys';
+        }
+
+        $student_gender = getNormalizedGender($student_hostel_type);
+
+        $sql = "SELECT hr.*, ht.campus, ht.hostel_name as hostel_name, ht.hostel_type as hostel_type,
                        (hr.available_rooms - COALESCE(res.res_count, 0)) as available_beds_calc
                 FROM hostel_rooms hr
                 JOIN hostel_type ht ON hr.hostel_id = ht.id
@@ -239,6 +357,12 @@ function getAvailableRooms($conn, $filters = []) {
                 WHERE (hr.available_rooms - COALESCE(res.res_count, 0)) > 0";
         $params = [];
         $types = "";
+
+        if ($student_gender !== null) {
+            $sql .= " AND (CASE WHEN LOWER(TRIM(ht.hostel_type)) LIKE '%girl%' OR LOWER(TRIM(ht.hostel_type)) LIKE '%female%' OR LOWER(TRIM(ht.hostel_type)) LIKE '%women%' THEN 'girls' ELSE 'boys' END) = ?";
+            $params[] = $student_gender;
+            $types .= "s";
+        }
 
         if (!empty($filters['campus'])) {
             $sql .= " AND ht.campus = ?";

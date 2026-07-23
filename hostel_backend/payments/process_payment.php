@@ -100,13 +100,14 @@ try {
                        ->execute([$request_id]);
                     
                     // Fetch room from hostel_rooms matching requested_room (room_code)
-                    $r_stmt = $db->prepare("SELECT id, room_code, hostel_name FROM hostel_rooms WHERE room_code = ?");
+                    $r_stmt = $db->prepare("SELECT id, room_code, hostel_name, room_type FROM hostel_rooms WHERE room_code = ?");
                     $r_stmt->execute([$requested_room]);
                     $r_info = $r_stmt->fetch(PDO::FETCH_ASSOC);
                     
                     $room_id_db = $r_info ? $r_info['id'] : null;
                     $room_code_db = $r_info ? $r_info['room_code'] : $requested_room;
                     $hostel_name_db = $r_info ? $r_info['hostel_name'] : '';
+                    $room_type_db = $r_info ? $r_info['room_type'] : ($request['requested_room_type'] ?? 'Standard');
 
                     // Check if profile exists, insert if missing
                     $p_stmt = $db->prepare("SELECT id FROM profile WHERE reg_no = ?");
@@ -136,6 +137,14 @@ try {
                                   valid_from = ?, 
                                   valid_to = ?
                                   WHERE reg_no = ?")->execute([$room_id_db, $room_code_db, $hostel_name_db, $today, $expiry, $today, $expiry, $reg]);
+                                  
+                    // Update users table as well to keep them aligned
+                    $db->prepare("UPDATE users SET 
+                                  RoomId = ?, 
+                                  RoomType = ?, 
+                                  HostelName = ?
+                                  WHERE username = ?")->execute([$room_code_db, $room_type_db, $hostel_name_db, $reg]);
+
                     // Update occupancies
                     if ($current_room && $current_room !== 'N/A') {
                         $db->prepare("UPDATE hostel_rooms SET occupied_rooms = occupied_rooms - 1, available_rooms = available_rooms + 1 WHERE room_code = ?")

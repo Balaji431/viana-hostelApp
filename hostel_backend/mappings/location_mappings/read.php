@@ -27,7 +27,10 @@ try {
 
     foreach ($mappings as &$m) {
         // Fetch staff for each mapping including location details
-        $staffStmt = $pdo->prepare("SELECT name, role, phone, username, hostel_name, floor_name, wing_name FROM mapping_staff WHERE mapping_id = ?");
+        $staffStmt = $pdo->prepare("SELECT COALESCE(su.name, ms.name) as name, ms.role, COALESCE(su.phone, ms.phone) as phone, COALESCE(ms.staff_bio_id, ms.username) as username, ms.hostel_name, ms.floor_name, ms.wing_name 
+                                    FROM mapping_staff ms 
+                                    LEFT JOIN staff_users su ON ms.staff_bio_id COLLATE utf8mb4_general_ci = su.bio_id COLLATE utf8mb4_general_ci
+                                    WHERE ms.mapping_id = ?");
         $staffStmt->execute([$m['id']]);
         $m['staff'] = $staffStmt->fetchAll(PDO::FETCH_ASSOC);
 

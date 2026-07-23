@@ -14,6 +14,7 @@ import '../../shared/chat/call_log_card.dart';
 import '../../core/styles.dart';
 import '../../shared/category_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
 import '../../shared/widgets/calendar_modal.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/widgets/complaint_feedback_dialogs.dart';
@@ -518,8 +519,11 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             );
           },
           onBack: () {
-            if (Navigator.canPop(context)) Navigator.pop(context);
-            else context.read<UIProvider>().setActiveChatChannel(null);
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              context.read<UIProvider>().setActiveChatChannel(null);
+            }
           },
           rightAction: Row(
             mainAxisSize: MainAxisSize.min,
@@ -545,7 +549,6 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             constraints: const BoxConstraints(maxWidth: 400),
             child: Column(
               children: [
-                _buildSubHeader(),
                 if (!_isAssigned)
                   Container(
                     width: double.infinity,
@@ -571,15 +574,16 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                           child: Text(
                             '${widget.department} has not been assigned to your hostel block/wing yet. Please contact the administrator.',
                             style: const TextStyle(
-                              color: Color(0xFFC62828),
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFD32F2F),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
+                _buildSubHeader(),
                 _buildFilterChips(),
                 Expanded(
                   child: ListView.builder(
@@ -604,8 +608,9 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                         children.add(_buildDateSeparator(currDate));
                       }
   
-                      if (msg['type'] == 'text') children.add(_buildTextMessage(msg));
-                      else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
+                      if (msg['type'] == 'text') {
+                        children.add(_buildTextMessage(msg));
+                      } else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
                       else if (msg['type'] == 'admin_reply') children.add(_buildAdminActionCard(msg));
                       else children.add(_buildRequestCard(msg));
                       
@@ -638,7 +643,9 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
         }
       }
       if (staffPhone != null && staffPhone.isNotEmpty) {
-        final Uri telUri = Uri.parse('tel:${staffPhone.replaceAll(' ', '')}');
+        final cleanPhone = staffPhone.replaceAll(RegExp(r'\s+'), '');
+        Clipboard.setData(ClipboardData(text: cleanPhone));
+        final Uri telUri = Uri.parse('tel:$cleanPhone');
         await launchUrl(telUri, mode: LaunchMode.externalApplication);
       } else {
         if (mounted) {

@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/api_service.dart';
 import '../user_provider.dart';
+import '../../student/screens/upgrade_room_screen.dart';
+import '../../student/screens/payment_screens.dart';
 
 // ─────────────────────────────────────────────
 // Model
@@ -35,12 +37,16 @@ class FeeBreakdown {
   final double foodFee;
   final double total;
   final String selectedRoomName;
+  final double alreadyPaid;
+  final bool isUpgradePayment;
 
   FeeBreakdown({
     required this.hostelFee,
     required this.foodFee,
     required this.total,
     required this.selectedRoomName,
+    this.alreadyPaid = 0.0,
+    this.isUpgradePayment = false,
   });
 }
 
@@ -59,6 +65,7 @@ class RenewalModal extends StatefulWidget {
   final String? approvedRoomType;
   final String currentRoomFacility;
   final String currentRoomBathAttached;
+  final String? requestId;
 
   const RenewalModal({
     super.key,
@@ -72,6 +79,7 @@ class RenewalModal extends StatefulWidget {
     this.onRoomChangeRequested,
     this.requestStatus = 'none',
     this.approvedRoomType,
+    this.requestId,
   });
 
   @override
@@ -100,7 +108,8 @@ class _RenewalModalState extends State<RenewalModal> {
     super.initState();
     _selectedRoomId =
         widget.approvedRoomType ?? widget.currentRoomTypeId.trim();
-    _fetchRoomTypes();
+    // Defer fetch so Provider can be accessed safely after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchRoomTypes());
   }
 
   // ── fetch ─────────────────────────────────────────────────────────────────
@@ -205,6 +214,7 @@ class _RenewalModalState extends State<RenewalModal> {
   @override
   Widget build(BuildContext context) {
     if (!widget.isOpen) return const SizedBox.shrink();
+    final String upgradeUsername = Provider.of<UserProvider>(context, listen: false).displayStudentId;
 
     if (_isLoading) {
       return Container(
@@ -232,12 +242,36 @@ class _RenewalModalState extends State<RenewalModal> {
         DateTime(currentDate.year, currentDate.month + 12, currentDate.day);
 
     final sel = _selectedRoom;
+    final status = widget.requestStatus.toLowerCase();
+    
+    // Check if we are paying for an approved room change/upgrade
+    final bool isApprovedRoomChange = (status == 'pre_approved' || status == 'approved') && 
+        widget.approvedRoomType != null &&
+        sel != null &&
+        sel.id.trim().toLowerCase() == widget.approvedRoomType!.trim().toLowerCase();
+        
+    final double currentFee = _currentRoom?.hostelFee ?? 0.0;
+    double totalToPay = sel?.hostelFee ?? 0.0;
+    double alreadyPaid = 0.0;
+    
+    if (isApprovedRoomChange) {
+      final double diff = totalToPay - currentFee;
+      if (diff > 0) {
+        alreadyPaid = currentFee;
+        totalToPay = diff;
+      } else {
+        totalToPay = 0;
+      }
+    }
+
     final fees = sel != null
         ? FeeBreakdown(
             hostelFee: sel.hostelFee,
             foodFee: sel.foodFee,
-            total: sel.hostelFee + sel.foodFee,
+            total: totalToPay, 
             selectedRoomName: sel.name,
+            alreadyPaid: alreadyPaid,
+            isUpgradePayment: isApprovedRoomChange,
           )
         : FeeBreakdown(hostelFee: 0, foodFee: 0, total: 0, selectedRoomName: '');
 
@@ -258,7 +292,7 @@ class _RenewalModalState extends State<RenewalModal> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildHeader(),
+          _buildHeader(upgradeUsername),
           Flexible(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -267,16 +301,6 @@ class _RenewalModalState extends State<RenewalModal> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildExpiryDates(currentDate, newDate),
-                  const SizedBox(height: 20),
-                  _buildSectionTitle(
-                      'All Room Types', Icons.apartment_rounded),
-                  const SizedBox(height: 10),
-                  _buildRoomLegend(),
-                  const SizedBox(height: 10),
-                  // ── ALL 41 room type cards ────────────────────────────
-                  ..._roomTypes
-                      .map((r) => _buildRoomCard(r))
-                      .toList(),
                   const SizedBox(height: 20),
                   _buildFeeBreakdown(fees),
                   const SizedBox(height: 20),
@@ -291,7 +315,7 @@ class _RenewalModalState extends State<RenewalModal> {
   }
 
   // ── Header ────────────────────────────────────────────────────────────────
-  Widget _buildHeader() {
+  Widget _buildHeader(String upgradeUsername) {
     final status = widget.requestStatus.toLowerCase();
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 20, 20, 16),
@@ -318,26 +342,16 @@ class _RenewalModalState extends State<RenewalModal> {
             ),
           ),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Renew Your Stay',
-                      style: TextStyle(
-                        color: _navy,
-                        fontFamily: 'Lato',
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Select your room type for renewal',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                  ],
+              const Text(
+                'Renew',
+                style: TextStyle(
+                  color: _navy,
+                  fontFamily: 'Lato',
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
               // action buttons
@@ -347,10 +361,26 @@ class _RenewalModalState extends State<RenewalModal> {
                     _headerBtn(
                       label: 'Room Change',
                       icon: Icons.swap_horiz,
-                      onTap: (status == 'approved')
+                      onTap: (status == 'approved' || status == 'pre_approved')
                           ? null
                           : widget.onRoomChangeRequested,
                     ),
+                  const SizedBox(width: 8),
+                  _headerBtn(
+                    label: 'Upgrade',
+                    icon: Icons.auto_awesome, // Or a suitable icon
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => UpgradeRoomScreen(
+                            currentRoomTypeId: widget.currentRoomTypeId,
+                            username: upgradeUsername,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                   const SizedBox(width: 8),
                   GestureDetector(
                     onTap: widget.onClose,
@@ -360,16 +390,23 @@ class _RenewalModalState extends State<RenewalModal> {
                         color: Colors.grey.shade100,
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.close,
-                          color: Colors.grey, size: 20),
+                      child: const Icon(Icons.close, color: Colors.grey, size: 20),
                     ),
                   ),
                 ],
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Select your room type for renewal',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+          ),
           // status banner
-          if (status == 'pending' || status == 'approved')
+          if (status == 'pending' || status == 'approved' || status == 'pre_approved')
             _buildStatusBanner(status),
         ],
       ),
@@ -428,7 +465,7 @@ class _RenewalModalState extends State<RenewalModal> {
             child: Text(
               isPending
                   ? 'Your room change request is pending approval.'
-                  : 'Room change approved! Select the approved type to pay.',
+                  : 'Room change approved! Pay the difference to upgrade.',
               style: TextStyle(
                 fontSize: 12,
                 color: isPending
@@ -673,9 +710,7 @@ class _RenewalModalState extends State<RenewalModal> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  _rupees(room.totalFee > 0
-                      ? room.totalFee
-                      : room.hostelFee + room.foodFee),
+                  _rupees(room.hostelFee),
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
@@ -683,20 +718,9 @@ class _RenewalModalState extends State<RenewalModal> {
                   ),
                 ),
                 Text(
-                  'Total / year',
+                  'Hostel / year',
                   style:
                       TextStyle(fontSize: 9, color: Colors.grey.shade500),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_rupees(room.hostelFee)} hostel',
-                  style: TextStyle(
-                      fontSize: 10, color: Colors.grey.shade600),
-                ),
-                Text(
-                  '${_rupees(room.foodFee)} food',
-                  style: TextStyle(
-                      fontSize: 10, color: Colors.grey.shade600),
                 ),
               ],
             ),
@@ -740,7 +764,7 @@ class _RenewalModalState extends State<RenewalModal> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Fee Breakdown – ${sel.name}',
+                  fees.isUpgradePayment ? 'Upgrade Fee Breakdown' : 'Fee Breakdown – ${sel.name}',
                   style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
@@ -751,11 +775,13 @@ class _RenewalModalState extends State<RenewalModal> {
             ],
           ),
           const SizedBox(height: 14),
-          _feeRow('Hostel Fee', sel.hostelFee,
-              sub: 'Room accommodation (1 year)'),
-          const SizedBox(height: 10),
-          _feeRow('Food Fee', sel.foodFee,
-              sub: 'Mess charges (1 year)'),
+          _feeRow('New Hostel Fee', sel.hostelFee,
+              sub: 'New room type annual fee'),
+          if (fees.isUpgradePayment && fees.alreadyPaid > 0) ...[
+            const SizedBox(height: 8),
+            _feeRow('Already Paid (Current Room)', -fees.alreadyPaid,
+                sub: 'Deducted from previous allocation'),
+          ],
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 10),
             child: Divider(color: Color(0xFFE8E0D5), height: 1),
@@ -763,7 +789,7 @@ class _RenewalModalState extends State<RenewalModal> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Total Amount',
+              const Text('Total Amount to Pay',
                   style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
@@ -818,7 +844,7 @@ class _RenewalModalState extends State<RenewalModal> {
     String btnLabel = 'Proceed to Payment';
     if (status == 'pending') {
       btnLabel = 'Room Change Pending…';
-    } else if (status == 'approved') {
+    } else if (status == 'approved' || status == 'pre_approved') {
       if (!disabled) {
         btnLabel = 'Pay ${_rupees(totalAmount)}';
       } else {
@@ -869,6 +895,23 @@ class _RenewalModalState extends State<RenewalModal> {
 
   void _handlePayment(
       double totalAmount, DateTime newDate, String roomName) async {
+    final status = widget.requestStatus.toLowerCase();
+    if (status == 'pre_approved' || status == 'approved') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PaymentPage(
+            requestId: widget.requestId,
+            requestedRoom: widget.approvedRoomType ?? roomName,
+            customAmount: totalAmount,
+          ),
+        ),
+      ).then((_) {
+        widget.onClose();
+      });
+      return;
+    }
+
     setState(() => _isProcessing = true);
     await Future.delayed(const Duration(seconds: 2));
     widget.onRenewalSuccess(

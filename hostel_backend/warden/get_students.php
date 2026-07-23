@@ -49,17 +49,27 @@ try {
     }
 
     // 2. Resolve Warden role
+    $warden_role = 'staff';
     $u_stmt = $conn->prepare("SELECT role FROM users WHERE username = ? LIMIT 1");
     $u_stmt->bind_param("s", $warden_username);
     $u_stmt->execute();
     $u_res = $u_stmt->get_result()->fetch_assoc();
     
-    if (!$u_res) {
-        echo json_encode(array("status" => "success", "data" => [], "success" => true));
-        exit();
+    if ($u_res) {
+        $warden_role = $u_res['role'];
+    } else {
+        $s_stmt = $conn->prepare("SELECT role FROM staff_users WHERE bio_id = ? LIMIT 1");
+        $s_stmt->bind_param("s", $warden_username);
+        $s_stmt->execute();
+        $s_res = $s_stmt->get_result()->fetch_assoc();
+        if ($s_res) {
+            $warden_role = $s_res['role'];
+        } else {
+            echo json_encode(array("status" => "success", "data" => [], "success" => true));
+            exit();
+        }
     }
     
-    $warden_role = $u_res['role'];
     $is_main_warden = ($warden_role === 'admin');
 
     $mapped_hostel = null;
@@ -67,25 +77,22 @@ try {
     $mapped_wing = null;
 
     if (!$is_main_warden) {
-        if ($warden_role !== 'warden') {
+        // 3. Fetch warden's mapping details (support both username and staff_bio_id)
+        $m_stmt = $conn->prepare("SELECT hostel_name, floor_name, wing_name FROM mapping_staff WHERE (username = ? OR staff_bio_id = ?) AND role = 'warden' LIMIT 1");
+        $m_stmt->bind_param("ss", $warden_username, $warden_username);
+        $m_stmt->execute();
+        $mapping = $m_stmt->get_result()->fetch_assoc();
+        
+        if ($mapping) {
+            $warden_role = 'warden'; // Allow them if they are mapped as warden
+            $mapped_hostel = $mapping['hostel_name'];
+            $mapped_floor = $mapping['floor_name'];
+            $mapped_wing = $mapping['wing_name'];
+        } else if ($warden_role !== 'warden') {
             http_response_code(403);
             echo json_encode(["status" => "error", "message" => "Access Denied. You do not have the warden role.", "success" => false]);
             exit();
         }
-        // 3. Fetch warden's mapping details
-        $m_stmt = $conn->prepare("SELECT hostel_name, floor_name, wing_name FROM mapping_staff WHERE username = ? AND role = 'warden' LIMIT 1");
-        $m_stmt->bind_param("s", $warden_username);
-        $m_stmt->execute();
-        $mapping = $m_stmt->get_result()->fetch_assoc();
-        
-        if (!$mapping) {
-            echo json_encode(array("status" => "success", "data" => [], "success" => true));
-            exit();
-        }
-        
-        $mapped_hostel = $mapping['hostel_name'];
-        $mapped_floor = $mapping['floor_name'];
-        $mapped_wing = $mapping['wing_name'];
     }
 
     // 4. Query students from profile
@@ -103,7 +110,7 @@ try {
                 hr.wing_code
             FROM profile p
             LEFT JOIN users u ON (TRIM(p.reg_no) = TRIM(u.username))
-            JOIN hostel_rooms hr ON (p.current_room_id = hr.id OR TRIM(p.room_allocation) = TRIM(hr.room_code))";
+            LEFT JOIN hostel_rooms hr ON (p.current_room_id = hr.id OR TRIM(p.room_allocation) = TRIM(hr.room_code))";
 
     $where_clauses = [];
     $params = [];

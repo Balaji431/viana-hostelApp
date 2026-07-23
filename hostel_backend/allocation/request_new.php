@@ -40,13 +40,15 @@ try {
         throw new Exception("Student not found");
     }
 
-    // ── 2. Guard: student must not already have a physical room ───────────────
+    // ── 2. Guard: student must not already have a physical room (Bypassed to allow upgrades/transfers) ──
+    /*
     $r_alloc = trim($student['room_allocation'] ?? '');
     $r_id    = (int)($student['current_room_id'] ?? 0);
 
     if ($r_id > 0 || (!empty($r_alloc) && !in_array(strtoupper($r_alloc), ['N/A', 'NONE', 'NULL', 'N/A, N/A, N/A']))) {
         throw new Exception("Student already has an active room allocation. Upgrades and transfers must use the existing flows.");
     }
+    */
 
     // ── 3. Guard: no duplicate active request ─────────────────────────────────
     $req_stmt = $conn->prepare("

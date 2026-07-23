@@ -131,7 +131,33 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
             $c_stmt->bindParam(":msg", $msg);
             $c_stmt->execute();
             
-            // 5. Update main request status in request1 if needed (though already done in step 3)
+            // 5. Send FCM Push Notification to Student
+            try {
+                require_once __DIR__ . '/../send_notification.php';
+                $stu_query = "SELECT u.fcm_token, u.username, u.full_name FROM $table r JOIN users u ON (CONVERT(r.student_id USING utf8mb4) = CONVERT(u.username USING utf8mb4) OR CONVERT(r.student_id USING utf8mb4) = CONVERT(u.id USING utf8mb4)) WHERE r.request_id = :rid LIMIT 1";
+                $s_stmt = $db->prepare($stu_query);
+                $s_stmt->bindParam(":rid", $data->request_id);
+                $s_stmt->execute();
+                $stu = $s_stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($stu && !empty($stu['fcm_token'])) {
+                    // Title format: Warden Name (Warden) -> e.g. Dr. Ramesh (Warden)
+                    $title = $staff_name . " (" . ucfirst($staff_role) . ")";
+                    $st = strtolower($data->status);
+                    $req_type_clean = !empty($request['request_type']) ? $request['request_type'] : ucfirst($req_dept);
+
+                    if ($st === 'rejected') {
+                        $reason_text = !empty($data->reason) ? $data->reason : 'No reason specified';
+                        $body = "Your " . $req_type_clean . " request has been rejected by " . $staff_name . ". Reason: " . $reason_text;
+                    } elseif ($st === 'approved' || $st === 'fixed' || $st === 'completed') {
+                        $body = "Your " . $req_type_clean . " request has been approved by " . $staff_name . ".";
+                    } else {
+                        $body = "Your " . $req_type_clean . " request status updated to " . strtoupper($st) . " by " . $staff_name . ".";
+                    }
+
+                    sendFCM($stu['fcm_token'], $title, $body, $data->request_id, $staff_username, $staff_name, $body, 'request_update', $req_dept);
+                }
+            } catch (Exception $e) {}
 
             echo json_encode([
                 "success" => true,

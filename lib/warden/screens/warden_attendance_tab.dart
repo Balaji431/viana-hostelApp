@@ -15,11 +15,14 @@ class WardenAttendanceTab extends StatefulWidget {
   State<WardenAttendanceTab> createState() => _WardenAttendanceTabState();
 }
 
-class _WardenAttendanceTabState extends State<WardenAttendanceTab> {
+class _WardenAttendanceTabState extends State<WardenAttendanceTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   String _searchQuery = '';
   DateTime _selectedMonth = DateTime.now();
   final Set<int> _selectedDays = {DateTime.now().day}; // Default select today
-  String _statusFilter = 'All';
+  final String _statusFilter = 'All';
   List<Map<String, dynamic>> _attendanceLogs = [];
   bool _isLoadingLogs = false;
   List<Map<String, dynamic>> _allStudents = [];
@@ -144,6 +147,7 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final user = context.watch<UserProvider>();
     final showInternalAppBar = (user.role == UserRole.warden || user.role == UserRole.admin);
 
@@ -347,7 +351,7 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> {
               Expanded(
                 child: Text(
                   'Tap dates to view • Multi-select supported', 
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  style: TextStyle(fontSize: 10, color: Colors.grey),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -603,12 +607,10 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> {
   }
 
   void _showManualAttendanceModal(BuildContext context) {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: '',
-      pageBuilder: (context, anim1, anim2) => Center(
-        child: _ManualAttendanceModal(onRefresh: _fetchAllData),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _ManualAttendanceModal(onRefresh: _fetchAllData),
       ),
     );
   }
@@ -626,21 +628,34 @@ class _ManualAttendanceModal extends StatefulWidget {
 }
 
 class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
-  bool _isSuccess = false;
+  final bool _isSuccess = false;
   bool _isLoading = true;
   List<Map<String, dynamic>> _students = [];
-  DateTime _selectedDate = DateTime.now();
+  final DateTime _selectedDate = DateTime.now();
   String _searchQuery = '';
+  String _selectedRoom = 'All Rooms';
+
+  List<String> get availableRooms {
+    final rooms = _students.map((s) => s['room'] as String).toSet().toList();
+    rooms.sort();
+    return ['All Rooms', ...rooms];
+  }
 
   List<Map<String, dynamic>> get filteredStudents {
-    if (_searchQuery.isEmpty) return _students;
-    final query = _searchQuery.toLowerCase();
-    return _students.where((s) {
-      final name = s['name'].toString().toLowerCase();
-      final room = s['room'].toString().toLowerCase();
-      final id = s['id'].toString().toLowerCase();
-      return name.contains(query) || room.contains(query) || id.contains(query);
-    }).toList();
+    var result = _students;
+    if (_selectedRoom != 'All Rooms') {
+      result = result.where((s) => s['room'] == _selectedRoom).toList();
+    }
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      result = result.where((s) {
+        final name = s['name'].toString().toLowerCase();
+        final room = s['room'].toString().toLowerCase();
+        final id = s['id'].toString().toLowerCase();
+        return name.contains(query) || room.contains(query) || id.contains(query);
+      }).toList();
+    }
+    return result;
   }
 
   @override
@@ -692,20 +707,10 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
     }
     int totalCount = _students.length;
 
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-        width: min(MediaQuery.of(context).size.width * 0.9, 450),
-        height: MediaQuery.of(context).size.height * 0.8,
-        decoration: BoxDecoration(
-          color: const Color(0xFFFDFBF7),
-          borderRadius: BorderRadius.circular(25),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20)],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(25),
-          child: Column(
+    return Scaffold(
+      backgroundColor: const Color(0xFFFDFBF7),
+      body: SafeArea(
+        child: Column(
             children: [
               // Header
               Container(
@@ -731,12 +736,12 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 10),
                       // Date Selector
                       Text('ATTENDANCE DATE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade600, letterSpacing: 1)),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
                         decoration: BoxDecoration(
                           color: Colors.grey.shade50,
                           borderRadius: BorderRadius.circular(12),
@@ -754,7 +759,7 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                         ),
                       ),
                       
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 10),
                       
                       // Status Stats
                       Row(
@@ -762,27 +767,69 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                           Expanded(child: _buildStatBox('${_students.where((s) => s['status'] == 'present').length}', 'PRESENT', Colors.green)),
                           const SizedBox(width: 8),
                           Expanded(child: _buildStatBox('${_students.where((s) => s['status'] == 'absent').length}', 'ABSENT', Colors.red)),
-                          const SizedBox(width: 8),
-                          Expanded(child: _buildStatBox('${_students.where((s) => s['status'] == 'halfday').length}', 'HALF DAY', Colors.amber)),
                         ],
                       ),
                       
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 10),
                       
-                      // Search Bar
-                      TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Search student name...',
-                          prefixIcon: const Icon(Icons.search, size: 20),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          filled: true,
-                          fillColor: Colors.grey.shade100,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                        ),
-                        onChanged: (v) => setState(() => _searchQuery = v),
+                      // Search Bar & Filter
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              decoration: InputDecoration(
+                                hintText: 'Search student name...',
+                                prefixIcon: const Icon(Icons.search, size: 20),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                              ),
+                              onChanged: (v) => setState(() => _searchQuery = v),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 2,
+                            child: Container(
+                              height: 48,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  value: _selectedRoom,
+                                  icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                                  style: const TextStyle(color: Colors.black87, fontSize: 13),
+                                  onChanged: (String? newValue) {
+                                    if (newValue != null) {
+                                      setState(() {
+                                        _selectedRoom = newValue;
+                                      });
+                                    }
+                                  },
+                                  items: availableRooms.map<DropdownMenuItem<String>>((String value) {
+                                    String displayValue = value;
+                                    if (value.startsWith('Room: ')) {
+                                      displayValue = value.substring(6);
+                                    }
+                                    return DropdownMenuItem<String>(
+                                      value: value,
+                                      child: Text(displayValue, overflow: TextOverflow.ellipsis),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       
-                      const SizedBox(height: 15),
+                      const SizedBox(height: 10),
                       
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -868,13 +915,12 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
             ],
           ),
         ),
-      ),
     );
   }
 
   Widget _buildStatBox(String value, String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
@@ -882,7 +928,7 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
       ),
       child: Column(
         children: [
-          Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
+          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
           Text(label, style: TextStyle(fontSize: 10, color: color.withOpacity(0.7), fontWeight: FontWeight.bold)),
         ],
       ),
@@ -925,8 +971,6 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
               _buildSmallToggleButton(Icons.check, Colors.green, s['status'] == 'present', () => setState(() => s['status'] = 'present')),
               const SizedBox(width: 8),
               _buildSmallToggleButton(Icons.close, Colors.red, s['status'] == 'absent', () => setState(() => s['status'] = 'absent')),
-              const SizedBox(width: 8),
-              _buildSmallToggleButton(Icons.remove, Colors.amber, s['status'] == 'halfday', () => setState(() => s['status'] = 'halfday')),
             ],
           ),
         ],

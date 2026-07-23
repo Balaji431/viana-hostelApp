@@ -84,6 +84,26 @@ if (isset($data['student_id'])) {
         $after_state
     );
 
+    // Send Push Notification if conduct or remarks were updated
+    try {
+        if (isset($data['conduct']) || isset($data['remarks'])) {
+            require_once __DIR__ . '/../send_notification.php';
+            $stu_res = $conn->query("SELECT fcm_token, full_name FROM users WHERE id = '$student_id' LIMIT 1");
+            if ($stu_res && $stu_row = $stu_res->fetch_assoc()) {
+                if (!empty($stu_row['fcm_token'])) {
+                    $w_username = $conn->real_escape_string($data['warden_username'] ?? 'warden');
+                    $w_res = $conn->query("SELECT full_name FROM users WHERE username = '$w_username' LIMIT 1");
+                    $w_name = ($w_res && $w_fetch = $w_res->fetch_assoc()) ? $w_fetch['full_name'] : 'Warden';
+                    $title = $w_name . " (Warden)";
+                    $c_val = $data['conduct'] ?? ($prev_user['conduct'] ?? 'Good');
+                    $c_rem = $data['remarks'] ?? ($prev_user['conduct_remarks'] ?? '');
+                    $body = "Disciplinary Notice: Conduct updated to $c_val." . (!empty($c_rem) ? " Remarks: $c_rem" : "");
+                    sendFCM($stu_row['fcm_token'], $title, $body, 'conduct_update', $w_username, $w_name, $body, 'conduct', '');
+                }
+            }
+        }
+    } catch (Exception $e) {}
+
     echo json_encode(array("status" => "success", "success" => true, "message" => "Student details updated successfully"));
 } else {
     echo json_encode(array("status" => "error", "success" => false, "message" => "Invalid parameters"));

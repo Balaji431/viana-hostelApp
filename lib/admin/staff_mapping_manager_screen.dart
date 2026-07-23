@@ -39,17 +39,40 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
 
   Future<void> _loadAvailableStaff() async {
     try {
-      final catProvider = context.read<CategoryProvider>();
-      final roles = catProvider.categories
-          .where((c) => (c['is_staff_role'] ?? 1) == 1)
-          .map((c) => (c['name'] as String).toLowerCase())
-          .toList();
-      if (roles.isEmpty) roles.addAll(['warden', 'security', 'maintenance']);
-      
-      for (var role in roles) {
-        final res = await ApiService.getUsersByRole(role);
-        if (res['success'] == true) {
-          _availableStaffByRole[role] = List<Map<String, dynamic>>.from(res['data'] ?? []);
+      final res = await ApiService.getExternalStaff();
+      if (res['success'] == true) {
+        final List<dynamic> staffList = res['data'] ?? [];
+        
+        _availableStaffByRole.clear();
+        _availableStaffByRole['warden'] = [];
+        
+        for (var emp in staffList) {
+          final role = (emp['role']?.toString().toLowerCase()) ?? 'staff'; 
+          
+          if (!_availableStaffByRole.containsKey(role)) {
+            _availableStaffByRole[role] = [];
+          }
+          
+          final formattedEmp = {
+            'username': emp['bio_id'], 
+            'full_name': emp['name'],
+            'phone': emp['phone'],
+            'department': emp['department'],
+            'designation': emp['designation'],
+            'role': role,
+            'search_key': '${emp['bio_id']} ${emp['name']} ${emp['department']} ${emp['designation']}'.toLowerCase()
+          };
+          
+          // Only security and maintenance go to their respective lists
+          if (role == 'security' || role == 'maintenance') {
+            if (!_availableStaffByRole.containsKey(role)) {
+              _availableStaffByRole[role] = [];
+            }
+            _availableStaffByRole[role]!.add(formattedEmp);
+          } else {
+            // Everyone else (staff, etc.) can be mapped as a warden
+            _availableStaffByRole['warden']!.add(formattedEmp);
+          }
         }
       }
     } catch (e) {
@@ -59,8 +82,6 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           SnackBar(content: Text('Could not load staff members. Please check backend. ($e)')),
         );
       }
-    } finally {
-      // Done loading
     }
   }
 
@@ -672,7 +693,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
         Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
         const SizedBox(height: 8),
         DropdownButtonFormField<T>(
-          value: value,
+          initialValue: value,
           items: enabled ? items : [],
           onChanged: enabled ? onChanged : null,
           decoration: InputDecoration(
@@ -829,30 +850,51 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                     children: [
                       const Text('Select Person', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
                       const SizedBox(height: 8),
-                      DropdownButtonFormField<Map<String, dynamic>>(
-                        value: selectedStaffUser,
-                        items: availableStaff.map((u) => DropdownMenuItem(
-                          value: u,
-                          child: Text(u['full_name'] ?? u['username'] ?? 'Unknown'),
-                        )).toList(),
-                        onChanged: (val) {
-                          setDialogState(() {
-                            selectedStaffUser = val;
-                            if (val != null) {
-                              nameController.text = val['full_name'] ?? val['username'] ?? '';
-                              phoneController.text = val['phone'] ?? '';
-                              usernameController.text = val['username'] ?? '';
-                            }
+                      Autocomplete<Map<String, dynamic>>(
+                        key: ValueKey(selectedRole),
+                        optionsBuilder: (TextEditingValue textEditingValue) {
+                          if (textEditingValue.text.isEmpty) {
+                            return availableStaff;
+                          }
+                          return availableStaff.where((u) {
+                            final searchKey = u['search_key'] as String? ?? '';
+                            return searchKey.contains(textEditingValue.text.toLowerCase());
                           });
                         },
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          prefixIcon: const Icon(Icons.person),
-                        ),
-                        hint: Text(availableStaff.isEmpty ? 'No $selectedRole found' : 'Choose staff member...', style: const TextStyle(fontSize: 14)),
+                        displayStringForOption: (Map<String, dynamic> option) {
+                          final name = option['full_name'] ?? option['username'] ?? 'Unknown';
+                          final dept = option['department'] ?? 'N/A';
+                          return '$name ($dept)';
+                        },
+                        onSelected: (Map<String, dynamic> val) {
+                          setDialogState(() {
+                            selectedStaffUser = val;
+                            nameController.text = val['full_name'] ?? val['username'] ?? '';
+                            phoneController.text = val['phone'] ?? '';
+                            usernameController.text = val['username'] ?? '';
+                          });
+                        },
+                        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                          // Pre-fill if we have an existing selection
+                          if (selectedStaffUser != null && controller.text.isEmpty) {
+                            final name = selectedStaffUser!['full_name'] ?? selectedStaffUser!['username'] ?? 'Unknown';
+                            final dept = selectedStaffUser!['department'] ?? 'N/A';
+                            controller.text = '$name ($dept)';
+                          }
+                          return TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            decoration: InputDecoration(
+                              filled: true,
+                              fillColor: Colors.grey.shade50,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              prefixIcon: const Icon(Icons.search),
+                              hintText: availableStaff.isEmpty ? 'No $selectedRole found' : 'Search staff by name, ID, or department...',
+                              hintStyle: const TextStyle(fontSize: 14),
+                            ),
+                          );
+                        },
                       ),
                       if (availableStaff.isEmpty && selectedRole.toLowerCase() == 'warden')
                         Padding(
@@ -926,217 +968,6 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-
-  void _showRegisterStaffDialog(BuildContext context) {
-    final nameController = TextEditingController();
-    final usernameController = TextEditingController();
-    final passwordController = TextEditingController();
-    final phoneController = TextEditingController();
-    final catProvider = context.read<CategoryProvider>();
-    final roles = catProvider.categories
-        .where((c) => (c['is_staff_role'] ?? 1) == 1)
-        .map((c) => c['name'] as String)
-        .toList();
-    if (roles.isEmpty) roles.addAll(['Warden', 'Security', 'Maintenance']);
-
-    String selectedRole = roles.first;
-    bool isSaving = false;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 450),
-            width: MediaQuery.of(context).size.width * 0.95,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(32),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 20, spreadRadius: 5)],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF1A2744), Color(0xFF2D4A7A)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.only(topLeft: Radius.circular(32), topRight: Radius.circular(32)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(12)),
-                        child: const Icon(Icons.person_add, color: Colors.white),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: const Text(
-                          'New Staff Member',
-                          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Lato'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white70),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                ),
-
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Role', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1A2744))),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: roles.map((role) {
-                            bool isSelected = selectedRole == role;
-                            return GestureDetector(
-                              onTap: () => setDialogState(() => selectedRole = role),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: isSelected ? const Color(0xFF1A2744) : Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: isSelected ? const Color(0xFF1A2744) : Colors.grey.shade300),
-                                ),
-                                child: Text(
-                                  role,
-                                  style: TextStyle(
-                                    color: isSelected ? Colors.white : Colors.black87,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 24),
-                        
-                        _buildStyledField(
-                          label: 'Full Name',
-                          controller: nameController,
-                          icon: Icons.badge_outlined,
-                          hint: 'Enter staff member\'s full name',
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        _buildStyledField(
-                          label: 'Username / Reg No',
-                          controller: usernameController,
-                          icon: Icons.alternate_email_rounded,
-                          hint: 'e.g., warden_rajesh',
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        _buildStyledField(
-                          label: 'Login Password',
-                          controller: passwordController,
-                          icon: Icons.lock_outline_rounded,
-                          hint: 'Set a secure password',
-                          isPassword: true,
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        _buildStyledField(
-                          label: 'Phone Number',
-                          controller: phoneController,
-                          icon: Icons.phone_android_rounded,
-                          hint: 'Primary contact number',
-                          keyboardType: TextInputType.phone,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: isSaving ? null : () async {
-                            if (nameController.text.isEmpty || usernameController.text.isEmpty || passwordController.text.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Please fill all required fields')),
-                              );
-                              return;
-                            }
-
-                            setDialogState(() => isSaving = true);
-                            try {
-                              final res = await ApiService.registerStaff(
-                                fullName: nameController.text,
-                                username: usernameController.text,
-                                password: passwordController.text,
-                                role: selectedRole,
-                                phone: phoneController.text,
-                              );
-
-                              if (res['success'] == true) {
-                                if (context.mounted) {
-                                  Navigator.pop(context);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Staff member registered successfully')),
-                                  );
-                                  _loadAvailableStaff(); 
-                                }
-                              } else {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(res['message'] ?? 'Registration failed')),
-                                  );
-                                }
-                              }
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error: $e')),
-                                );
-                              }
-                            } finally {
-                              setDialogState(() => isSaving = false);
-                            }
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1A2744),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            elevation: 5,
-                          ),
-                          child: isSaving 
-                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Text('Register Staff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

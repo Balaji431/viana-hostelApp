@@ -123,15 +123,16 @@ try {
 
     // Prepare statements for vstudy_payments upsert
     $upsert_sql = "INSERT INTO vstudy_payments (
-        student_name, roll_number, gender, department, academic_year, campus, 
+        student_name, roll_number, email, gender, department, academic_year, campus, 
         hostel_preference, hostel_name, payment_status, application_status, paid_date, 
         transaction_reference, paid_amount
     ) VALUES (
-        :student_name, :roll_number, :gender, :department, :academic_year, :campus, 
+        :student_name, :roll_number, :email, :gender, :department, :academic_year, :campus, 
         :hostel_preference, :hostel_name, :payment_status, :application_status, :paid_date, 
         :transaction_reference, :paid_amount
     ) ON DUPLICATE KEY UPDATE 
         student_name = VALUES(student_name),
+        email = VALUES(email),
         gender = VALUES(gender),
         department = VALUES(department),
         academic_year = VALUES(academic_year),
@@ -247,6 +248,7 @@ try {
         $stmt_upsert->execute([
             ':student_name' => $student_name,
             ':roll_number' => $roll_number,
+            ':email' => $email,
             ':gender' => $gender,
             ':department' => $department,
             ':academic_year' => $academic_year,

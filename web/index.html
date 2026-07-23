@@ -15,18 +15,23 @@
   <link rel="icon" type="image/png" href="favicon.png"/>
   <title>Saveetha Hostels</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://accounts.google.com">
+  <link rel="preload" href="flutter_bootstrap.js" as="script">
+  <link rel="preload" href="assets/images/login_bg.jpg" as="image">
   <link rel="stylesheet" href="index.css">
 
   <style>
+    html,
     body {
-      background-color: #f5f0e8;
-      background-image:
-        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.03) 2px, rgba(0, 0, 0, 0.03) 4px),
-        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.03) 2px, rgba(0, 0, 0, 0.03) 4px),
-        linear-gradient(180deg, #f5f0e8 0%, #e8e0d5 100%);
-      background-attachment: fixed;
+      width: 100%;
+      height: 100%;
       margin: 0;
       padding: 0;
+      background-color: #0f1520;
+      background-image: linear-gradient(135deg, #0f1520 0%, #1a2235 50%, #0f1520 100%);
+      background-attachment: fixed;
     }
 
     .bg-linen-grid {
@@ -38,37 +43,10 @@
       background-attachment: fixed;
     }
   </style>
+  <meta name="google-signin-client_id" content="907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        if (registrations.length > 0) {
-          var promises = [];
-          for (var i = 0; i < registrations.length; i++) {
-            promises.push(registrations[i].unregister());
-          }
-          Promise.all(promises).then(function() {
-            console.log('All service workers unregistered. Reloading...');
-            window.location.reload();
-          });
-        } else {
-          loadBootstrap();
-        }
-      }).catch(function() {
-        loadBootstrap();
-      });
-    } else {
-      loadBootstrap();
-    }
-    
-    function loadBootstrap() {
-      // Dynamically load flutter_bootstrap.js with cache-buster query parameter
-      var script = document.createElement('script');
-      script.src = 'flutter_bootstrap.js?t=' + new Date().getTime();
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  </script>
+  <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

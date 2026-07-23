@@ -24,8 +24,129 @@ try {
     $database = new Database();
     $db = $database->getConnection();
 
+    // Check if the user is in the users table first, matching both ID and role if provided to avoid ID collisions between tables
+    $is_in_users_table = false;
+    if ($role) {
+        $stmt_check = $db->prepare("SELECT id FROM users WHERE id = :id AND LOWER(role) = LOWER(:role) LIMIT 1");
+        $stmt_check->bindParam(':id', $id);
+        $stmt_check->bindParam(':role', $role);
+        $stmt_check->execute();
+        $is_in_users_table = ($stmt_check->rowCount() > 0);
+    } else {
+        $stmt_check = $db->prepare("SELECT id FROM users WHERE id = :id LIMIT 1");
+        $stmt_check->bindParam(':id', $id);
+        $stmt_check->execute();
+        $is_in_users_table = ($stmt_check->rowCount() > 0);
+    }
+
+    if ($is_in_users_table) {
+        $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType as hostel_gender,
+                         COALESCE(p.email, u.email) as email, 
+                         COALESCE(p.personal_phone, u.phone_number) as phone, 
+                         COALESCE(p.institution, u.Institution) as institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic, p.room_allocation,
+                         COALESCE(p.check_in_date, p.valid_from) as p_from, 
+                         COALESCE(p.renewal_date, p.valid_to) as p_to,
+                         p.bed_no,
+                         u.biometric_id,
+                         hr.room_no as hr_room_no, hr.building_code as block, hr.floor as floor_name, hr.wing_code as wing_name, hr.hostel_name as room_hostel,
+                         hr.room_type as room_type, hr.facility as room_facility, hr.bath_attached as room_bath_attached, hr.room_code as room_code
+                  FROM users u
+                  LEFT JOIN profile p ON u.username = p.reg_no
+                  LEFT JOIN hostel_rooms hr ON (hr.id = p.current_room_id OR (COALESCE(p.current_room_id, 0) = 0 AND hr.room_code = p.room_allocation))
+                  WHERE u.id = :id LIMIT 1";
+
+        $stmt = $db->prepare($query);
+        $stmt->bindParam(':id', $id);
+        $stmt->execute();
+
+        if ($stmt->rowCount() > 0) {
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            $valid_from = (!empty($row['p_from']) && $row['p_from'] != '0000-00-00') ? $row['p_from'] : '';
+            $valid_to = (!empty($row['p_to']) && $row['p_to'] != '0000-00-00') ? $row['p_to'] : '';
+            
+            if (empty($valid_from) || $valid_from == '0000-00-00') $valid_from = date('Y-m-d');
+            if (empty($valid_to) || $valid_to == '0000-00-00') $valid_to = date('Y-m-d', strtotime('+1 year'));
+
+            $room_no = $row['hr_room_no'] ?? 'N/A';
+            $block = $row['block'] ?? 'N/A';
+            
+            $floor = (!empty($row['floor_name']) && $row['floor_name'] != 'N/A') ? $row['floor_name'] : '';
+            $wing_code = (!empty($row['wing_name']) && $row['wing_name'] != 'N/A') ? $row['wing_name'] : '';
+            
+            $wing = 'N/A';
+            if ($floor && $wing_code) {
+                $wing = "$floor - $wing_code";
+            } else if ($floor) {
+                $wing = $floor;
+            } else if ($wing_code) {
+                $wing = $wing_code;
+            }
+            $hostel = $row['room_hostel'] ?? $row['profile_hostel'] ?? 'N/A';
+            
+            if ($room_no == 'N/A' && !empty($row['room_allocation'])) {
+                $room_no = $row['room_allocation'];
+            }
+
+            // Mapped warden/staff details override
+            $final_role = $row['role'];
+            $mapped_hostel = $hostel;
+            $mapped_floor = $block;
+            $mapped_wing = $wing;
+
+            if (in_array(strtolower($row['role']), ['warden', 'security', 'maintenance', 'staff'])) {
+                $mappingStmt = $db->prepare("SELECT role, hostel_name, floor_name, wing_name FROM mapping_staff WHERE staff_bio_id = :bio_id OR username = :username LIMIT 1");
+                $mappingStmt->execute([':bio_id' => $row['register_no'], ':username' => $row['register_no']]);
+                $mappingRow = $mappingStmt->fetch(PDO::FETCH_ASSOC);
+                if ($mappingRow) {
+                    $mapped_role = strtolower($mappingRow['role'] ?? '');
+                    if (in_array($mapped_role, ['warden', 'security', 'maintenance'])) {
+                        $final_role = $mapped_role;
+                    }
+                    $mapped_hostel = $mappingRow['hostel_name'] ?? $hostel;
+                    $mapped_floor = $mappingRow['floor_name'] ?? $block;
+                    $mapped_wing = $mappingRow['wing_name'] ?? $wing;
+                }
+            }
+
+            $user_data = [
+                "id" => $row['id'],
+                "username" => $row['register_no'],
+                "full_name" => $row['full_name'],
+                "register_no" => $row['register_no'],
+                "email" => $row['email'] ?? '',
+                "phone" => $row['phone'] ?? '',
+                "dob" => $row['dob'] ?? '',
+                "address" => $row['address'] ?? '',
+                "role" => $final_role,
+                "institution" => $row['institution'] ?? 'N/A',
+                "hostel_name" => $mapped_hostel,
+                "room_allocation" => $row['room_allocation'] ?? 'N/A',
+                "bed_no" => $row['bed_no'] ?? 'N/A',
+                "profile_pic" => $row['profile_pic'] ?? '',
+                "valid_from" => $valid_from,
+                "valid_to" => $valid_to,
+                "conduct" => $row['conduct'] ?? 'Good',
+                "conduct_remarks" => $row['conduct_remarks'] ?? '',
+                "biometric_id" => $row['biometric_id'] ?? '',
+                "room_no" => $room_no,
+                "room_code" => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
+                "block" => $mapped_floor,
+                "wing" => $mapped_wing,
+                "room_type" => $row['room_type'] ?? 'Standard Room',
+                "room_facility" => $row['room_facility'] ?? 'NON AC',
+                "room_bath_attached" => $row['room_bath_attached'] ?? 'No',
+                "hostel_type" => $row['hostel_gender'] ?? 'Boys'
+            ];
+            echo json_encode(['success' => true, 'data' => $user_data]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'User not found']);
+        }
+        exit;
+    }
+
     if ($role === 'parent') {
-        $parent_query = "SELECT p.*, s.full_name as student_name, s.username as student_username, s.id as std_id
+        $parent_query = "SELECT p.*, s.full_name as student_name, s.username as student_username, s.id as std_id, s.HostelType as student_hostel_type
                         FROM parent_users p
                         LEFT JOIN parent_student_map psm ON p.parent_id = psm.parent_id
                         LEFT JOIN users s ON psm.student_id = s.username
@@ -46,7 +167,8 @@ try {
                 "profile_pic" => "",
                 "linked_student_id" => $p_row['std_id'],
                 "linked_student_username" => $p_row['student_username'],
-                "linked_student_name" => $p_row['student_name']
+                "linked_student_name" => $p_row['student_name'],
+                "hostel_type" => $p_row['student_hostel_type'] ?? 'Boys'
             ];
             
             if ($p_row['student_username']) {
@@ -68,89 +190,8 @@ try {
         exit;
     }
 
-    // Use profile directly as primary source of room allocation details
-    $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, 
-                     COALESCE(p.email, u.email) as email, 
-                     COALESCE(p.personal_phone, u.phone_number) as phone, 
-                     p.institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic, p.room_allocation,
-                     COALESCE(p.check_in_date, p.valid_from) as p_from, 
-                     COALESCE(p.renewal_date, p.valid_to) as p_to,
-                     p.bed_no,
-                     u.biometric_id,
-                     hr.room_no as hr_room_no, hr.building_code as block, hr.floor as floor_name, hr.wing_code as wing_name, hr.hostel_name as room_hostel,
-                     hr.room_type as room_type, hr.facility as room_facility, hr.bath_attached as room_bath_attached
-              FROM users u
-              LEFT JOIN profile p ON u.username = p.reg_no
-              LEFT JOIN hostel_rooms hr ON (hr.id = p.current_room_id OR (COALESCE(p.current_room_id, 0) = 0 AND hr.room_code = p.room_allocation))
-              WHERE u.id = :id LIMIT 1";
-
-    $stmt = $db->prepare($query);
-    $stmt->bindParam(':id', $id);
-    $stmt->execute();
-
-    if ($stmt->rowCount() > 0) {
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        // Logical Date Resolution:
-        // Use profile dates directly
-        $valid_from = (!empty($row['p_from']) && $row['p_from'] != '0000-00-00') ? $row['p_from'] : '';
-        $valid_to = (!empty($row['p_to']) && $row['p_to'] != '0000-00-00') ? $row['p_to'] : '';
-        
-        // Final fallback if empty
-        if (empty($valid_from) || $valid_from == '0000-00-00') $valid_from = date('Y-m-d');
-        if (empty($valid_to) || $valid_to == '0000-00-00') $valid_to = date('Y-m-d', strtotime('+1 year'));
-
-        $room_no = $row['hr_room_no'] ?? 'N/A';
-        $block = $row['block'] ?? 'N/A';
-        
-        $floor = (!empty($row['floor_name']) && $row['floor_name'] != 'N/A') ? $row['floor_name'] : '';
-        $wing_code = (!empty($row['wing_name']) && $row['wing_name'] != 'N/A') ? $row['wing_name'] : '';
-        
-        $wing = 'N/A';
-        if ($floor && $wing_code) {
-            $wing = "$floor - $wing_code";
-        } else if ($floor) {
-            $wing = $floor;
-        } else if ($wing_code) {
-            $wing = $wing_code;
-        }
-        $hostel = $row['room_hostel'] ?? $row['profile_hostel'] ?? 'N/A';
-        
-        if ($room_no == 'N/A' && !empty($row['room_allocation'])) {
-            $room_no = $row['room_allocation'];
-        }
-
-        $user_data = [
-            "id" => $row['id'],
-            "username" => $row['register_no'],
-            "full_name" => $row['full_name'],
-            "register_no" => $row['register_no'],
-            "email" => $row['email'],
-            "phone" => $row['phone'],
-            "dob" => $row['dob'],
-            "address" => $row['address'],
-            "role" => $row['role'],
-            "institution" => $row['institution'] ?? 'N/A',
-            "hostel_name" => $hostel,
-            "room_allocation" => $row['room_allocation'] ?? 'N/A',
-            "bed_no" => $row['bed_no'] ?? 'N/A',
-            "profile_pic" => $row['profile_pic'],
-            "valid_from" => $valid_from,
-            "valid_to" => $valid_to,
-            "conduct" => $row['conduct'] ?? 'Good',
-            "conduct_remarks" => $row['conduct_remarks'] ?? '',
-            "biometric_id" => $row['biometric_id'],
-            "room_no" => $room_no,
-            "block" => $block,
-            "wing" => $wing,
-            "room_type" => $row['room_type'],
-            "room_facility" => $row['room_facility'] ?? 'NON AC',
-            "room_bath_attached" => $row['room_bath_attached'] ?? 'No'
-        ];
-        echo json_encode(['success' => true, 'data' => $user_data]);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'User not found']);
-    }
+    // All users are now in the unified users table. If we reach here, the user was not found.
+    echo json_encode(['success' => false, 'message' => 'User not found']);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => 'Server error: ' . $e->getMessage()]);
 }

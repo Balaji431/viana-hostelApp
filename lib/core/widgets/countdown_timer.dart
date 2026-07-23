@@ -8,11 +8,11 @@ class CountdownTimer extends StatefulWidget {
   final TextStyle? textStyle;
 
   const CountdownTimer({
-    Key? key,
+    super.key,
     required this.deadline,
     this.onExpired,
     this.textStyle,
-  }) : super(key: key);
+  });
 
   @override
   _CountdownTimerState createState() => _CountdownTimerState();

@@ -112,9 +112,15 @@ function sendAttendanceNotificationToParents($studentId, $studentName, $status, 
  
         // 7. Send push notification to parent
         if (!empty($parent_fcm_token)) {
-            $title = "Attendance Alert: $student_name is Absent";
-            $body = "Your child is missing from attendance today ($date). Please reply with the reason.";
-            $fcm_res = sendFCM($parent_fcm_token, $title, $body, $request_id, $assigned_warden_username, 'Warden', $absent_json, 'attendance_alert');
+            $w_stmt = $db->prepare("SELECT full_name FROM users WHERE username = ? LIMIT 1");
+            $w_stmt->execute([$assigned_warden_username]);
+            $w_fetch = $w_stmt->fetch(PDO::FETCH_ASSOC);
+            $w_name = ($w_fetch && !empty($w_fetch['full_name'])) ? $w_fetch['full_name'] : 'Warden';
+
+            // Title format: Warden Name (Warden) -> e.g. Dr. Ramesh (Warden)
+            $title = $w_name . " (Warden)";
+            $body = "Attendance Alert: Your child $student_name ($student_reg_no) is marked ABSENT on $date. Tap to reply with reason.";
+            $fcm_res = sendFCM($parent_fcm_token, $title, $body, $request_id, $assigned_warden_username, $w_name, $absent_json, 'attendance_alert', 'parent_warden');
             return [
                 "success" => true, 
                 "message" => "Alert and push notification sent to parent",

@@ -69,31 +69,32 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
 }
 
 /**
- * Helper to fetch the student's assigned floorwise warden (whom they chat with)
+ * Helper to fetch the floorwise warden for the requested room code
  */
-function getAssignedWardenForStudent($conn, $student_id) {
-    // 1. Get student's location details
-    $query = "SELECT hr.hostel_name, hr.floor, hr.wing_code, p.room_allocation
-              FROM users u
-              LEFT JOIN profile p ON (CONVERT(u.username USING utf8mb4) = CONVERT(p.reg_no USING utf8mb4))
-              LEFT JOIN hostel_rooms hr ON (CONVERT(p.room_allocation USING utf8mb4) = CONVERT(hr.room_code USING utf8mb4))
-              WHERE u.id = ? LIMIT 1";
+function getWardenForRequestedRoom($conn, $requested_room_code) {
+    // 1. Get requested room's location details
+    $query = "SELECT hr.hostel_name, hr.floor, hr.wing_code 
+              FROM hostel_rooms hr 
+              WHERE hr.room_code = ? LIMIT 1";
               
     $stmt = $conn->prepare($query);
-    $stmt->bind_param("i", $student_id);
+    $stmt->bind_param("s", $requested_room_code);
     $stmt->execute();
     $location = $stmt->get_result()->fetch_assoc();
     
-    if (!$location || empty($location['room_allocation']) || strtolower(trim($location['room_allocation'])) === 'unallocated' || $location['room_allocation'] === null) {
-        return 'warden1'; // If unallocated, falls back to chief warden warden1
+    if (!$location) {
+        return 'warden1'; // If room not found, falls back to chief warden warden1
     }
     
     $h_name = strtolower(trim($location['hostel_name'] ?? ''));
     $f_name = strtolower(trim($location['floor'] ?? ''));
     $w_name = strtolower(trim($location['wing_code'] ?? ''));
     
-    // 2. Fetch all wardens from mapping_staff
-    $staff_res = $conn->query("SELECT name, role, phone, username, hostel_name, floor_name, wing_name FROM mapping_staff WHERE LOWER(TRIM(role)) = 'warden'");
+    // 2. Fetch all wardens from mapping_staff (joining unified users table to get synchronized names)
+    $staff_res = $conn->query("SELECT COALESCE(su.full_name, ms.name) as name, ms.role, COALESCE(su.phone_number, ms.phone) as phone, COALESCE(ms.staff_bio_id, ms.username) as username, ms.hostel_name, ms.floor_name, ms.wing_name 
+                               FROM mapping_staff ms
+                               LEFT JOIN users su ON ms.staff_bio_id COLLATE utf8mb4_general_ci = su.username COLLATE utf8mb4_general_ci
+                               WHERE LOWER(TRIM(ms.role)) COLLATE utf8mb4_general_ci = 'warden' COLLATE utf8mb4_general_ci");
     if (!$staff_res) {
         return 'warden1';
     }
@@ -125,11 +126,13 @@ function getAssignedWardenForStudent($conn, $student_id) {
         if ($f_name === 'f01' || $f_name === '1st floor') $f_name_norm = '1st floor';
         if ($f_name === 'f02' || $f_name === '2nd floor') $f_name_norm = '2nd floor';
         if ($f_name === 'f03' || $f_name === '3rd floor') $f_name_norm = '3rd floor';
+        if ($f_name === 'f04' || $f_name === '4th floor') $f_name_norm = '4th floor';
         
         if ($ms_f === 'f00' || $ms_f === 'ground' || $ms_f === 'ground floor') $ms_f_norm = 'ground';
         if ($ms_f === 'f01' || $ms_f === '1st floor') $ms_f_norm = '1st floor';
         if ($ms_f === 'f02' || $ms_f === '2nd floor') $ms_f_norm = '2nd floor';
         if ($ms_f === 'f03' || $ms_f === '3rd floor') $ms_f_norm = '3rd floor';
+        if ($ms_f === 'f04' || $ms_f === '4th floor') $ms_f_norm = '4th floor';
         
         if ($ms_f_norm === $f_name_norm || empty($ms_f)) {
             $floor_match = true;
@@ -210,7 +213,7 @@ try {
     while ($row = $result->fetch_assoc()) {
         // Filter by assigned warden in PHP
         if ($warden_username) {
-            $assigned_warden = getAssignedWardenForStudent($conn, $row['student_id']);
+            $assigned_warden = getWardenForRequestedRoom($conn, $row['requested_room']);
             if ($assigned_warden !== $warden_username) {
                 continue; // Skip this request
             }

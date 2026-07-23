@@ -147,6 +147,16 @@ class NotificationService {
     FirebaseMessaging.onMessageOpenedApp.listen(_handleNavigation);
     FirebaseMessaging.onBackgroundMessage(_backgroundHandler);
 
+    // Handle notification tap when app was terminated
+    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+      if (message != null) {
+        AppLogger.info("App opened from terminated state via push notification: ${message.data}");
+        Future.delayed(const Duration(milliseconds: 800), () {
+          _handleNavigation(message);
+        });
+      }
+    });
+
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       AppLogger.info("Foreground message received: ${message.data}");
       
@@ -368,6 +378,12 @@ class NotificationService {
         ? message.data['body']!
         : (message.notification?.body ?? message.data['message'] ?? 'You have a new message');
 
+    final String payloadJson = jsonEncode({
+      'request_id': requestId ?? message.data['request_id'] ?? '',
+      'type': message.data['type'] ?? '',
+      'department': message.data['department'] ?? '',
+    });
+
     if (requestId != null && requestId.isNotEmpty) {
       // Show with 3 action buttons using deterministic notification ID
       final int notifId = requestId.hashCode.abs() % 100000;
@@ -415,7 +431,7 @@ class NotificationService {
       );
 
       final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-      await plugin.show(notifId, title, body, details, payload: requestId);
+      await plugin.show(notifId, title, body, details, payload: payloadJson);
     } else {
       // No requestId — show simple notification without action buttons
       const androidDetails = AndroidNotificationDetails(
@@ -435,14 +451,20 @@ class NotificationService {
       );
 
       const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-      await plugin.show(message.hashCode.abs() % 100000, title, body, details);
+      await plugin.show(message.hashCode.abs() % 100000, title, body, details, payload: payloadJson);
     }
   }
 
 
 
   static Future<void> handleNotificationAction(NotificationResponse response) async {
-    final String? requestId = response.payload;
+    String? requestId = response.payload;
+    if (requestId != null && requestId.startsWith('{')) {
+      try {
+        final data = jsonDecode(requestId);
+        requestId = data['request_id']?.toString();
+      } catch (_) {}
+    }
     final String? actionId = response.actionId;
     
     AppLogger.info("Notification action clicked: $actionId, payload: $requestId");
@@ -587,18 +609,54 @@ class NotificationService {
     }
   }
 
+  static void _navigateFromData(Map<String, dynamic> data) {
+    final String? requestId = data['request_id']?.toString();
+    final String type = data['type']?.toString().toLowerCase() ?? '';
+    final String department = data['department']?.toString().toLowerCase() ?? '';
+
+    AppLogger.info("Navigating from notification payload: type=$type, request_id=$requestId, dept=$department");
+
+    if (type == 'announcement' || requestId == 'announcement') {
+      navigatorKey.currentState?.pushNamed('/announcements');
+      return;
+    }
+
+    if (requestId != null && requestId.isNotEmpty && requestId != 'conduct_update') {
+      unmuteRequest(requestId);
+      navigatorKey.currentState?.pushNamed('/chat', arguments: {
+        'request_id': requestId,
+        'department': department,
+      });
+      return;
+    }
+
+    if (type.contains('chat') || type.contains('request') || type.contains('allocation')) {
+      if (requestId != null && requestId.isNotEmpty) {
+        navigatorKey.currentState?.pushNamed('/chat', arguments: {
+          'request_id': requestId,
+          'department': department,
+        });
+      }
+    }
+  }
+
   static void _handlePayload(String payload) {
-    if (payload.isNotEmpty) {
+    if (payload.isEmpty) return;
+    try {
+      if (payload.startsWith('{')) {
+        final data = jsonDecode(payload) as Map<String, dynamic>;
+        _navigateFromData(data);
+      } else {
+        unmuteRequest(payload);
+        navigatorKey.currentState?.pushNamed('/chat', arguments: {'request_id': payload});
+      }
+    } catch (_) {
       unmuteRequest(payload);
       navigatorKey.currentState?.pushNamed('/chat', arguments: {'request_id': payload});
     }
   }
 
   static void _handleNavigation(RemoteMessage message) {
-    String? requestId = message.data['request_id'];
-    if (requestId != null) {
-      unmuteRequest(requestId);
-      navigatorKey.currentState?.pushNamed('/chat', arguments: {'request_id': requestId});
-    }
+    _navigateFromData(message.data);
   }
 }

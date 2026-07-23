@@ -31,7 +31,7 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
   Future<void> _loadFees() async {
     setState(() => _isLoading = true);
     try {
-      final response = await ApiService.getRenewFees(hostelId: widget.hostelId);
+      final response = await ApiService.getExternalFees(widget.hostelName);
       if (response['success']) {
         setState(() => _fees = response['data']);
       }
@@ -159,6 +159,17 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
     );
   }
 
+  String _formatAmount(dynamic amount) {
+    if (amount == null) return '—';
+    final num = (amount is int) ? amount : (amount is double ? amount : double.tryParse(amount.toString()) ?? 0);
+    if (num >= 100000) {
+      return '₹${(num / 100000).toStringAsFixed(1)}L';
+    } else if (num >= 1000) {
+      return '₹${(num / 1000).toStringAsFixed(0)}K';
+    }
+    return '₹$num';
+  }
+
   @override
   Widget build(BuildContext context) {
     return LinenGridBackground(
@@ -168,7 +179,7 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
           title: 'Fees: ${widget.hostelName}',
           onBack: () => Navigator.pop(context),
           rightAction: IconButton(
-            onPressed: _loadFees, 
+            onPressed: _loadFees,
             icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
             constraints: const BoxConstraints(),
             padding: EdgeInsets.zero,
@@ -176,89 +187,188 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
         ),
         body: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : _fees.isEmpty 
+            : _fees.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.money_off, size: 64, color: Colors.grey[400]),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD4AF37).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.money_off, size: 56, color: Color(0xFFD4AF37)),
+                      ),
                       const SizedBox(height: 16),
                       Text('No fee structures found', 
-                           style: TextStyle(color: Colors.grey[600], fontSize: 16)),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: () => _showFeeDialog(),
-                        icon: const Icon(Icons.add, color: Colors.white),
-                        label: const Text('Add First Fee Type', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFD4AF37),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          elevation: 4,
-                        ),
-                      ),
+                           style: TextStyle(color: Colors.grey[600], fontSize: 16, fontFamily: 'Lato')),
                     ],
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _fees.length,
-                  itemBuilder: (context, index) {
-                    final fee = _fees[index];
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: SkeuomorphicStyles.skeuomorphicCard,
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.all(16),
-                        title: Text(fee['room_type'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1A2744), fontFamily: 'Lato')),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Icon(Icons.hotel, size: 14, color: Colors.blueAccent),
-                                const SizedBox(width: 4),
-                                Text('Hostel: ₹${fee['hostel_fee'] ?? fee['six_month_amount'] ?? '-'}',
-                                    style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            Row(
-                              children: [
-                                const Icon(Icons.restaurant, size: 14, color: Colors.orange),
-                                const SizedBox(width: 4),
-                                Text('Food: ₹${fee['food_fee'] ?? 50000}',
-                                    style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            Row(
-                              children: [
-                                const Icon(Icons.calculate, size: 14, color: Colors.green),
-                                const SizedBox(width: 4),
-                                Text('Total: ₹${fee['total_fee'] ?? ((fee['hostel_fee'] ?? 0) + (fee['food_fee'] ?? 50000))}',
-                                    style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(fee['facility_description'] ?? '',
-                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _showFeeDialog(fee: fee)),
-                            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _deleteFee(fee['id'])),
-                          ],
-                        ),
+              : Column(
+                  children: [
+                    // Summary header
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A4A8C),
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                    );
-                  },
+                      child: Row(
+                        children: [
+                          const Icon(Icons.apartment, color: Color(0xFFD4AF37), size: 20),
+                          const SizedBox(width: 10),
+                          Text(
+                            '${_fees.length} Room Types Available',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              fontFamily: 'Lato',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Fee list
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+                        itemCount: _fees.length,
+                        itemBuilder: (context, index) => _buildFeeCard(_fees[index], index),
+                      ),
+                    ),
+                  ],
                 ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () => _showFeeDialog(),
-          backgroundColor: const Color(0xFFD4AF37),
-          child: const Icon(Icons.add, color: Colors.white),
+      ),
+    );
+  }
+
+  Widget _buildFeeCard(Map<String, dynamic> fee, int index) {
+    final hostelFee = fee['hostel_fee'] ?? 0;
+    final foodFee = fee['food_fee'] ?? 50000;
+    final total = (hostelFee is num ? hostelFee : 0) + (foodFee is num ? foodFee : 0);
+    final occupancy = fee['occupancy']?.toString() ?? '';
+    final cautionDeposit = fee['caution_deposit'] ?? 0;
+
+    const accent = Color(0xFF3D7CC9);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAF6EE),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8E0D5), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header strip
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            decoration: BoxDecoration(
+              color: accent,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.bed, color: Colors.white, size: 16),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    fee['room_type'] ?? '—',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Colors.white,
+                      fontFamily: 'Lato',
+                    ),
+                  ),
+                ),
+                if (occupancy.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$occupancy Sharing',
+                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Fee grid
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    _buildFeeChip(Icons.apartment, 'Hostel', _formatAmount(hostelFee), const Color(0xFF2A4A8C)),
+                    const SizedBox(width: 8),
+                    _buildFeeChip(Icons.restaurant, 'Food', _formatAmount(foodFee), const Color(0xFF1B4D3E)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _buildFeeChip(Icons.calculate_rounded, 'Total / Year', _formatAmount(total), const Color(0xFFD4AF37), highlight: true),
+                    if (cautionDeposit > 0) ...[
+                      const SizedBox(width: 8),
+                      _buildFeeChip(Icons.security, 'Caution', _formatAmount(cautionDeposit), Colors.grey.shade600),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeeChip(IconData icon, String label, String amount, Color color, {bool highlight = false}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: highlight ? const Color(0xFFE8F0FB) : const Color(0xFFF0F4FA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFD0DDED), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 6),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(fontSize: 9, color: color.withOpacity(0.8), fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+                Text(amount, style: const TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.bold, fontFamily: 'Lato')),
+              ],
+            ),
+          ],
         ),
       ),
     );

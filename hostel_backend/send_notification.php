@@ -69,10 +69,6 @@ function sendFCM($token, $title, $body, $requestId = '', $senderId = '', $sender
         $message = [
             'message' => [
                 'token' => $token,
-                'notification' => [
-                    'title' => $title,
-                    'body' => $body
-                ],
                 'data' => [
                     'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
                     'request_id'   => (string)$requestId,

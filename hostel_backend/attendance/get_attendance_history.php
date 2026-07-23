@@ -29,7 +29,7 @@ $biometric_id = (!empty($user['biometric_id'])) ? trim($user['biometric_id']) : 
 $biometric_logs = [];
 
 if ($biometric_id) {
-    $api_url = "http://172.25.15.20:8084/hostel-project/api/vaigai-server.php?UserId=" . urlencode($biometric_id);
+    $api_url = "https://stay.saveetha.com/attendance/vaigai_attendance.php?UserId=" . urlencode($biometric_id);
     
     // Attempt fetch with User-Agent
     $ctx = stream_context_create(['http' => ['timeout' => 15, 'header' => "User-Agent: BiometricBridge/1.0\r\n"]]);
@@ -45,10 +45,12 @@ if ($biometric_id) {
 
         if (is_array($attendance_logs)) {
             foreach ($attendance_logs as $log) {
-                if (isset($log['date']) && isset($log['time'])) {
+                if (isset($log['LogDate']['date'])) {
+                    $datetime_str = $log['LogDate']['date'];
+                    $parts = explode('.', $datetime_str); // Strip microseconds
                     $biometric_logs[] = [
                         "status" => "Biometric",
-                        "log_time" => $log['date'] . " " . $log['time']
+                        "log_time" => $parts[0]
                     ];
                 }
             }

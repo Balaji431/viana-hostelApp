@@ -414,6 +414,17 @@ class ApiService {
     return await postRequest('auth/login.php', {'username': email, 'password': password});
   }
 
+  static Future<Map<String, dynamic>> googleLogin(String email, {String? idToken, String? accessToken}) async {
+    final Map<String, dynamic> body = {'email': email};
+    if (idToken != null) {
+      body['id_token'] = idToken;
+    }
+    if (accessToken != null) {
+      body['access_token'] = accessToken;
+    }
+    return await postRequest('auth/google_login.php', body);
+  }
+
   static Future<Map<String, dynamic>> registerStudent({
     String? name,
     String? email,
@@ -538,8 +549,12 @@ class ApiService {
     return await getRequest('requests/get_student_requests.php?student_id=$studentId');
   }
 
-  static Future<Map<String, dynamic>> getAllReports( ) async {
-    return await getRequest('requests/get_all_reports.php');
+  static Future<Map<String, dynamic>> getAllReports({String? wardenUsername}) async {
+    String url = 'requests/get_all_reports.php';
+    if (wardenUsername != null && wardenUsername.isNotEmpty) {
+      url += '?warden_username=${Uri.encodeComponent(wardenUsername)}';
+    }
+    return await getRequest(url);
   }
 
   // ==================== ATTENDANCE ====================
@@ -601,6 +616,16 @@ class ApiService {
     return await getRequest(url);
   }
 
+  static Future<Map<String, dynamic>> getExternalFees(String hostelName) async {
+    String url = 'admin_v2/get_external_fees.php?hostel_name=${Uri.encodeComponent(hostelName)}';
+    return await getRequest(url);
+  }
+
+  static Future<Map<String, dynamic>> getExternalFeesSummary() async {
+    String url = 'admin_v2/get_external_fees_summary.php';
+    return await getRequest(url);
+  }
+
   static Future<Map<String, dynamic>> updateRenewFee(Map<String, dynamic> feeData) async {
     return await postRequest('admin_v2/update_renew_fee.php', feeData);
   }
@@ -628,8 +653,13 @@ class ApiService {
     return await getRequest('announcements/get_announcements.php');
   }
 
-  static Future<Map<String, dynamic>> postAnnouncement(String title, String content) async {
-    return await postRequest('announcements/add_announcement.php', {'title': title, 'content': content});
+  static Future<Map<String, dynamic>> postAnnouncement(String title, String content, {String? username}) async {
+    final body = {
+      'title': title,
+      'content': content,
+      if (username != null && username.isNotEmpty) 'username': username,
+    };
+    return await postRequest('announcements/add_announcement.php', body);
   }
 
   static Future<Map<String, dynamic>> getCategories() async {
@@ -786,7 +816,7 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-  static Future<Map<String, dynamic>> getAvailableRooms({String? campus, int? hostelId, String? floor, String? roomType, String? facility, double? maxAmount, bool vacantOnly = false}) async {
+  static Future<Map<String, dynamic>> getAvailableRooms({String? campus, int? hostelId, String? floor, String? roomType, String? facility, double? maxAmount, bool vacantOnly = false, String? registerNo}) async {
     final queryParams = <String, String>{};
     if (campus != null) queryParams['campus'] = campus;
     if (hostelId != null) queryParams['hostel_id'] = hostelId.toString();
@@ -795,6 +825,7 @@ class ApiService {
     if (facility != null) queryParams['facility'] = facility;
     if (maxAmount != null) queryParams['max_amount'] = maxAmount.toString();
     if (vacantOnly) queryParams['vacant_only'] = 'true';
+    if (registerNo != null) queryParams['register_no'] = registerNo;
 
     final uri = Uri.parse('$baseUrl/student/get_available_rooms.php').replace(queryParameters: queryParams);
     final response = await http.get(uri);
@@ -1056,6 +1087,10 @@ class ApiService {
       AppLogger.response("Status: ${response.statusCode}");
       
       if (response.statusCode != 200) {
+        try {
+          final body = jsonDecode(response.body);
+          if (body['message'] != null) return {'success': false, 'message': body['message']};
+        } catch (_) {}
         return {'success': false, 'message': 'Server error: ${response.statusCode}'};
       }
       
@@ -1091,6 +1126,10 @@ class ApiService {
       AppLogger.response("Status: ${response.statusCode}");
       
       if (response.statusCode != 200) {
+        try {
+          final body = jsonDecode(response.body);
+          if (body['message'] != null) return {'success': false, 'message': body['message']};
+        } catch (_) {}
         return {'success': false, 'message': 'Server error: ${response.statusCode}'};
       }
       
@@ -1103,5 +1142,9 @@ class ApiService {
       AppLogger.error("POST error: $e");
       return {'success': false, 'message': 'Connection Error: $e'};
     }
+  }
+  
+  static Future<Map<String, dynamic>> getExternalStaff() async {
+    return await getRequest('staff/get_external_staff.php');
   }
 }

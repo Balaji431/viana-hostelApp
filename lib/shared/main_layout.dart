@@ -12,8 +12,9 @@ import 'ui_provider.dart';
 import 'category_provider.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
 import '../core/providers/mapping_provider.dart';
+import '../core/providers/allocation_provider.dart';
 import '../student/screens/home_screen.dart';
-import '../student/screens/attendance_page.dart';
+import '../student/screens/attendance_page.dart' show AttendancePage, BiometricHistoryPage;
 import '../student/screens/settings_page.dart';
 import '../warden/screens/warden_home_tab.dart';
 import '../warden/screens/warden_attendance_tab.dart';
@@ -27,8 +28,6 @@ import '../student/screens/maintenance_chat_screen.dart';
 import '../student/screens/parent_warden_chat_screen.dart';
 import '../warden/screens/warden_chat_interface.dart';
 import '../maintenance/screens/maintenance_home_tab.dart';
-import '../maintenance/screens/maintenance_attendance_tab.dart';
-import '../maintenance/screens/maintenance_settings_tab.dart';
 import '../security/screens/security_home_tab.dart';
 import '../admin/screens/category_manager_screen.dart';
 import '../admin/screens/admin_hostel_manager_screen.dart';
@@ -39,7 +38,6 @@ import '../core/models/hierarchical_hostel_model.dart';
 import 'widgets/glassmorphic_jelly_navbar.dart';
 import 'role_guard.dart';
 
-
 class MainResponsiveLayout extends StatefulWidget {
   final String? initialRequestId;
   final String? senderId;
@@ -47,16 +45,15 @@ class MainResponsiveLayout extends StatefulWidget {
   final bool showAnnouncements;
   final String? initialRoute;
   final Object? initialRouteArgs;
-  
-  const MainResponsiveLayout({
-    this.initialRequestId, 
-    this.senderId, 
-    this.isSecurity = false, 
-    this.showAnnouncements = false, 
-    this.initialRoute,
-    this.initialRouteArgs,
-    super.key
-  });
+
+  const MainResponsiveLayout(
+      {this.initialRequestId,
+      this.senderId,
+      this.isSecurity = false,
+      this.showAnnouncements = false,
+      this.initialRoute,
+      this.initialRouteArgs,
+      super.key});
 
   @override
   State<MainResponsiveLayout> createState() => MainResponsiveLayoutState();
@@ -65,7 +62,9 @@ class MainResponsiveLayout extends StatefulWidget {
 class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   int _selectedIndex = 0;
   String? reportsCategoryFilter;
-  final GlobalKey<NavigatorState> _phoneNavigatorKey = GlobalKey<NavigatorState>();
+  late final PageController _pageController;
+  final GlobalKey<NavigatorState> _phoneNavigatorKey =
+      GlobalKey<NavigatorState>();
   late final _NestedNavigatorObserver _navigatorObserver;
 
   void setSelectedIndex(int index, {String? reportsCategory}) {
@@ -75,6 +74,13 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         reportsCategoryFilter = reportsCategory;
       }
     });
+    if (_pageController.hasClients && _pageController.page?.round() != index) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.fastOutSlowIn,
+      );
+    }
     if (_phoneNavigatorKey.currentState != null) {
       _phoneNavigatorKey.currentState!.popUntil((route) => route.isFirst);
     }
@@ -96,7 +102,8 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
 
     // Double-back to exit logic
     if (_lastBackPressed == null ||
-        DateTime.now().difference(_lastBackPressed!) > const Duration(seconds: 4)) {
+        DateTime.now().difference(_lastBackPressed!) >
+            const Duration(seconds: 4)) {
       _lastBackPressed = DateTime.now();
 
       // Trigger global dashboard refresh (calls UserProvider.triggerDashboardRefresh)
@@ -118,7 +125,8 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   }
 
   void _handlePop() {
-    debugPrint('MainResponsiveLayoutState: _handlePop called. canPop = ${_phoneNavigatorKey.currentState?.canPop()}');
+    debugPrint(
+        'MainResponsiveLayoutState: _handlePop called. canPop = ${_phoneNavigatorKey.currentState?.canPop()}');
     if (_phoneNavigatorKey.currentState?.canPop() ?? false) {
       _phoneNavigatorKey.currentState!.pop();
     } else {
@@ -131,6 +139,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _selectedIndex);
     _navigatorObserver = _NestedNavigatorObserver(
       onStackChanged: () {
         if (mounted) {
@@ -146,47 +155,10 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
       HistoryHelper.addPopStateListener(_handlePop);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final user = Provider.of<UserProvider>(context, listen: false);
-      if (user.role == UserRole.student && user.dbId != null) {
-        Provider.of<RequestProvider>(context, listen: false).fetchRequests(user.dbId!);
-      }
-
-      final catProvider = Provider.of<CategoryProvider>(context, listen: false);
-      // Load cached counts instantly so badges show with zero delay
-      catProvider.loadCachedCounts();
-      catProvider.fetchCategories();
-      
-      _fetchUnreadCounts(user, catProvider);
-
-      // Periodic timer to fetch unread counts every 15 seconds in the background
-      _countTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-        if (mounted) {
-          final currentUser = Provider.of<UserProvider>(context, listen: false);
-          final currentCatProvider = Provider.of<CategoryProvider>(context, listen: false);
-          _fetchUnreadCounts(currentUser, currentCatProvider);
-        }
-      });
-      
-      if (user.role == UserRole.admin) {
-        Provider.of<HierarchicalHostelProvider>(context, listen: false).loadHostels();
-        Provider.of<MappingProvider>(context, listen: false).loadMappings();
-      }
-      
-      if (widget.initialRequestId != null) {
-        if (widget.showAnnouncements) {
-          context.read<UIProvider>().setActiveChatChannel('Announcements');
-        } else if (widget.isSecurity) {
-          context.read<UIProvider>().setActiveChatChannel('Security');
-        } else {
-          context.read<UIProvider>().setActiveChatChannel('Warden');
-        }
-      } else if (widget.showAnnouncements) {
-        context.read<UIProvider>().setActiveChatChannel('Announcements');
-      } else if (widget.isSecurity) {
-        context.read<UIProvider>().setActiveChatChannel('Security');
-      } else {
-        context.read<UIProvider>().setActiveChatChannel(null);
-      }
+      _applyInitialUiState();
+      unawaited(_hydrateAfterFirstPaint(user));
 
       if (widget.initialRoute != null) {
         _phoneNavigatorKey.currentState?.pushNamed(
@@ -197,8 +169,83 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     });
   }
 
+  void _applyInitialUiState() {
+    if (widget.initialRequestId != null) {
+      if (widget.showAnnouncements) {
+        context.read<UIProvider>().setActiveChatChannel('Announcements');
+      } else if (widget.isSecurity) {
+        context.read<UIProvider>().setActiveChatChannel('Security');
+      } else {
+        context.read<UIProvider>().setActiveChatChannel('Warden');
+      }
+    } else if (widget.showAnnouncements) {
+      context.read<UIProvider>().setActiveChatChannel('Announcements');
+    } else if (widget.isSecurity) {
+      context.read<UIProvider>().setActiveChatChannel('Security');
+    } else {
+      context.read<UIProvider>().setActiveChatChannel(null);
+    }
+  }
+
+  Future<void> _hydrateAfterFirstPaint(UserProvider initialUser) async {
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted) return;
+
+    final user = Provider.of<UserProvider>(context, listen: false);
+    final catProvider = Provider.of<CategoryProvider>(context, listen: false);
+
+    unawaited(catProvider.loadCachedCounts());
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    unawaited(catProvider.fetchCategories());
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    _fetchUnreadCounts(user, catProvider);
+
+    if (user.role == UserRole.student && user.dbId != null) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        unawaited(
+          Provider.of<RequestProvider>(context, listen: false)
+              .fetchRequests(user.dbId!),
+        );
+      }
+    }
+
+    if (initialUser.role == UserRole.admin || user.role == UserRole.admin) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      unawaited(
+        Provider.of<HierarchicalHostelProvider>(context, listen: false)
+            .loadHostels(),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (mounted) {
+        unawaited(
+          Provider.of<MappingProvider>(context, listen: false).loadMappings(),
+        );
+      }
+    }
+
+    _countTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted) {
+        final currentUser = Provider.of<UserProvider>(context, listen: false);
+        final currentCatProvider =
+            Provider.of<CategoryProvider>(context, listen: false);
+        _fetchUnreadCounts(currentUser, currentCatProvider);
+      }
+    });
+  }
+
   void _fetchUnreadCounts(UserProvider user, CategoryProvider catProvider) {
-    if (user.role == UserRole.warden || user.role == UserRole.admin || user.role == UserRole.security || user.role == UserRole.maintenance || user.role == UserRole.staff) {
+    if (user.role == UserRole.warden ||
+        user.role == UserRole.admin ||
+        user.role == UserRole.security ||
+        user.role == UserRole.maintenance ||
+        user.role == UserRole.staff) {
       catProvider.fetchCounts(wardenUsername: user.username);
     } else if (user.role == UserRole.student) {
       catProvider.fetchCounts(studentUsername: user.username);
@@ -211,6 +258,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
 
   @override
   void dispose() {
+    _pageController.dispose();
     _countTimer?.cancel();
     if (kIsWeb) {
       HistoryHelper.removePopStateListener();
@@ -225,7 +273,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     final isDesktop = MediaQuery.of(context).size.width >= 768;
 
     final tabs = _getTabsForRole(user);
-    
+
     if (_selectedIndex >= tabs.length) {
       _selectedIndex = 0;
     }
@@ -241,51 +289,82 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         bottom: false,
         child: Scaffold(
           extendBody: !isDesktop,
-          backgroundColor: isDesktop ? const Color(0xFF0A1128) : const Color(0xFFE8E4DB),
+          backgroundColor:
+              isDesktop ? const Color(0xFF0A1128) : const Color(0xFFE8E4DB),
           body: Container(
-            decoration: isDesktop ? const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFF0F1520),
-                  Color(0xFF1A2235),
-                  Color(0xFF0F1520),
-                ],
-              ),
-            ) : null,
+            decoration: isDesktop
+                ? const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF0F1520),
+                        Color(0xFF1A2235),
+                        Color(0xFF0F1520),
+                      ],
+                    ),
+                  )
+                : null,
             child: isDesktop
-              ? Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min, 
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      _buildSidebar(context, user, tabs),
-                      _buildMainContentCard(isDesktop, tabs),
-                      if (ui.activeChatChannel != null)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 12),
-                          child: _buildChatSidePanel(context, ui, user.role),
-                        ),
-                    ],
+                ? Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _buildSidebar(context, user, tabs),
+                        _buildMainContentCard(isDesktop, tabs),
+                        if (ui.activeChatChannel != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: _buildChatSidePanel(context, ui, user.role),
+                          ),
+                      ],
+                    ),
+                  )
+                : LinenGridBackground(
+                    child: _buildMainContentCard(isDesktop, tabs),
                   ),
-                )
-              : LinenGridBackground(
-                  child: _buildMainContentCard(isDesktop, tabs),
-                ),
           ),
-          bottomNavigationBar: !isDesktop ? _buildBottomNavigationBar(tabs) : null,
+          bottomNavigationBar:
+              (!isDesktop && ui.showBottomNavBar) ? _buildBottomNavigationBar(tabs) : null,
         ),
       ),
     );
   }
 
-  Widget _buildMainContentCard(bool isDesktop, List<_TabItem> tabs) {
-    if (!isDesktop) {
-      return IndexedStack(
-        index: _selectedIndex,
+  Widget _buildContentView(bool isDesktop, List<_TabItem> tabs) {
+    final bool useSwipeView = !isDesktop && !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+    if (useSwipeView) {
+      return PageView(
+        controller: _pageController,
+        scrollDirection: Axis.horizontal,
+        physics: (_phoneNavigatorKey.currentState?.canPop() ?? false)
+            ? const NeverScrollableScrollPhysics()
+            : const PageScrollPhysics(parent: ClampingScrollPhysics()),
+        onPageChanged: (index) {
+          if (_selectedIndex != index) {
+            setState(() {
+              _selectedIndex = index;
+              if (index < tabs.length && tabs[index].label != 'Reports') {
+                reportsCategoryFilter = null;
+              }
+            });
+          }
+        },
         children: tabs.map((t) => t.page).toList(),
       );
+    }
+
+    return IndexedStack(
+      index: _selectedIndex >= tabs.length ? 0 : _selectedIndex,
+      children: tabs.map((t) => t.page).toList(),
+    );
+  }
+
+  Widget _buildMainContentCard(bool isDesktop, List<_TabItem> tabs) {
+    if (!isDesktop) {
+      return _buildContentView(isDesktop, tabs);
     }
 
     return SizedBox(
@@ -298,8 +377,10 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
           color: const Color(0xFF0F1520),
           borderRadius: BorderRadius.circular(36),
           boxShadow: const [
-            BoxShadow(color: Colors.black54, blurRadius: 40, offset: Offset(0, 20)),
-            BoxShadow(color: Colors.black38, blurRadius: 15, offset: Offset(0, 6)),
+            BoxShadow(
+                color: Colors.black54, blurRadius: 40, offset: Offset(0, 20)),
+            BoxShadow(
+                color: Colors.black38, blurRadius: 15, offset: Offset(0, 6)),
           ],
         ),
         child: ClipRRect(
@@ -341,14 +422,12 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       final args = settings.arguments as HierarchicalHostel;
                       builder = (context) => RoleGuard(
                             allowedRoles: const [UserRole.admin],
-                            child: HostelDetailScreen(hostel: args, showAppBar: true),
+                            child: HostelDetailScreen(
+                                hostel: args, showAppBar: true),
                           );
                       break;
                     default:
-                      builder = (context) => IndexedStack(
-                        index: _selectedIndex,
-                        children: tabs.map((t) => t.page).toList(),
-                      );
+                      builder = (context) => _buildContentView(isDesktop, tabs);
                   }
                   return MaterialPageRoute(
                     builder: builder,
@@ -363,7 +442,8 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     );
   }
 
-  Widget _buildChatSidePanel(BuildContext context, UIProvider ui, UserRole role) {
+  Widget _buildChatSidePanel(
+      BuildContext context, UIProvider ui, UserRole role) {
     return SizedBox(
       height: MediaQuery.of(context).size.height,
       child: Container(
@@ -372,7 +452,12 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         decoration: BoxDecoration(
           color: const Color(0xFFF9F6F1),
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 15, offset: const Offset(0, 5))],
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black45,
+                blurRadius: 15,
+                offset: const Offset(0, 5))
+          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Navigator(
@@ -389,45 +474,67 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   }
 
   Widget _getChatWidget(String channel, UserRole role) {
-    if (role == UserRole.warden || role == UserRole.admin || role == UserRole.security || role == UserRole.maintenance || role == UserRole.staff) {
+    if (role == UserRole.warden ||
+        role == UserRole.admin ||
+        role == UserRole.security ||
+        role == UserRole.maintenance ||
+        role == UserRole.staff) {
       return WardenChatInterface(channel: channel);
     }
-    
+
     final user = Provider.of<UserProvider>(context, listen: false);
-    
-    AppLogger.info("Chat: $channel, Role: $role, User: ${user.username}, Request: ${widget.initialRequestId}");
-    
+
+    AppLogger.info(
+        "Chat: $channel, Role: $role, User: ${user.username}, Request: ${widget.initialRequestId}");
+
     switch (channel.toLowerCase()) {
-      case 'warden': 
+      case 'warden':
         AppLogger.info("Creating Warden ChatScreen");
         return user.isParent
             ? ParentWardenChatScreen(requestId: widget.initialRequestId)
             : WardenChatScreen(requestId: widget.initialRequestId);
-      case 'security': 
+      case 'security':
         AppLogger.info("Creating Security ChatScreen");
         return SecurityChatScreen(requestId: widget.initialRequestId);
-      default: 
+      default:
         AppLogger.info("Creating Dynamic ChatScreen for $channel");
         return MaintenanceChatScreen(
-          requestId: widget.initialRequestId,
-          department: channel
-        );
+            requestId: widget.initialRequestId, department: channel);
     }
   }
 
-  Widget _buildSidebar(BuildContext context, UserProvider user, List<_TabItem> tabs) {
+  Widget _buildSidebar(
+      BuildContext context, UserProvider user, List<_TabItem> tabs) {
     IconData roleIcon;
     String roleLabel;
     switch (user.role) {
-      case UserRole.student: roleIcon = Icons.school_outlined; roleLabel = 'Student Portal'; break;
-      case UserRole.parent: roleIcon = Icons.family_restroom_outlined; roleLabel = 'Parent Portal'; break;
-      case UserRole.warden: roleIcon = Icons.shield_outlined; roleLabel = 'Warden Portal'; break;
-      case UserRole.admin: roleIcon = Icons.admin_panel_settings_outlined; roleLabel = 'Admin Portal'; break;
-      case UserRole.maintenance: roleIcon = Icons.build_outlined; roleLabel = 'Maintenance Portal'; break;
-      case UserRole.security: roleIcon = Icons.security_outlined; roleLabel = 'Security Portal'; break;
-      case UserRole.staff: 
-        roleIcon = Icons.engineering_outlined; 
-        roleLabel = '${user.roleName} Portal'; 
+      case UserRole.student:
+        roleIcon = Icons.school_outlined;
+        roleLabel = 'Student Portal';
+        break;
+      case UserRole.parent:
+        roleIcon = Icons.family_restroom_outlined;
+        roleLabel = 'Parent Portal';
+        break;
+      case UserRole.warden:
+        roleIcon = Icons.shield_outlined;
+        roleLabel = 'Warden Portal';
+        break;
+      case UserRole.admin:
+        roleIcon = Icons.admin_panel_settings_outlined;
+        roleLabel = 'Admin Portal';
+        break;
+      case UserRole.maintenance:
+        roleIcon = Icons.build_outlined;
+        roleLabel = 'Maintenance Portal';
+        break;
+      case UserRole.security:
+        roleIcon = Icons.security_outlined;
+        roleLabel = 'Security Portal';
+        break;
+      case UserRole.staff:
+        roleIcon = Icons.engineering_outlined;
+        roleLabel = '${user.roleName} Portal';
         break;
     }
 
@@ -456,26 +563,54 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       child: Row(
                         children: [
                           Container(
-                            width: 52, height: 52,
+                            width: 40,
+                            height: 40,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [Color(0xFFE8D48A), Color(0xFFD4AF37), Color(0xFFB8962E)],
-                              ),
+                              color: Colors.white,
                               shape: BoxShape.circle,
-                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))],
+                              boxShadow: const [
+                                BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 6,
+                                    offset: Offset(0, 2))
+                              ],
                             ),
-                            child: const Center(
-                              child: Text('RR', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF3D2E0A), fontFamily: 'Lato'))
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: Image.asset(
+                                'assets/images/favicon.png',
+                                width: 40,
+                                height: 40,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => const Center(
+                                  child: Text('VS',
+                                      style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1B2B48),
+                                          fontFamily: 'Lato')),
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 10),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: const [
-                              Text('Royal', style: TextStyle(fontFamily: 'Lato', fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold, height: 1.2)),
-                              Text('Residences', style: TextStyle(fontFamily: 'Lato', fontSize: 13, color: Color(0xFFD4AF37), fontWeight: FontWeight.bold, height: 1.2)),
+                              Text('Viana',
+                                  style: TextStyle(
+                                      fontFamily: 'Lato',
+                                      fontSize: 13,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      height: 1.2)),
+                              Text('Stay',
+                                  style: TextStyle(
+                                      fontFamily: 'Lato',
+                                      fontSize: 13,
+                                      color: Color(0xFFD4AF37),
+                                      fontWeight: FontWeight.bold,
+                                      height: 1.2)),
                             ],
                           ),
                         ],
@@ -486,7 +621,8 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       padding: const EdgeInsets.symmetric(horizontal: 18),
                       child: Row(
                         children: [
-                          Icon(roleIcon, size: 13, color: const Color(0xFF7A8BA0)),
+                          Icon(roleIcon,
+                              size: 13, color: const Color(0xFF7A8BA0)),
                           const SizedBox(width: 6),
                           Text(
                             roleLabel.toUpperCase(),
@@ -506,35 +642,50 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       final t = tabs[index];
                       final active = _selectedIndex == index;
                       return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 1),
                         child: InkWell(
                           onTap: () {
                             setState(() => _selectedIndex = index);
                             if (_phoneNavigatorKey.currentState != null) {
-                              _phoneNavigatorKey.currentState!.popUntil((route) => route.isFirst);
+                              _phoneNavigatorKey.currentState!
+                                  .popUntil((route) => route.isFirst);
                             }
                           },
                           borderRadius: BorderRadius.circular(10),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
-                              color: active ? Colors.white.withOpacity(0.12) : Colors.transparent,
+                              color: active
+                                  ? Colors.white.withOpacity(0.12)
+                                  : Colors.transparent,
                               borderRadius: BorderRadius.circular(10),
-                              border: active ? Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4), width: 1) : null,
+                              border: active
+                                  ? Border.all(
+                                      color: const Color(0xFFD4AF37)
+                                          .withOpacity(0.4),
+                                      width: 1)
+                                  : null,
                             ),
                             child: Row(
                               children: [
                                 Icon(
                                   active ? t.activeIcon : t.icon,
-                                  color: active ? const Color(0xFFD4AF37) : Colors.white54,
+                                  color: active
+                                      ? const Color(0xFFD4AF37)
+                                      : Colors.white54,
                                   size: 18,
                                 ),
                                 const SizedBox(width: 12),
                                 Text(
                                   t.label,
                                   style: TextStyle(
-                                    color: active ? Colors.white : Colors.white54,
-                                    fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                                    color:
+                                        active ? Colors.white : Colors.white54,
+                                    fontWeight: active
+                                        ? FontWeight.w700
+                                        : FontWeight.w400,
                                     fontSize: 14,
                                     fontFamily: 'Lato',
                                   ),
@@ -553,16 +704,18 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
               child: InkWell(
                 onTap: () async {
-                  final userProvider = Provider.of<UserProvider>(context, listen: false);
-                  await userProvider.logout();
+                  final userProvider =
+                      Provider.of<UserProvider>(context, listen: false);
                   if (context.mounted) {
+                    context.read<AllocationProvider>().reset();
                     context.read<UIProvider>().setActiveChatChannel(null);
-                    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
                   }
+                  await userProvider.logout();
                 },
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
                   decoration: BoxDecoration(
                     color: Colors.red.withOpacity(0.08),
                     borderRadius: BorderRadius.circular(12),
@@ -570,9 +723,15 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                   ),
                   child: Row(
                     children: const [
-                      Icon(Icons.exit_to_app, color: Colors.redAccent, size: 18),
+                      Icon(Icons.exit_to_app,
+                          color: Colors.redAccent, size: 18),
                       SizedBox(width: 12),
-                      Text('Logout', style: TextStyle(color: Colors.redAccent, fontSize: 14, fontWeight: FontWeight.w700, fontFamily: 'Lato')),
+                      Text('Logout',
+                          style: TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: 'Lato')),
                     ],
                   ),
                 ),
@@ -588,18 +747,27 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     return GlassmorphicJellyNavbar(
       currentIndex: _selectedIndex >= tabs.length ? 0 : _selectedIndex,
       totalTabs: tabs.length,
-      tabs: tabs.map((t) => GlassmorphicTabItem(
-        label: t.label,
-        icon: t.icon,
-        activeIcon: t.activeIcon,
-      )).toList(),
+      tabs: tabs
+          .map((t) => GlassmorphicTabItem(
+                label: t.label,
+                icon: t.icon,
+                activeIcon: t.activeIcon,
+              ))
+          .toList(),
       onTap: (index) {
         setState(() {
           _selectedIndex = index;
-          if (index != 2) {
+          if (tabs[index].label != 'Reports') {
             reportsCategoryFilter = null;
           }
         });
+        if (_pageController.hasClients && _pageController.page?.round() != index) {
+          _pageController.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.fastOutSlowIn,
+          );
+        }
         if (_phoneNavigatorKey.currentState != null) {
           _phoneNavigatorKey.currentState!.popUntil((route) => route.isFirst);
         }
@@ -611,49 +779,154 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     switch (user.role) {
       case UserRole.student:
         return [
-          const _TabItem(label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home, page: StudentHomeScreen()),
-          const _TabItem(label: 'Attendance', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month, page: AttendancePage()),
-          const _TabItem(label: 'Settings', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: SettingsPage()),
+          const _TabItem(
+              label: 'Home',
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home,
+              page: StudentHomeScreen()),
+          const _TabItem(
+              label: 'Attendance',
+              icon: Icons.calendar_month_outlined,
+              activeIcon: Icons.calendar_month,
+              page: AttendancePage()),
+          const _TabItem(
+              label: 'Bio History',
+              icon: Icons.fingerprint,
+              activeIcon: Icons.fingerprint,
+              page: BiometricHistoryPage()),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.settings_outlined,
+              activeIcon: Icons.settings,
+              page: SettingsPage()),
         ];
       case UserRole.parent:
         return [
-          const _TabItem(label: 'Dashboard', icon: Icons.dashboard_outlined, activeIcon: Icons.dashboard, page: StudentHomeScreen()),
-          const _TabItem(label: 'Attendance', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month, page: AttendancePage()),
-          const _TabItem(label: 'Settings', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: SettingsPage()),
+          const _TabItem(
+              label: 'Dashboard',
+              icon: Icons.dashboard_outlined,
+              activeIcon: Icons.dashboard,
+              page: StudentHomeScreen()),
+          const _TabItem(
+              label: 'Attendance',
+              icon: Icons.calendar_month_outlined,
+              activeIcon: Icons.calendar_month,
+              page: AttendancePage()),
+          const _TabItem(
+              label: 'Bio History',
+              icon: Icons.fingerprint,
+              activeIcon: Icons.fingerprint,
+              page: BiometricHistoryPage()),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.settings_outlined,
+              activeIcon: Icons.settings,
+              page: SettingsPage()),
         ];
       case UserRole.warden:
         return [
-          const _TabItem(label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home, page: WardenHomeTab()),
-          const _TabItem(label: 'Attendance', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month, page: WardenAttendanceTab()),
-          _TabItem(label: 'Reports', icon: Icons.bar_chart_outlined, activeIcon: Icons.bar_chart, page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
-          const _TabItem(label: 'Management', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: WardenManagementTab()),
-          const _TabItem(label: 'Settings', icon: Icons.person_outline, activeIcon: Icons.person, page: SettingsPage()),
+          const _TabItem(
+              label: 'Home',
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home,
+              page: WardenHomeTab()),
+          const _TabItem(
+              label: 'Attendance',
+              icon: Icons.calendar_month_outlined,
+              activeIcon: Icons.calendar_month,
+              page: WardenAttendanceTab()),
+          _TabItem(
+              label: 'Reports',
+              icon: Icons.bar_chart_outlined,
+              activeIcon: Icons.bar_chart,
+              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
+          const _TabItem(
+              label: 'Management',
+              icon: Icons.settings_outlined,
+              activeIcon: Icons.settings,
+              page: WardenManagementTab()),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.person_outline,
+              activeIcon: Icons.person,
+              page: SettingsPage()),
         ];
       case UserRole.admin:
         return [
-          const _TabItem(label: 'New Admin', icon: Icons.admin_panel_settings_outlined, activeIcon: Icons.admin_panel_settings, page: AdminScreen()),
-          const _TabItem(label: 'Activity Logs', icon: Icons.assignment_outlined, activeIcon: Icons.assignment, page: AdminActivityLogsScreen()),
-          const _TabItem(label: 'New Staff', icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1, page: RegisterStaffScreen()),
-          const _TabItem(label: 'Management', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: WardenManagementTab()),
-          const _TabItem(label: 'Settings', icon: Icons.person_outline, activeIcon: Icons.person, page: SettingsPage()),
+          const _TabItem(
+              label: 'Admin',
+              icon: Icons.admin_panel_settings_outlined,
+              activeIcon: Icons.admin_panel_settings,
+              page: AdminScreen()),
+          const _TabItem(
+              label: 'Activity Logs',
+              icon: Icons.assignment_outlined,
+              activeIcon: Icons.assignment,
+              page: AdminActivityLogsScreen()),
+          const _TabItem(
+              label: 'Management',
+              icon: Icons.settings_outlined,
+              activeIcon: Icons.settings,
+              page: WardenManagementTab()),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.person_outline,
+              activeIcon: Icons.person,
+              page: SettingsPage()),
         ];
       case UserRole.maintenance:
         return [
-          const _TabItem(label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home, page: MaintenanceHomeTab()),
-          const _TabItem(label: 'Attendance', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month, page: MaintenanceAttendanceTab()),
-          const _TabItem(label: 'Settings', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: MaintenanceSettingsTab()),
+          const _TabItem(
+              label: 'Home',
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home,
+              page: MaintenanceHomeTab()),
+          _TabItem(
+              label: 'Reports',
+              icon: Icons.bar_chart_outlined,
+              activeIcon: Icons.bar_chart,
+              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.person_outline,
+              activeIcon: Icons.person,
+              page: SettingsPage()),
         ];
       case UserRole.security:
         return [
-          const _TabItem(label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home, page: SecurityHomeTab()),
-          const _TabItem(label: 'Attendance', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month, page: MaintenanceAttendanceTab()),
-          const _TabItem(label: 'Settings', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: MaintenanceSettingsTab()),
+          const _TabItem(
+              label: 'Home',
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home,
+              page: SecurityHomeTab()),
+          _TabItem(
+              label: 'Reports',
+              icon: Icons.bar_chart_outlined,
+              activeIcon: Icons.bar_chart,
+              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.person_outline,
+              activeIcon: Icons.person,
+              page: SettingsPage()),
         ];
       case UserRole.staff:
         return [
-          const _TabItem(label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home, page: MaintenanceHomeTab()),
-          const _TabItem(label: 'Attendance', icon: Icons.calendar_month_outlined, activeIcon: Icons.calendar_month, page: MaintenanceAttendanceTab()),
-          const _TabItem(label: 'Settings', icon: Icons.settings_outlined, activeIcon: Icons.settings, page: MaintenanceSettingsTab()),
+          const _TabItem(
+              label: 'Home',
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home,
+              page: MaintenanceHomeTab()),
+          _TabItem(
+              label: 'Reports',
+              icon: Icons.bar_chart_outlined,
+              activeIcon: Icons.bar_chart,
+              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.person_outline,
+              activeIcon: Icons.person,
+              page: SettingsPage()),
         ];
     }
   }
@@ -664,7 +937,11 @@ class _TabItem {
   final IconData icon;
   final IconData activeIcon;
   final Widget page;
-  const _TabItem({required this.label, required this.icon, required this.activeIcon, required this.page});
+  const _TabItem(
+      {required this.label,
+      required this.icon,
+      required this.activeIcon,
+      required this.page});
 }
 
 class _NestedNavigatorObserver extends NavigatorObserver {
@@ -675,7 +952,8 @@ class _NestedNavigatorObserver extends NavigatorObserver {
   @override
   void didPush(Route route, Route? previousRoute) {
     super.didPush(route, previousRoute);
-    debugPrint('NestedObserver: didPush | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
+    debugPrint(
+        'NestedObserver: didPush | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
     if (kIsWeb && route.settings.name != null && route.settings.name != '/') {
       HistoryHelper.pushState();
     }
@@ -685,21 +963,24 @@ class _NestedNavigatorObserver extends NavigatorObserver {
   @override
   void didPop(Route route, Route? previousRoute) {
     super.didPop(route, previousRoute);
-    debugPrint('NestedObserver: didPop | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
+    debugPrint(
+        'NestedObserver: didPop | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
     onStackChanged();
   }
 
   @override
   void didRemove(Route route, Route? previousRoute) {
     super.didRemove(route, previousRoute);
-    debugPrint('NestedObserver: didRemove | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
+    debugPrint(
+        'NestedObserver: didRemove | route=${route.settings.name} | previous=${previousRoute?.settings.name} | canPop=${navigator?.canPop()}');
     onStackChanged();
   }
 
   @override
   void didReplace({Route? newRoute, Route? oldRoute}) {
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
-    debugPrint('NestedObserver: didReplace | newRoute=${newRoute?.settings.name} | oldRoute=${oldRoute?.settings.name} | canPop=${navigator?.canPop()}');
+    debugPrint(
+        'NestedObserver: didReplace | newRoute=${newRoute?.settings.name} | oldRoute=${oldRoute?.settings.name} | canPop=${navigator?.canPop()}');
     onStackChanged();
   }
 }

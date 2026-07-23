@@ -143,17 +143,22 @@ try {
         error_log("Audit logging failed in submit_preferences: " . $e->getMessage());
     }
 
-    // 5. Send push notification to main warden
+    // 5. Send push notification to Wardens
     try {
+        require_once __DIR__ . '/../send_notification.php';
+        // Title format: Student Name (Reg No) -> e.g. BIRAJ CHAUDHARY (192514071)
+        $title = $student_name . " (" . $student_reg . ")";
+        $body = "Room Allocation Preference submitted: Hostel: " . $hostel . " | Room Type: " . $room_type;
 
-        $w_res = $conn->query("SELECT fcm_token FROM users WHERE role = 'warden' LIMIT 1");
-        if ($w_res && $w_row = $w_res->fetch_assoc()) {
-            $warden_token = $w_row['fcm_token'];
-            if (!empty($warden_token)) {
-                require_once __DIR__ . '/../send_notification.php';
-                $title = "New Room Allocation Request: $student_name ($student_reg)";
-                $body = "$student_name ($student_reg) has submitted a new room allocation request.";
-                sendFCM($warden_token, $title, $body, 'allocation_req', $student_id, $student_name, $body, 'room_allocation');
+        $w_res = $conn->query("SELECT fcm_token FROM users WHERE role = 'warden' AND fcm_token IS NOT NULL AND fcm_token != ''");
+        if ($w_res) {
+            while ($w_row = $w_res->fetch_assoc()) {
+                $warden_token = $w_row['fcm_token'];
+                if (!empty($warden_token)) {
+                    try {
+                        sendFCM($warden_token, $title, $body, 'allocation_req', $student_id, $student_name, $body, 'room_allocation', 'warden');
+                    } catch (Exception $e) {}
+                }
             }
         }
     } catch (Exception $e) {

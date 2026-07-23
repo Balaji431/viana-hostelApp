@@ -166,7 +166,8 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
 
   Future<void> _loadRoomTypes() async {
     try {
-      final response = await ApiService.getRoomTypes();
+      final user = context.read<UserProvider>();
+      final response = await ApiService.getRoomTypes(username: user.username);
       if (response['status'] == 'success') {
         setState(() => _roomTypes = response['data']);
       }
@@ -182,12 +183,31 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
         _loadError = null;
       });
 
+      final user = context.read<UserProvider>();
+
       // Use the new hostel rooms API
-      final response = await ApiService.getAvailableRooms(vacantOnly: true);
+      final response = await ApiService.getAvailableRooms(
+        vacantOnly: true,
+        registerNo: user.registerNo,
+      );
       
       // Handle both old and new response formats
       if (response['success'] == true || response['status'] == 'success') {
-        final List<dynamic> hostelsData = response['hostels'] ?? [];
+        final List<dynamic> hostelsDataRaw = response['hostels'] ?? [];
+        
+        final studentHostelType = user.hostelType.toLowerCase().trim();
+
+        final List<dynamic> hostelsData = hostelsDataRaw.where((h) {
+          final hType = (h['hostel_type'] ?? '').toString().toLowerCase().trim();
+          if (studentHostelType.isEmpty || hType.isEmpty) return true;
+          
+          if (studentHostelType.contains('girl') || studentHostelType.contains('female')) {
+            return hType.contains('girl') || hType.contains('female');
+          } else {
+            return hType.contains('boy') || hType.contains('male');
+          }
+        }).toList();
+
         final List<Hostel> hostels = hostelsData.map((hostelData) {
           final List<dynamic> roomsData = hostelData['rooms'] ?? [];
           
@@ -720,6 +740,15 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                       ),
                     ),
                     const SizedBox(height: 2),
+                    Text(
+                      room.roomType,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
                     Row(
                       children: [
                         const Icon(Icons.people, 
@@ -840,18 +869,26 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Change Request Details',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A2744),
-                      fontFamily: 'Lato',
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Change Request Details',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1A2744),
+                          fontFamily: 'Lato',
+                        ),
+                      ),
+                      _buildTierBadge(),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   
-                  _buildDetailRow('Current Room', _currentRoomDisplay),
+                  _buildDetailRow('Current Room Code', _currentRoomCode),
+                  const Divider(height: 20, color: Color(0xFFE8E0D5)),
+                  _buildDetailRow('Current Room Type', _currentRoomType),
                   const Divider(height: 20, color: Color(0xFFE8E0D5)),
                   _buildDetailRow('Requested Room', _selectedRoom!.roomCode ?? _selectedRoom!.number,
                                   isHighlighted: true),
@@ -931,7 +968,7 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                   child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
                 ),
               )
-            else if (_assignedWarden == null || _assignedWarden!['username'] == 'warden1')
+            else if (_assignedWarden == null)
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -1003,17 +1040,17 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
                 const SizedBox(width: 12),
                 Expanded(
                   child: InkWell(
-                    onTap: (_isSubmitting || _reasonController.text.trim().isEmpty || _assignedWarden == null || _assignedWarden!['username'] == 'warden1') ? null : _handleSubmitRequest,
+                    onTap: (_isSubmitting || _reasonController.text.trim().isEmpty || _assignedWarden == null) ? null : _handleSubmitRequest,
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
                       height: 50,
                       decoration: BoxDecoration(
-                        color: (_reasonController.text.trim().isEmpty || _assignedWarden == null || _assignedWarden!['username'] == 'warden1')
+                        color: (_reasonController.text.trim().isEmpty || _assignedWarden == null)
                             ? Colors.grey.shade300
                             : const Color(0xFFD4AF37),
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
-                          if (!(_reasonController.text.trim().isEmpty || _assignedWarden == null || _assignedWarden!['username'] == 'warden1'))
+                          if (!(_reasonController.text.trim().isEmpty || _assignedWarden == null))
                             BoxShadow(
                               color: Colors.black.withOpacity(0.2),
                               blurRadius: 4,
@@ -1282,36 +1319,233 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
     );
   }
 
+  static const Map<String, Map<String, double>> _staticFees = {
+    'dorm 38 - non ac': {'hostel_fee': 25000, 'food_fee': 50000, 'total_fee': 75000},
+    'dorm 20 - non ac': {'hostel_fee': 30000, 'food_fee': 50000, 'total_fee': 80000},
+    'dorm 25 - non ac': {'hostel_fee': 30000, 'food_fee': 50000, 'total_fee': 80000},
+    'dorm 36 - ac': {'hostel_fee': 30000, 'food_fee': 50000, 'total_fee': 80000},
+    '7 in 1 non ac': {'hostel_fee': 31000, 'food_fee': 50000, 'total_fee': 81000},
+    'dorm 10 - non ac': {'hostel_fee': 31000, 'food_fee': 50000, 'total_fee': 81000},
+    '6 in 1 non ac': {'hostel_fee': 32000, 'food_fee': 50000, 'total_fee': 82000},
+    '5 in 1 non ac': {'hostel_fee': 33000, 'food_fee': 50000, 'total_fee': 83000},
+    '4 in 1 non ac': {'hostel_fee': 34000, 'food_fee': 50000, 'total_fee': 84000},
+    '3 in 1 non ac': {'hostel_fee': 35000, 'food_fee': 50000, 'total_fee': 85000},
+    'double non ac': {'hostel_fee': 40000, 'food_fee': 50000, 'total_fee': 90000},
+    'dorm 12 - ac': {'hostel_fee': 45000, 'food_fee': 50000, 'total_fee': 95000},
+    'double semi deluxe non ac': {'hostel_fee': 50000, 'food_fee': 50000, 'total_fee': 100000},
+    'single non ac': {'hostel_fee': 50000, 'food_fee': 50000, 'total_fee': 100000},
+    'double deluxe non ac': {'hostel_fee': 52000, 'food_fee': 50000, 'total_fee': 102000},
+    'dorm 10 - ac': {'hostel_fee': 55000, 'food_fee': 50000, 'total_fee': 105000},
+    'triple ac': {'hostel_fee': 55000, 'food_fee': 50000, 'total_fee': 105000},
+    'double ac': {'hostel_fee': 55000, 'food_fee': 50000, 'total_fee': 105000},
+    'double semi deluxe ac': {'hostel_fee': 55000, 'food_fee': 50000, 'total_fee': 105000},
+    'single semi deluxe non ac': {'hostel_fee': 55000, 'food_fee': 50000, 'total_fee': 105000},
+    'double deluxe ac': {'hostel_fee': 57000, 'food_fee': 50000, 'total_fee': 107000},
+    'single semi deluxe ac': {'hostel_fee': 60000, 'food_fee': 50000, 'total_fee': 110000},
+    'single deluxe non ac': {'hostel_fee': 62000, 'food_fee': 50000, 'total_fee': 112000},
+    'single deluxe ac': {'hostel_fee': 70000, 'food_fee': 50000, 'total_fee': 120000},
+    'single bath attached non ac': {'hostel_fee': 55000, 'food_fee': 50000, 'total_fee': 105000},
+    '8 in 1 bath attached ac': {'hostel_fee': 60000, 'food_fee': 50000, 'total_fee': 110000},
+    '6 in 1 bath attached ac': {'hostel_fee': 65000, 'food_fee': 50000, 'total_fee': 115000},
+    '4 in 1 bath attached ac': {'hostel_fee': 75000, 'food_fee': 50000, 'total_fee': 125000},
+    'single suit room bath attached non ac': {'hostel_fee': 80000, 'food_fee': 50000, 'total_fee': 130000},
+    'semi deluxe 4 in 1 bath attached ac': {'hostel_fee': 90000, 'food_fee': 50000, 'total_fee': 140000},
+    'single bath attached a/c': {'hostel_fee': 90000, 'food_fee': 50000, 'total_fee': 140000},
+    'super deluxe 4 in 1 bath attached ac': {'hostel_fee': 95000, 'food_fee': 50000, 'total_fee': 145000},
+    '3 in 1 bath attached ac': {'hostel_fee': 100000, 'food_fee': 50000, 'total_fee': 150000},
+    'single bath attached deluxe ac': {'hostel_fee': 110000, 'food_fee': 50000, 'total_fee': 160000},
+    'super deluxe 3 in 1 bath attached ac': {'hostel_fee': 110000, 'food_fee': 50000, 'total_fee': 160000},
+    'double super deluxe bath attached ac': {'hostel_fee': 120000, 'food_fee': 50000, 'total_fee': 170000},
+    'single bath attached semi deluxe ac': {'hostel_fee': 150000, 'food_fee': 50000, 'total_fee': 200000},
+    'double ultra super deluxe bath attached ac': {'hostel_fee': 150000, 'food_fee': 50000, 'total_fee': 200000},
+    'single bath attached super deluxe ac': {'hostel_fee': 160000, 'food_fee': 50000, 'total_fee': 210000},
+    'single bath attached ultra super deluxe ac': {'hostel_fee': 200000, 'food_fee': 50000, 'total_fee': 250000},
+  };
+
+  Map<String, double>? _getFeeDetails(String typeStr) {
+    final cleanStr = typeStr.toLowerCase().trim();
+    for (final t in _roomTypes) {
+      final tName = t['name']?.toString().trim() ?? t['id']?.toString().trim() ?? '';
+      if (tName.toLowerCase() == cleanStr) {
+        return {
+          'hostel_fee': (t['hostel_fee'] as num?)?.toDouble() ?? 0.0,
+          'food_fee': (t['food_fee'] as num?)?.toDouble() ?? 0.0,
+          'total_fee': (t['total_fee'] as num?)?.toDouble() ?? 0.0,
+        };
+      }
+    }
+    int sharing = 8;
+    if (cleanStr.contains('38')) sharing = 38;
+    else if (cleanStr.contains('20')) sharing = 20;
+    else if (cleanStr.contains('25')) sharing = 25;
+    else if (cleanStr.contains('36')) sharing = 36;
+    else if (cleanStr.contains('12')) sharing = 12;
+    else if (cleanStr.contains('10')) sharing = 10;
+    else if (cleanStr.contains('7')) sharing = 7;
+    else if (cleanStr.contains('6')) sharing = 6;
+    else if (cleanStr.contains('5')) sharing = 5;
+    else if (cleanStr.contains('4')) sharing = 4;
+    else if (cleanStr.contains('3')) sharing = 3;
+    else if (cleanStr.contains('double') || cleanStr.contains('2-sharing')) sharing = 2;
+    else if (cleanStr.contains('single') || cleanStr.contains('1-sharing')) sharing = 1;
+    
+    final bool isAc = (cleanStr.contains('ac') || cleanStr.contains('a/c')) && !cleanStr.contains('non ac') && !cleanStr.contains('non a/c');
+    final bool isBathAttached = cleanStr.contains('bath attached') || cleanStr.contains('b attached') || cleanStr.contains('b_attached');
+    
+    for (final t in _roomTypes) {
+      final tName = (t['name']?.toString() ?? t['id']?.toString() ?? '').toLowerCase();
+      int tSharing = 0;
+      if (tName.contains('38')) tSharing = 38;
+      else if (tName.contains('20')) tSharing = 20;
+      else if (tName.contains('25')) tSharing = 25;
+      else if (tName.contains('36')) tSharing = 36;
+      else if (tName.contains('12')) tSharing = 12;
+      else if (tName.contains('10')) tSharing = 10;
+      else if (tName.contains('7')) tSharing = 7;
+      else if (tName.contains('6')) tSharing = 6;
+      else if (tName.contains('5')) tSharing = 5;
+      else if (tName.contains('4')) tSharing = 4;
+      else if (tName.contains('3')) tSharing = 3;
+      else if (tName.contains('double') || tName.contains('2-sharing')) tSharing = 2;
+      else if (tName.contains('single') || tName.contains('1-sharing')) tSharing = 1;
+      else if (tName.contains('8') || tName.contains('standard')) tSharing = 8;
+      
+      final bool tIsAc = (tName.contains('ac') || tName.contains('a/c')) && !tName.contains('non ac') && !tName.contains('non a/c');
+      final bool tIsBathAttached = tName.contains('bath attached') || tName.contains('b attached') || tName.contains('b_attached');
+      
+      if (sharing == tSharing && isAc == tIsAc && isBathAttached == tIsBathAttached) {
+        return {
+          'hostel_fee': (t['hostel_fee'] as num?)?.toDouble() ?? 0.0,
+          'food_fee': (t['food_fee'] as num?)?.toDouble() ?? 0.0,
+          'total_fee': (t['total_fee'] as num?)?.toDouble() ?? 0.0,
+        };
+      }
+    }
+    for (final entry in _staticFees.entries) {
+      final key = entry.key;
+      int sSharing = 0;
+      if (key.contains('38')) sSharing = 38;
+      else if (key.contains('20')) sSharing = 20;
+      else if (key.contains('25')) sSharing = 25;
+      else if (key.contains('36')) sSharing = 36;
+      else if (key.contains('12')) sSharing = 12;
+      else if (key.contains('10')) sSharing = 10;
+      else if (key.contains('7')) sSharing = 7;
+      else if (key.contains('6')) sSharing = 6;
+      else if (key.contains('5')) sSharing = 5;
+      else if (key.contains('4')) sSharing = 4;
+      else if (key.contains('3')) sSharing = 3;
+      else if (key.contains('double')) sSharing = 2;
+      else if (key.contains('single')) sSharing = 1;
+      else if (key.contains('8')) sSharing = 8;
+      
+      final bool sIsAc = (key.contains('ac') || key.contains('a/c')) && !key.contains('non ac') && !key.contains('non a/c');
+      final bool sIsBathAttached = key.contains('bath attached') || key.contains('b attached') || key.contains('b_attached');
+      
+      if (sharing == sSharing && isAc == sIsAc && isBathAttached == sIsBathAttached) {
+        return entry.value;
+      }
+    }
+    return null;
+  }
+
+  String get _currentRoomCode {
+    final user = context.read<UserProvider>();
+    String code = user.roomCode;
+    if (code.isEmpty || code.toUpperCase() == 'N/A' || code.toUpperCase() == 'NONE') {
+      final allocation = user.roomAllocation;
+      final match = RegExp(r'Room:\s*([A-Za-z0-9\-]+)', caseSensitive: false).firstMatch(allocation);
+      if (match != null) {
+        code = match.group(1)!;
+      }
+    }
+    if (code.isEmpty || code.toUpperCase() == 'N/A' || code.toUpperCase() == 'NONE') {
+      code = user.roomNumber;
+    }
+    return code.trim();
+  }
+
+  String get _currentRoomType {
+    final user = context.read<UserProvider>();
+    String type = user.roomType;
+    if (type == '4-sharing') return '4 IN 1 Non AC';
+    if (type == '6-sharing') return '6 IN 1 Non AC';
+    if (type == '8-sharing') return '8 IN 1 Non AC';
+    if (type.isEmpty || type.toUpperCase() == 'N/A' || type.toUpperCase() == 'NONE') {
+      return 'Standard Room';
+    }
+    return type.trim();
+  }
+
+  Widget _buildTierBadge() {
+    final user = context.read<UserProvider>();
+    final requestedType = _selectedRoom!.roomType.trim();
+    final currentType  = user.roomType.trim();
+
+    final Map<String, double> reqData = _getFeeDetails(requestedType) ?? 
+        {'hostel_fee': 35000.0, 'food_fee': 50000.0, 'total_fee': 85000.0};
+    
+    final Map<String, double> curData = _getFeeDetails(currentType) ?? 
+        {'hostel_fee': 34000.0, 'food_fee': 50000.0, 'total_fee': 84000.0};
+
+    final double reqTotal = reqData['hostel_fee'] ?? 0.0;
+    final double curTotal = curData['hostel_fee'] ?? 0.0;
+    final double extra = reqTotal - curTotal;
+
+    final String label;
+    final Color badgeColor;
+    final Color textColor;
+
+    if (extra > 0) {
+      label = 'Upgrade';
+      badgeColor = const Color(0xFFE3F2FD); // Light blue
+      textColor = const Color(0xFF1565C0);  // Blue
+    } else if (extra < 0) {
+      label = 'Downgrade';
+      badgeColor = const Color(0xFFFFF3E0); // Light orange/yellow
+      textColor = const Color(0xFFE65100);  // Dark orange
+    } else {
+      label = 'Same Tier';
+      badgeColor = const Color(0xFFF5F5F5); // Light grey
+      textColor = const Color(0xFF616161);  // Dark grey
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: badgeColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: textColor.withOpacity(0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: textColor,
+          fontFamily: 'Lato',
+        ),
+      ),
+    );
+  }
+
   Widget _buildUpgradeCostRow() {
     final user = context.read<UserProvider>();
     final requestedType = _selectedRoom!.roomType.trim();
     final currentType  = user.roomType.trim();
 
-    // Find fee data for the requested room type
-    Map<String, dynamic>? reqData;
-    Map<String, dynamic>? curData;
-    for (final t in _roomTypes) {
-      final tName = t['id']?.toString().trim() ?? '';
-      if (tName.toLowerCase() == requestedType.toLowerCase()) reqData = t as Map<String, dynamic>;
-      if (tName.toLowerCase() == currentType.toLowerCase())  curData = t as Map<String, dynamic>;
-    }
+    final Map<String, double> reqData = _getFeeDetails(requestedType) ?? 
+        _getFeeDetails('4 IN 1 Non AC') ?? 
+        {'hostel_fee': 35000.0, 'food_fee': 50000.0, 'total_fee': 85000.0};
+    
+    final Map<String, double> curData = _getFeeDetails(currentType) ?? 
+        _getFeeDetails('4 IN 1 Non AC') ?? 
+        {'hostel_fee': 34000.0, 'food_fee': 50000.0, 'total_fee': 84000.0};
 
-    if (reqData == null) {
-      final isLoading = _roomTypes.isEmpty;
-      return Column(
-        children: [
-          _buildDetailRow('Total Amount', isLoading ? 'Loading...' : 'N/A'),
-          const Divider(height: 20, color: Color(0xFFE8E0D5)),
-          _buildDetailRow('Extra Amount', isLoading ? 'Loading...' : 'N/A'),
-        ],
-      );
-    }
+    final double reqTotal = reqData['hostel_fee'] ?? 35000.0;
+    final double curTotal = curData['hostel_fee'] ?? 34000.0;
+    final double extra = reqTotal - curTotal;
 
-    final double reqTotal = (reqData['total_fee'] as num?)?.toDouble() ?? (reqData['hostel_fee'] as num?)?.toDouble() ?? 0.0;
-    final double curTotal = (curData?['total_fee'] as num?)?.toDouble() ?? (curData?['hostel_fee'] as num?)?.toDouble() ?? 0.0;
-    final double extra   = reqTotal - curTotal;
-
-    // Format currency
     String fmtAmount(double amt) {
       final abs = amt.abs();
       final str = abs.toStringAsFixed(0).replaceAllMapped(
@@ -1322,17 +1556,26 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
     final extraLabel = extra > 0
         ? '+${fmtAmount(extra)} extra to pay'
         : extra < 0
-            ? '${fmtAmount(extra.abs())} cheaper'
+            ? '₹0 (Non-Refundable)'
             : 'Same price';
+            
     final extraColor = extra > 0
         ? const Color(0xFFE53935)
         : extra < 0
             ? const Color(0xFF43A047)
             : const Color(0xFF1A2744);
 
+    final String totalAmountLabel;
+    if (extra > 0) {
+      totalAmountLabel = '${fmtAmount(curTotal)} + ${fmtAmount(extra)} = ${fmtAmount(reqTotal)}';
+    } else if (extra < 0) {
+      totalAmountLabel = '${fmtAmount(curTotal)} - ${fmtAmount(extra.abs())} = ${fmtAmount(reqTotal)}';
+    } else {
+      totalAmountLabel = fmtAmount(reqTotal);
+    }
+
     return Column(
       children: [
-        // Total Amount row
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -1344,27 +1587,18 @@ class _RoomVacancyBrowserState extends State<RoomVacancyBrowser>
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  fmtAmount(reqTotal),
+                  totalAmountLabel,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF1A2744),
                   ),
                 ),
-                if (reqData['hostel_fee'] != null && reqData['food_fee'] != null)
-                  Text(
-                    'Hostel ${fmtAmount((reqData['hostel_fee'] as num).toDouble())} + Food ${fmtAmount((reqData['food_fee'] as num).toDouble())}',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.grey,
-                    ),
-                  ),
               ],
             ),
           ],
         ),
         const Divider(height: 20, color: Color(0xFFE8E0D5)),
-        // Extra Amount row
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [

@@ -16,7 +16,7 @@ $conn = $database->getConnection();
 
 try {
     // Get room types and amounts from the hostel_renew_fee table
-    $sql = "SELECT room_type as name, hostel_fee, food_fee, total_fee, monthly_amount, facility_description as description
+    $sql = "SELECT room_type as name, hostel_fee, food_fee, total_fee, facility_description as description
             FROM hostel_renew_fee 
             ORDER BY hostel_fee ASC";
             
@@ -34,7 +34,7 @@ try {
             'food_fee'         => (float)$room['food_fee'],
             'total_fee'        => (float)$room['total_fee'],
             'six_month_amount' => (float)$room['hostel_fee'],   // kept for backward-compat
-            'monthly_amount'   => (float)$room['monthly_amount'],
+            'monthly_amount'   => round((float)$room['hostel_fee'] / 6, 2),
             'description'      => $room['description']
         ];
     }

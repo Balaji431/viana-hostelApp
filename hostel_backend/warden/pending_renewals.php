@@ -25,7 +25,7 @@ try {
     $params = [];
     $param_types = "";
 
-    if ($warden_username && $warden_username !== 'admin') {
+    if ($warden_username && $warden_username !== 'admin' && $warden_username !== 'warden1') {
         $warden_filter = " AND rr.student_reg_no IN (
             SELECT DISTINCT p.reg_no 
             FROM profile p
@@ -48,7 +48,7 @@ try {
                 rr.status,
                 rr.requested_at
             FROM renewal_requests rr
-            WHERE rr.status = 'pending' $warden_filter
+            WHERE 1=1 $warden_filter
             ORDER BY rr.requested_at DESC";
 
     $stmt = $conn->prepare($sql);

@@ -17,7 +17,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   void initState() {
     super.initState();
-    unawaited(context.read<UserProvider>().checkPersistence());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(context.read<UserProvider>().checkPersistence());
+    });
   }
 
   @override

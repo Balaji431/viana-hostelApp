@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'warden_home_tab.dart';
 import 'warden_attendance_tab.dart';
 import 'warden_reports_tab.dart';
@@ -18,6 +19,19 @@ class WardenMainScreen extends StatefulWidget {
 class _WardenMainScreenState extends State<WardenMainScreen> {
   int _selectedIndex = 0;
   String? _reportsCategoryFilter;
+  late final PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: _selectedIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   void setTabIndex(int index, {String? reportsCategory}) {
     setState(() {
@@ -26,6 +40,13 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
         _reportsCategoryFilter = reportsCategory;
       }
     });
+    if (_pageController.hasClients && _pageController.page?.round() != index) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.fastOutSlowIn,
+      );
+    }
   }
 
   @override
@@ -37,11 +58,28 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
       const WardenManagementTab(),
     ];
 
+    final bool useSwipeView = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: tabs,
-      ),
+      body: useSwipeView
+          ? PageView(
+              controller: _pageController,
+              scrollDirection: Axis.horizontal,
+              physics: const PageScrollPhysics(parent: ClampingScrollPhysics()),
+              onPageChanged: (index) {
+                if (_selectedIndex != index) {
+                  setState(() {
+                    _selectedIndex = index;
+                    if (index != 2) _reportsCategoryFilter = null;
+                  });
+                }
+              },
+              children: tabs,
+            )
+          : IndexedStack(
+              index: _selectedIndex,
+              children: tabs,
+            ),
       bottomNavigationBar: GlassmorphicJellyNavbar(
         currentIndex: _selectedIndex,
         totalTabs: 4,
@@ -68,10 +106,8 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
           ),
         ],
         onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-            if (index != 2) _reportsCategoryFilter = null;
-          });
+          setTabIndex(index);
+          if (index != 2) _reportsCategoryFilter = null;
         },
       ),
     );

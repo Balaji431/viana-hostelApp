@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:vianasoft_stay/shared/user_provider.dart';
+import 'package:vianasoft_stay/shared/wallpaper_provider.dart';
 import 'package:vianasoft_stay/core/api_service.dart';
+import 'package:vianasoft_stay/core/providers/allocation_provider.dart';
 import 'package:vianasoft_stay/core/styles.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_widgets.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_navbar.dart';
@@ -14,7 +16,10 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderStateMixin {
+class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> _payments = [];
   bool _isLoading = true;
   final ScrollController _nameScrollController = ScrollController();
@@ -100,6 +105,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final user = context.watch<UserProvider>();
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -141,10 +147,12 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                   ),
                                 ],
                               ),
-                              child: const Center(
+                              child: Center(
                                 child: Text(
-                                  'AK',
-                                  style: TextStyle(
+                                  user.userName.isNotEmpty
+                                      ? user.userName.split(' ').where((s) => s.trim().isNotEmpty).map((l) => l[0]).take(2).join().toUpperCase()
+                                      : "?",
+                                  style: const TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
                                     color: Color(0xFF1B2B48),
@@ -248,9 +256,40 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                           ),
                         ] else ...[
                           const SizedBox(height: 20),
-                          _buildDetailRow(Icons.email_outlined, 'Email Address', user.email),
+                          _buildDetailRow(
+                            Icons.shield_outlined,
+                            'Role / Department',
+                            user.roleName.isNotEmpty
+                                ? user.roleName
+                                : user.role.name.toUpperCase(),
+                          ),
                           const Divider(height: 20),
-                          _buildDetailRow(Icons.badge_outlined, 'User ID', user.username),
+                          _buildDetailRow(
+                            Icons.email_outlined,
+                            'Email Address',
+                            user.email.isNotEmpty ? user.email : 'Not set',
+                          ),
+                          const Divider(height: 20),
+                          _buildDetailRow(
+                            Icons.phone_outlined,
+                            'Phone Number',
+                            user.phone.isNotEmpty ? user.phone : 'Not set',
+                          ),
+                          const Divider(height: 20),
+                          _buildDetailRow(
+                            Icons.badge_outlined,
+                            'User ID',
+                            user.username,
+                          ),
+                          if (user.institution.isNotEmpty &&
+                              user.institution != 'N/A') ...[
+                            const Divider(height: 20),
+                            _buildDetailRow(
+                              Icons.school_outlined,
+                              'Institution',
+                              user.institution,
+                            ),
+                          ],
                         ],
                       ],
                     ),
@@ -379,6 +418,8 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                     ),
                   ],
                   const SizedBox(height: 15),
+                  _buildWallpaperSection(context),
+                  const SizedBox(height: 15),
                   Row(
                     children: const [
                       Icon(Icons.security_outlined, size: 18, color: Colors.grey),
@@ -411,7 +452,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                       ],
                     ),
                   ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 100),
                 ],
               ),
             ),
@@ -468,6 +509,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
+              context.read<AllocationProvider>().reset();
               user.logout();
               Navigator.of(context).popUntil((route) => route.isFirst);
             }, 
@@ -680,6 +722,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
+              context.read<AllocationProvider>().reset();
               user.logout();
               Navigator.of(context).popUntil((route) => route.isFirst);
             }, 
@@ -1028,5 +1071,173 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
     if (conduct == 'Satisfactory') return Icons.info_outline;
     if (conduct == 'Poor') return Icons.warning_amber_rounded;
     return Icons.help_outline;
+  }
+
+  Widget _buildWallpaperSection(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: const [
+            Icon(Icons.wallpaper_outlined, size: 18, color: Colors.grey),
+            SizedBox(width: 8),
+            Text(
+              'App Background & Wallpaper',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF5D5D5D),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        EmbossedCard(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Choose a background theme or wallpaper:',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 15),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    // Default Theme Option (Classic Linen Grid)
+                    _buildWallpaperOptionCard(
+                      context,
+                      title: 'Default Theme',
+                      isSelected: wallpaper.isDefault,
+                      previewWidget: Container(
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF5F0E8),
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xFFF5F0E8), Color(0xFFE8E0D5)],
+                          ),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.grid_on, size: 22, color: Color(0xFF8C6239)),
+                        ),
+                      ),
+                      onTap: () => wallpaper.setDefault(),
+                    ),
+                    const SizedBox(width: 12),
+                    // Preset Wallpapers (Water, Ocean, Forest, Marble, Royal Navy)
+                    ...WallpaperProvider.defaultWallpapers.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final opt = entry.value;
+                      final isSelected = wallpaper.type == 'asset' && wallpaper.value == opt.id;
+                      final isLast = idx == WallpaperProvider.defaultWallpapers.length - 1;
+                      return Padding(
+                        padding: EdgeInsets.only(right: isLast ? 0 : 12),
+                        child: _buildWallpaperOptionCard(
+                          context,
+                          title: opt.label,
+                          isSelected: isSelected,
+                          previewWidget: Image.asset(
+                            opt.assetPath!,
+                            fit: BoxFit.cover,
+                            filterQuality: FilterQuality.high,
+                            errorBuilder: (_, __, ___) => Container(color: opt.previewColor),
+                          ),
+                          onTap: () => wallpaper.setAssetWallpaper(opt.id),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWallpaperOptionCard(
+    BuildContext context, {
+    required String title,
+    required bool isSelected,
+    required Widget previewWidget,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            width: 80,
+            height: 110,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected ? const Color(0xFFD4AF37) : Colors.black.withOpacity(0.12),
+                width: isSelected ? 3 : 1,
+              ),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFFD4AF37).withOpacity(0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ]
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+            ),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(9),
+                    child: previewWidget,
+                  ),
+                ),
+                if (isSelected)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFD4AF37),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.check, color: Colors.white, size: 12),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: 80,
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? const Color(0xFF1B2B48) : Colors.grey.shade700,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

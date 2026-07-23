@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../core/design_system.dart' as ds;
 import '../../core/api_service.dart';
 import '../../shared/user_provider.dart';
+import '../../core/royal_theme.dart';
 
 class WardenAllocationScreen extends StatefulWidget {
   const WardenAllocationScreen({super.key});
@@ -20,8 +21,10 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
   bool _isLoading = false;
   String _filterStatus = 'under_review';
   
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  
   // Batch processing state
-  Set<int> _selectedRequestIds = {};
+  final Set<int> _selectedRequestIds = {};
   
   // Right panel state
   Map<String, dynamic>? _selectedRequest;
@@ -219,10 +222,12 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
+
       body: ds.LinenBackground(
         child: Column(
           children: [
-            const ds.SkeuomorphicNavBar(title: 'Smart Allocation System'),
+            const ds.SkeuomorphicNavBar(title: 'Room Allocation'),
             
             // Filters
             Padding(
@@ -231,13 +236,11 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _buildFilterChip('New Student Queue', 'under_review'),
+                    _buildFilterChip('Room Requests', 'under_review'),
                     const SizedBox(width: 8),
                     _buildFilterChip('Approved', 'approved'),
                     const SizedBox(width: 8),
                     _buildFilterChip('Rejected', 'rejected'),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('Expired', 'payment_expired'),
                   ],
                 ),
               ),
@@ -246,10 +249,17 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final isDesktop = constraints.maxWidth >= 600;
-                  return isDesktop 
-                      ? _buildSplitLayout() 
-                      : _buildMobileLayout();
+                  Widget queueList = _buildQueueList();
+                  if (constraints.maxWidth >= 800) {
+                    queueList = Align(
+                      alignment: Alignment.topCenter,
+                      child: SizedBox(
+                        width: 800,
+                        child: queueList,
+                      ),
+                    );
+                  }
+                  return queueList;
                 },
               ),
             ),
@@ -282,7 +292,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
           flex: 6,
           child: _selectedRequest == null 
               ? _buildEmptyState()
-              : _buildExpandedStudentDetails(_selectedRequest!),
+              : _buildExpandedStudentDetails(_selectedRequest!, setState),
         ),
       ],
     );
@@ -301,7 +311,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
               onPressed: () => setState(() => _selectedRequest = null),
             ),
           ),
-          Expanded(child: _buildExpandedStudentDetails(_selectedRequest!)),
+          Expanded(child: _buildExpandedStudentDetails(_selectedRequest!, setState)),
         ],
       );
     }
@@ -377,7 +387,6 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
       itemCount: _requests.length,
       itemBuilder: (context, index) {
         final req = _requests[index];
-        final bool isSelected = _selectedRequestIds.contains(req['id']);
         final bool isViewing = _selectedRequest?['id'] == req['id'];
         
         // auto-match status
@@ -391,19 +400,25 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: ds.SkeuomorphicCard(
-              onTap: () => setState(() => _selectedRequest = req),
+              onTap: () {
+                setState(() => _selectedRequest = req);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => StatefulBuilder(
+                      builder: (context, setModalState) {
+                        return Scaffold(
+                          body: SafeArea(
+                            child: _buildExpandedStudentDetails(req, setModalState),
+                          ),
+                        );
+                      }
+                    ),
+                  ),
+                );
+              },
               child: Row(
                 children: [
-                  Checkbox(
-                    value: isSelected,
-                    onChanged: (val) {
-                      setState(() {
-                        if (val == true) _selectedRequestIds.add(req['id']);
-                        else _selectedRequestIds.remove(req['id']);
-                      });
-                    },
-                    activeColor: ds.RoyalTheme.primaryGoldEnd,
-                  ),
                   CircleAvatar(
                     backgroundColor: ds.RoyalTheme.navyStart,
                     child: Text(req['student_name']?[0] ?? 'S', style: const TextStyle(color: Colors.white)),
@@ -494,187 +509,199 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
     );
   }
 
-  Widget _buildExpandedStudentDetails(Map<String, dynamic> request) {
+  Widget _buildExpandedStudentDetails(Map<String, dynamic> request, StateSetter setModalState) {
     final recommendedRoomId = request['recommended_room']?['room_id'];
     final bool hasSelected = _selectedAllocations.containsKey(request['id']);
     
+    // Extract details
+    final String studentName = request['student_name'] ?? 'Unknown';
+    final String studentId = request['student_reg_no'] ?? 'N/A';
+    final String allocationStatus = request['allocation_status'] ?? 'submitted';
+    final bool isPaid = allocationStatus == 'approved';
+    final String paidStatus = isPaid ? 'Paid' : (allocationStatus == 'payment_pending' ? 'Pending Payment' : 'Requested');
+    
+    final String hostelName = request['director_paid_data']?['hostel_name'] ?? 'Ponni Hostel';
+    final String hostelPreference = request['director_paid_data']?['room_type'] ?? '4 IN 1 Non AC';
+    final String institution = request['director_paid_data']?['institution'] ?? 'Poonamallee Campus';
+    final String gender = request['director_paid_data']?['hostel_type'] ?? 'Male';
+    final String academicYear = request['academic_year'] ?? '1st Year';
+    final double feeAmount = double.tryParse(request['director_paid_data']?['paid_amount']?.toString() ?? '86000') ?? 86000.00;
+    final String feePaid = '₹${feeAmount.toStringAsFixed(2)}';
+
     return Container(
-      color: Colors.white.withOpacity(0.5),
+      color: const Color(0xFFFDFBF7), // Warm premium background
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Student Info Header
+          // Blue Header Row
           Container(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             decoration: BoxDecoration(
               gradient: ds.RoyalTheme.navyGradient,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                )
+              ],
             ),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                CircleAvatar(radius: 30, backgroundColor: ds.RoyalTheme.primaryGoldEnd, child: Text(request['student_name']?[0] ?? 'S', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(request['student_name'], style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
-                      Text('Reg No: ${request['student_reg_no']} • Submitted: ${_formatSubmissionTime(request['submitted_at'])}', style: const TextStyle(color: Colors.white70)),
-                    ],
+                Text(
+                  'Room Allocation Requests',
+                  style: GoogleFonts.playfairDisplay(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, color: Colors.white, size: 18),
                   ),
                 ),
               ],
             ),
           ),
           
-          // Priorities List
+          // Main Content
           Expanded(
-            child: ListView(
+            child: Padding(
               padding: const EdgeInsets.all(24),
-              children: [
-                if (request['allocation_status'] == 'under_review') ...[
-                  Text('PAID HOSTEL SPECIFICATIONS', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
-                  const SizedBox(height: 12),
-                  _buildDirectorPaidSpecsCard(request['director_paid_data']),
-                  if (_selectedAllocations.containsKey(request['id'])) ...[
-                    const SizedBox(height: 24),
-                    Text('WARDEN SELECTED ROOM & BED', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
-                    const SizedBox(height: 12),
-                    _buildSelectedAllocationCard(_selectedAllocations[request['id']]!),
+              child: Column(
+                children: [
+                  // Main Card Container (Matches First Image)
+                  Expanded(
+            child: SingleChildScrollView(
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    )
                   ],
-                ] else ...[
-                  Text('PRIORITY QUEUE', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
-                  const SizedBox(height: 16),
-                  
-                  if (request['priorities'] != null)
-                    ...(request['priorities'] as List).asMap().entries.map((entry) {
-                      final int idx = entry.key;
-                      final p = entry.value;
-                      final int capacity = int.tryParse(p['capacity'].toString()) ?? 0;
-                      final int occupied = int.tryParse(p['occupied'].toString()) ?? 0;
-                      final int available = capacity - occupied;
-                      final bool isFull = available <= 0;
-                      
-                      final String status = request['allocation_status'] ?? 'submitted';
-                      final String? allocatedId = request['allocated_room_id']?.toString();
-                      final String? roomId = p['room_id']?.toString();
-                      
-                      final bool isAllocated = status == 'approved' && allocatedId == roomId;
-                      final bool isReserved = status == 'payment_pending' && allocatedId == roomId;
-                      final bool isExpiredRoom = status == 'payment_expired' && allocatedId == roomId;
-                      
-                      return _buildPriorityCard(idx + 1, p, isFull, available, isAllocated, isReserved, isExpiredRoom: isExpiredRoom);
-                    }).toList(),
-                ]
-              ],
-            ),
-          ),
-          
-          // Smart Action Buttons / Statuses
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
-            ),
-            child: request['allocation_status'] == 'payment_expired'
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: ds.RoyalTheme.dangerMid.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: ds.RoyalTheme.dangerMid),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.timer_off_outlined, color: ds.RoyalTheme.dangerMid),
-                            const SizedBox(width: 8),
-                            Text(
-                              'RESERVATION EXPIRED',
-                              style: TextStyle(
-                                color: ds.RoyalTheme.dangerMid,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: null,
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.grey.shade400,
-                                side: BorderSide(color: Colors.grey.shade300),
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: const Text('Reject'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: ElevatedButton.icon(
-                              onPressed: null,
-                              icon: const Icon(Icons.check_circle_outline),
-                              label: const Text('Approve Match'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.grey.shade200,
-                                foregroundColor: Colors.grey.shade400,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  )
-                : request['allocation_status'] == 'approved'
-                ? Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          decoration: BoxDecoration(
-                            color: ds.RoyalTheme.successMid.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: ds.RoyalTheme.successMid),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                  border: Border.all(color: ds.RoyalTheme.primaryGoldStart, width: 2),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Student Profile Row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(Icons.check_circle, color: ds.RoyalTheme.successMid, size: 18),
-                              const SizedBox(width: 8),
                               Text(
-                                'ALLOCATED & PAID',
-                                style: TextStyle(
-                                  color: ds.RoyalTheme.successMid,
+                                studentName,
+                                style: GoogleFonts.playfairDisplay(
+                                  fontSize: 20,
                                   fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF1B2B48),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'ID: $studentId',
+                                style: const TextStyle(
+                                  color: Colors.grey,
                                   fontSize: 12,
-                                  letterSpacing: 1.0,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        // Paid Status Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isPaid ? const Color(0xFF4CAF50) : const Color(0xFFFF9800),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            paidStatus,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    const Divider(color: Colors.black12, height: 1),
+                    const SizedBox(height: 20),
+
+                    if (request['allocated_room_code'] != null || request['allocated_room_no'] != null) ...[
+                      Text(
+                        'SUGGESTED AUTO-ALLOCATED ROOM & BED',
+                        style: GoogleFonts.lato(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: Colors.grey,
+                          letterSpacing: 1.2,
+                        ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
+                      const SizedBox(height: 12),
+                      _buildSuggestedAllocationCard(request),
+                    ] else ...[
+                      // Detail Rows (Matches Second Image)
+                      _buildAllocationDetailRow('Paid Status', paidStatus),
+                      const SizedBox(height: 12),
+                      _buildAllocationDetailRow('Hostel Name', hostelName),
+                      const SizedBox(height: 12),
+                      _buildAllocationDetailRow('Hostel Preference', hostelPreference),
+                      const SizedBox(height: 12),
+                      _buildAllocationDetailRow('Institution', institution),
+                      const SizedBox(height: 12),
+                      _buildAllocationDetailRow('Gender', gender),
+                      const SizedBox(height: 12),
+                      _buildAllocationDetailRow('Academic Year', academicYear),
+                      const SizedBox(height: 12),
+                      _buildAllocationDetailRow('Fee Paid', feePaid),
+                    ],
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Show selected room details if selected
+                    if (_selectedAllocations.containsKey(request['id'])) ...[
+                      const SizedBox(height: 12),
+                      const Divider(),
+                      const SizedBox(height: 12),
+                      Text('SELECTED ROOM & BED', style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey, letterSpacing: 1.2)),
+                      const SizedBox(height: 12),
+                      _buildSelectedAllocationCard(_selectedAllocations[request['id']]!),
+                    ],
+                    
+                    const SizedBox(height: 32),
+
+                    // Action Buttons depending on allocationStatus
+                    if (allocationStatus == 'approved') ...[
+                      SizedBox(
+                        width: double.infinity,
                         child: OutlinedButton.icon(
-                          onPressed: () => _processSingleAction(request['id'], 'deallocate', null),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _processSingleAction(request['id'], 'deallocate', null);
+                          },
                           icon: const Icon(Icons.cancel_outlined, size: 16),
-                          label: const Text('Deallocate', style: TextStyle(fontSize: 11)),
+                          label: const Text('Deallocate Room'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: ds.RoyalTheme.dangerMid,
                             side: const BorderSide(color: ds.RoyalTheme.dangerMid),
@@ -683,14 +710,15 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                           ),
                         ),
                       ),
-                    ],
-                  )
-                : request['allocation_status'] == 'payment_pending'
-                    ? Row(
+                    ] else if (allocationStatus == 'payment_pending') ...[
+                      Row(
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => _processSingleAction(request['id'], 'release_room', null),
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _processSingleAction(request['id'], 'release_room', null);
+                              },
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: ds.RoyalTheme.warningMid,
                                 side: BorderSide(color: ds.RoyalTheme.warningMid),
@@ -716,7 +744,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                                   Icon(Icons.hourglass_empty, color: ds.RoyalTheme.primaryGoldEnd, size: 18),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'PENDING PAYMENT',
+                                    'HOLD PENDING',
                                     style: TextStyle(
                                       color: ds.RoyalTheme.navyDarker,
                                       fontWeight: FontWeight.bold,
@@ -729,128 +757,159 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                           ),
                         ],
                       )
-                    : request['allocation_status'] == 'under_review'
-                        ? IOS6ApprovalActions(
-                            onReject: () => _processSingleAction(request['id'], 'reject', null),
-                            onCheckAvailability: () => _showRoomSelectionDialog(request),
-                            onApprove: () {
-                              final selection = _selectedAllocations[request['id']];
-                              if (selection != null) {
-                                final int? roomId = int.tryParse(selection['room']['id'].toString());
-                                final String? bedNo = selection['bed'].toString();
-                                _processSingleAction(request['id'], 'approve', roomId, bedNo: bedNo);
-                              }
-                            },
-                            approveEnabled: hasSelected,
-                          )
-                        : Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (request['first_priority_held'] == true) ...[
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  margin: const EdgeInsets.only(bottom: 16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.amber.shade200),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800, size: 20),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'Waiting: 1st Priority Room is locked under active payment holds. Auto-bypass disabled.',
-                                          style: GoogleFonts.lato(
-                                            fontSize: 12, 
-                                            color: Colors.amber.shade900, 
-                                            fontWeight: FontWeight.bold
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () => _processSingleAction(request['id'], 'reject', null),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: ds.RoyalTheme.dangerMid,
-                                        side: const BorderSide(color: ds.RoyalTheme.dangerMid),
-                                        padding: const EdgeInsets.symmetric(vertical: 16),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                      ),
-                                      child: const Text('Reject'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  if (request['first_priority_held'] == true) ...[
-                                    Expanded(
-                                      flex: 2,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: ElevatedButton.icon(
-                                              onPressed: (request['notified_of_conflict'] == 1 || request['notified_of_conflict'] == '1')
-                                                  ? null 
-                                                  : () => _processSingleAction(request['id'], 'notify_conflict', null),
-                                              icon: const Icon(Icons.notifications_active_outlined, size: 16),
-                                              label: Text((request['notified_of_conflict'] == 1 || request['notified_of_conflict'] == '1') ? 'Updated' : 'Update'),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: ds.RoyalTheme.primaryGoldStart,
-                                                foregroundColor: ds.RoyalTheme.navyDarker,
-                                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                                elevation: 0,
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: ElevatedButton.icon(
-                                              onPressed: null,
-                                              icon: const Icon(Icons.hourglass_bottom, size: 16),
-                                              label: const Text('Wait to Approve', style: TextStyle(fontSize: 11)),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: Colors.grey.shade200,
-                                                foregroundColor: Colors.grey.shade500,
-                                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                                elevation: 0,
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ] else ...[
-                                    Expanded(
-                                      flex: 2,
-                                      child: ElevatedButton.icon(
-                                        onPressed: recommendedRoomId == null ? null : () => _processSingleAction(request['id'], 'approve', int.parse(recommendedRoomId.toString())),
-                                        icon: const Icon(Icons.check_circle_outline),
-                                        label: const Text('Approve Match'),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: ds.RoyalTheme.primaryGoldStart,
-                                          foregroundColor: ds.RoyalTheme.navyDarker,
-                                          padding: const EdgeInsets.symmetric(vertical: 16),
-                                          elevation: 0,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
+                    ] else if (allocationStatus == 'payment_expired') ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: ds.RoyalTheme.dangerMid.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: ds.RoyalTheme.dangerMid),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.timer_off_outlined, color: ds.RoyalTheme.dangerMid),
+                            const SizedBox(width: 8),
+                            Text(
+                              'HOLD EXPIRED',
+                              style: TextStyle(
+                                color: ds.RoyalTheme.dangerMid,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
                               ),
-                            ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _processSingleAction(request['id'], 'reject', null);
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: ds.RoyalTheme.dangerMid,
+                                side: BorderSide(color: ds.RoyalTheme.dangerMid),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Text(
+                                'Reject',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ),
-          )
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                _showRoomSelectionDialog(request, setModalState);
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.amber.shade700,
+                                side: BorderSide(color: Colors.amber.shade400),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Text(
+                                'Availability',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: (hasSelected || request['allocated_room_code'] != null || request['recommended_room'] != null)
+                                  ? () {
+                                      Navigator.pop(context);
+                                      if (hasSelected) {
+                                        final selection = _selectedAllocations[request['id']];
+                                        if (selection != null) {
+                                          final int? roomId = int.tryParse(selection['room']['id'].toString());
+                                          final String bedNo = selection['bed'].toString();
+                                          _processSingleAction(request['id'], 'approve', roomId, bedNo: bedNo);
+                                        }
+                                      } else {
+                                        final recommendedRoomId = request['recommended_room']?['room_id'] ?? request['allocated_room_id'];
+                                        final String? bedNo = request['allocated_bed_no']?.toString();
+                                        if (recommendedRoomId != null) {
+                                          _processSingleAction(
+                                            request['id'],
+                                            'approve',
+                                            int.parse(recommendedRoomId.toString()),
+                                            bedNo: bedNo,
+                                          );
+                                        }
+                                      }
+                                    }
+                                  : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: ds.RoyalTheme.primaryGoldStart,
+                                foregroundColor: ds.RoyalTheme.navyDarker,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Text(
+                                'Approve Match',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAllocationDetailRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: Color(0xFF1B2B48),
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1272,7 +1331,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
     );
   }
 
-  Future<void> _showRoomSelectionDialog(Map<String, dynamic> request) async {
+  Future<void> _showRoomSelectionDialog(Map<String, dynamic> request, StateSetter setModalState) async {
     setState(() => _isLoading = true);
     List<Map<String, dynamic>> allRooms = [];
     try {
@@ -1325,7 +1384,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
           style: GoogleFonts.lato(fontWeight: FontWeight.bold),
         ),
         content: SizedBox(
-          width: double.maxFinite,
+          width: 400,
           height: 450,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1364,7 +1423,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                               ),
                               trailing: const Icon(Icons.arrow_forward, color: Color(0xFFC5A358)),
                               onTap: () {
-                                _showBedSelectionDialog(ctx, request, r);
+                                _showBedSelectionDialog(ctx, request, r, setModalState);
                               },
                             ),
                           );
@@ -1384,7 +1443,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
     );
   }
 
-  void _showBedSelectionDialog(BuildContext parentCtx, Map<String, dynamic> request, Map<String, dynamic> room) {
+  void _showBedSelectionDialog(BuildContext parentCtx, Map<String, dynamic> request, Map<String, dynamic> room, StateSetter setModalState) {
     final int capacity = room['capacity'] ?? 4;
     final List<dynamic> occupiedBeds = room['occupied_beds'] ?? [];
     
@@ -1415,7 +1474,8 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                 ),
                 itemCount: capacity,
                 itemBuilder: (context, idx) {
-                  final String bedLabel = 'B${idx + 1}';
+                  final int b = idx + 1;
+                  final String bedLabel = 'B$b';
                   final bool isOccupied = occupiedBeds.contains(bedLabel);
                   
                   return InkWell(
@@ -1426,6 +1486,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
                           'bed': bedLabel,
                         };
                       });
+                      setModalState(() {});
                       Navigator.pop(ctx);
                       Navigator.pop(parentCtx);
                     },
@@ -1501,7 +1562,7 @@ class IOS6ApprovalActions extends StatelessWidget {
 
         final buttons = [
           Expanded(
-            flex: 2,
+            flex: 1,
             child: IOS6ActionButton(
               label: 'Reject',
               type: ApprovalActionColor.reject,
@@ -1512,9 +1573,9 @@ class IOS6ApprovalActions extends StatelessWidget {
           ),
           SizedBox(width: spacing),
           Expanded(
-            flex: 3,
+            flex: 1,
             child: IOS6ActionButton(
-              label: 'Check Availability',
+              label: 'Availability',
               type: ApprovalActionColor.availability,
               icon: Icons.calendar_month_outlined,
               onPressed: onCheckAvailability,
@@ -1523,7 +1584,7 @@ class IOS6ApprovalActions extends StatelessWidget {
           ),
           SizedBox(width: spacing),
           Expanded(
-            flex: 3,
+            flex: 1,
             child: IOS6ActionButton(
               label: 'Approve Match',
               type: ApprovalActionColor.approve,

@@ -27,7 +27,7 @@ try {
     
     // 4. Pending Renewals (Assuming status 'pending' in a renewal table or similar)
     // Looking at common table names in previous context
-    $pending_ren_query = "SELECT COUNT(*) as pending_renewals FROM hostel_renewals WHERE status = 'pending'";
+    $pending_ren_query = "SELECT COUNT(*) as pending_renewals FROM renewal_requests WHERE status = 'pending'";
     $pending_ren_res = @$conn->query($pending_ren_query);
     $pending_renewals = $pending_ren_res ? $pending_ren_res->fetch_assoc()['pending_renewals'] : 0;
     

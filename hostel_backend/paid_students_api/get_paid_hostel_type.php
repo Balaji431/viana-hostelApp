@@ -139,9 +139,12 @@ $found_external   = null;
 $ext_error        = null;
 $ext_http_code    = 0;
 
-function callExternalPage(string $baseUrl, int $page, string $clientId, string $secret): array
+function callExternalPage(string $baseUrl, int $page, string $clientId, string $secret, string $search = ''): array
 {
     $url = $baseUrl . '?page=' . $page . '&limit=100';
+    if ($search !== '') {
+        $url .= '&search=' . urlencode($search);
+    }
     $ch  = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -169,7 +172,7 @@ $maxPages   = 50; // safety cap; 50 × 100 = 5000 students
 $searching  = true;
 
 while ($searching && $page <= $maxPages) {
-    $result     = callExternalPage(VSTUDY_PAYMENT_API_URL, $page, VSTUDY_CLIENT_ID, VSTUDY_CLIENT_SECRET);
+    $result     = callExternalPage(VSTUDY_PAYMENT_API_URL, $page, VSTUDY_CLIENT_ID, VSTUDY_CLIENT_SECRET, $register_no);
     $ext_http_code = $result['http_code'];
 
     if ($result['curl_error'] || $result['http_code'] !== 200) {
@@ -263,17 +266,20 @@ $paidAt      = !empty($found_external['paidAt'])
     ? date('Y-m-d H:i:s', strtotime($found_external['paidAt']))
     : date('Y-m-d H:i:s');
 
+    $emailApi = $found_external['student']['email'] ?? '';
+
 try {
     // Upsert so that repeated calls are idempotent
     $upsert = $conn->prepare("
         INSERT INTO vstudy_payments
-            (student_name, roll_number, gender, campus, hostel_preference, hostel_name,
+            (student_name, roll_number, email, gender, campus, hostel_preference, hostel_name,
              payment_status, application_status, paid_date, transaction_reference, paid_amount)
         VALUES
-            (:student_name, :roll, :gender, :campus, :hostel_pref, :hostel_name,
+            (:student_name, :roll, :email, :gender, :campus, :hostel_pref, :hostel_name,
              'Paid', 'Application Verified', :paid_date, :receipt, :amount)
         ON DUPLICATE KEY UPDATE
             student_name        = VALUES(student_name),
+            email               = VALUES(email),
             gender              = VALUES(gender),
             campus              = VALUES(campus),
             hostel_preference   = VALUES(hostel_preference),
@@ -288,6 +294,7 @@ try {
     $upsert->execute([
         ':student_name' => $studentName,
         ':roll'         => $register_no,
+        ':email'        => $emailApi,
         ':gender'       => $genderApi,
         ':campus'       => $campus,
         ':hostel_pref'  => $hostelPref,

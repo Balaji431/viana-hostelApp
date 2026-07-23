@@ -14,6 +14,8 @@ class AllocationProvider extends ChangeNotifier {
   bool _hasSecondPriority = false;
 
   // ── paid hostel fetch state ───────────────────────────────────────────────
+  /// Register number for which paidHostelData was fetched
+  String? _currentRegisterNo;
   /// true while a fetch is in-flight
   bool _paidFetchLoading = false;
   /// true once a fetch has completed (success OR definitive error) — prevents
@@ -32,6 +34,7 @@ class AllocationProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get firstPriorityHeldByPending => _firstPriorityHeldByPending;
   bool get hasSecondPriority => _hasSecondPriority;
+  String? get currentRegisterNo => _currentRegisterNo;
   bool  get paidFetchLoading    => _paidFetchLoading;
   bool  get paidFetchDone       => _paidFetchDone;
   String? get paidFetchError    => _paidFetchError;
@@ -208,7 +211,16 @@ class AllocationProvider extends ChangeNotifier {
   ///  - on 503 (service unavailable), [paidFetchDone] remains false so a manual
   ///    Retry button can call this again.
   Future<void> fetchPaidHostelType(String registerNo) async {
-    // Don't re-trigger if already loading or already have a definitive result
+    final normReg = registerNo.trim();
+    if (_currentRegisterNo != normReg) {
+      _currentRegisterNo = normReg;
+      _paidFetchDone = false;
+      _paidHostelData = null;
+      _paidFetchError = null;
+      _paidFetchHttpStatus = 0;
+    }
+
+    // Don't re-trigger if already loading or already have a definitive result for this user
     if (_paidFetchLoading || _paidFetchDone) return;
 
     _paidFetchLoading = true;
@@ -217,7 +229,7 @@ class AllocationProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await ApiService.getPaidHostelType(registerNo)
+      final response = await ApiService.getPaidHostelType(normReg)
           .timeout(
             const Duration(seconds: 20),
             onTimeout: () => {
@@ -236,6 +248,7 @@ class AllocationProvider extends ChangeNotifier {
         _paidFetchDone  = true;   // success — no retry needed
       } else {
         final msg = (response['message'] as String?) ?? 'Unknown error';
+        _paidHostelData = null;
         _paidFetchError = msg;
 
         if (httpStatus == 503 || httpStatus == 0) {
@@ -248,6 +261,7 @@ class AllocationProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('fetchPaidHostelType error: $e');
+      _paidHostelData      = null;
       _paidFetchError      = 'Connection error. Please try again.';
       _paidFetchHttpStatus = 0;
       _paidFetchDone       = false; // allow retry on network errors
@@ -264,6 +278,24 @@ class AllocationProvider extends ChangeNotifier {
     _paidFetchError      = null;
     _paidFetchHttpStatus = 0;
     _paidHostelData      = null;
+    notifyListeners();
+  }
+
+  /// Completely resets all cached allocation & payment state (e.g. on user logout).
+  void reset() {
+    _rooms = [];
+    _hostels = [];
+    _preferences = [];
+    _allocation = null;
+    _paidHostelData = null;
+    _isLoading = false;
+    _firstPriorityHeldByPending = false;
+    _hasSecondPriority = false;
+    _paidFetchLoading = false;
+    _paidFetchDone = false;
+    _paidFetchError = null;
+    _paidFetchHttpStatus = 0;
+    _currentRegisterNo = null;
     notifyListeners();
   }
 

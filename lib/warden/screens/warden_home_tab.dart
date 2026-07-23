@@ -26,7 +26,10 @@ class WardenHomeTab extends StatefulWidget {
   State<WardenHomeTab> createState() => _WardenHomeTabState();
 }
 
-class _WardenHomeTabState extends State<WardenHomeTab> {
+class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> _announcements = [];
   bool _isLoadingAnnouncements = true;
   Map<String, dynamic>? _systemStats;
@@ -210,7 +213,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
                   Text(
-                    "Allocation Queue",
+                    "Room Allocation Requests",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
@@ -235,6 +238,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final user = context.watch<UserProvider>();
 
     return Scaffold(
@@ -608,6 +612,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
   }
 
   Widget _buildAnnouncementsSection(BuildContext context) {
+    final user = context.watch<UserProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 20),
       child: Column(
@@ -622,17 +627,30 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
                   Text('ANNOUNCEMENTS', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                 ],
               ),
-              IconButton(
-                icon: const Icon(Icons.add_circle, color: Color(0xFFD4AF37), size: 28), 
-                onPressed: () => showDialog(context: context, builder: (context) => NewAnnouncementModal(
-                  onPost: (title, content) async {
-                    final response = await ApiService.postAnnouncement(title, content);
-                    if (response['status'] == 'success') {
-                      _fetchAnnouncements();
-                    }
-                  }
-                ))
-              ),
+              if (user.username.toLowerCase() == 'warden1' ||
+                  user.userName.toLowerCase().contains('venkatesh') ||
+                  user.role == UserRole.admin)
+                IconButton(
+                  icon: const Icon(Icons.add_circle, color: Color(0xFFD4AF37), size: 24),
+                  tooltip: 'Add Announcement (Main Warden / Venkatesh)',
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (context) => NewAnnouncementModal(
+                      onPost: (title, content) async {
+                        final response = await ApiService.postAnnouncement(title, content, username: user.username);
+                        if (response['status'] == 'success') {
+                          _fetchAnnouncements();
+                        } else {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(response['message'] ?? 'Failed to post announcement')),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -794,7 +812,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> {
                       ],
                     ),
                   );
-                }).toList()
+                })
               ],
             ),
           ),

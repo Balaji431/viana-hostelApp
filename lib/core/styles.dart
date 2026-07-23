@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import '../shared/wallpaper_provider.dart';
+import '../shared/user_provider.dart';
 
 class AppColors {
   static const Color gold = Color(0xFFD4AF37);
@@ -15,12 +18,13 @@ class SkeuomorphicColors {
   static const Color warmBronze = Color(0xFF8C6239);
   static const Color warmCream = Color(0xFFF5F0E8);
   static const Color deepEspresso = Color(0xFF2A1E1A);
-  
-  static const Color ios6Blue = Color(0xFF3875D7); // Kept for functional UI components
+
+  static const Color ios6Blue =
+      Color(0xFF3875D7); // Kept for functional UI components
   static const Color ios6Silver = Color(0xFFD0D0D0);
   static const Color contentBg = Color(0xFFF0EAE2);
   static const Color pinstripe = Color(0xFFD3CFC4);
-  
+
   // Specific Warden/Student Colors
   static const Color residenceBrown = Color(0xFF291E1A);
   static const Color residenceGold = Color(0xFFC5A358);
@@ -29,7 +33,7 @@ class SkeuomorphicColors {
   static const Color residenceCardBg = Color(0xFFFFFFFF);
   static const Color residenceMainBg = Color(0xFFF5F0E8);
   static const Color residenceMainBgEnd = Color(0xFFE8E0D5);
-  
+
   static const Color successGreen = Color(0xFF2E7D32);
   static const Color warningGold = Color(0xFFE0B400);
   static const Color absentRed = Color(0xFFB71C1C);
@@ -45,7 +49,7 @@ class SkeuomorphicColors {
     ],
     stops: [0.0, 0.5, 1.0],
   );
-  
+
   static const Gradient softBrownGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
@@ -149,9 +153,9 @@ class SkeuomorphicColors {
   );
 
   static BoxDecoration get linenGridDecoration => BoxDecoration(
-    color: warmCream,
-    gradient: mainBackgroundGradient,
-  );
+        color: warmCream,
+        gradient: mainBackgroundGradient,
+      );
 }
 
 class LinenGridPainter extends CustomPainter {
@@ -179,41 +183,86 @@ class LinenGridPainter extends CustomPainter {
 class LinenGridBackground extends StatelessWidget {
   final Widget child;
   final bool isWhite;
-  const LinenGridBackground({super.key, required this.child, this.isWhite = false});
+  const LinenGridBackground(
+      {super.key, required this.child, this.isWhite = false});
 
   @override
   Widget build(BuildContext context) {
+    // Try to read wallpaper provider & user provider. If not available, fall back gracefully.
+    WallpaperProvider? wallpaper;
+    try {
+      final user = context.watch<UserProvider>();
+      wallpaper = context.watch<WallpaperProvider>();
+      if (user.username.isNotEmpty) {
+        wallpaper.syncUser(user.username);
+      }
+    } catch (_) {}
+
+    final customPath = wallpaper?.customFilePath;
+    final assetPath = wallpaper?.assetPath;
+
     return Stack(
       children: [
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              color: isWhite ? Colors.white : const Color(0xFFF5F0E8),
-              gradient: isWhite ? null : const LinearGradient(
+        if (customPath != null)
+          Positioned.fill(
+            child: Image.file(
+              File(customPath),
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+              isAntiAlias: true,
+              errorBuilder: (_, __, ___) => _buildLinenBase(isWhite),
+            ),
+          )
+        else if (assetPath != null)
+          Positioned.fill(
+            child: Image.asset(
+              assetPath,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+              isAntiAlias: true,
+              errorBuilder: (_, __, ___) => _buildLinenBase(isWhite),
+            ),
+          )
+        else
+          Positioned.fill(child: _buildLinenBase(isWhite)),
+        // Overlay the subtle linen grid texture on top for texture depth
+        if (customPath != null || assetPath != null)
+          Positioned.fill(
+            child: Container(
+              color: Colors.white.withValues(alpha: 0.08),
+            ),
+          )
+        else
+          Positioned.fill(
+            child: CustomPaint(painter: LinenGridPainter()),
+          ),
+        child,
+      ],
+    );
+  }
+
+  Widget _buildLinenBase(bool isWhite) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isWhite ? Colors.white : const Color(0xFFF5F0E8),
+        gradient: isWhite
+            ? null
+            : const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [Color(0xFFF5F0E8), Color(0xFFE8E0D5)],
               ),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: CustomPaint(
-            painter: LinenGridPainter(),
-          ),
-        ),
-        child,
-      ],
+      ),
     );
   }
 }
 
 class SkeuomorphicStyles {
-  static TextStyle playfairHeader = GoogleFonts.tinos(
+  static TextStyle playfairHeader = const TextStyle(
     fontWeight: FontWeight.bold,
   );
 
-  static TextStyle latoBody = GoogleFonts.tinos();
+  static TextStyle latoBody = const TextStyle();
 
   static BoxDecoration skeuomorphicCard = BoxDecoration(
     color: Colors.white,
@@ -230,17 +279,17 @@ class SkeuomorphicStyles {
 
   // Restored glossyButton method
   static BoxDecoration glossyButton(Gradient gradient) => BoxDecoration(
-    gradient: gradient,
-    borderRadius: BorderRadius.circular(12),
-    border: Border.all(color: Colors.black26),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withOpacity(0.3),
-        blurRadius: 4,
-        offset: const Offset(0, 4),
-      ),
-    ],
-  );
+        gradient: gradient,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black26),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 4,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      );
 }
 
 extension StringExtension on String {

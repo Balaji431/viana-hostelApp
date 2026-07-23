@@ -12,7 +12,6 @@ import '../../shared/chat/request_details_screen.dart';
 import '../../core/models/request_model.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../core/styles.dart';
-import '../../shared/widgets/complaint_feedback_dialogs.dart';
 import '../../shared/ui_provider.dart';
 
 

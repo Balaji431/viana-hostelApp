@@ -19,7 +19,10 @@ class SecurityHomeTab extends StatefulWidget {
   State<SecurityHomeTab> createState() => _SecurityHomeTabState();
 }
 
-class _SecurityHomeTabState extends State<SecurityHomeTab> {
+class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> _announcements = [];
   bool _isLoadingAnnouncements = true;
   Timer? _refreshTimer;
@@ -87,6 +90,7 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final user = context.watch<UserProvider>();
 
     return Scaffold(

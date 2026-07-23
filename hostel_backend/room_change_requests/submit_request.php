@@ -79,68 +79,64 @@ try {
     }
     
     // Step 2.5: Warden Assignment Validation
-    // Fetch student's room location
-    $loc_query = "SELECT hr.hostel_name, hr.floor, hr.wing_code, p.room_allocation
-                  FROM users u
-                  LEFT JOIN profile p ON u.username = p.reg_no
-                  LEFT JOIN hostel_rooms hr ON p.room_allocation = hr.room_code
-                  WHERE u.id = ? LIMIT 1";
+    // Fetch requested room location details
+    $loc_query = "SELECT hr.hostel_name, hr.floor, hr.wing_code
+                  FROM hostel_rooms hr 
+                  WHERE hr.room_code = ? LIMIT 1";
     $loc_stmt = $conn->prepare($loc_query);
-    $loc_stmt->bind_param("i", $student_id);
+    $loc_stmt->bind_param("s", $data['requested_room']);
     $loc_stmt->execute();
     $loc_result = $loc_stmt->get_result();
     
     $has_warden = false;
     if ($loc_result->num_rows > 0) {
         $location = $loc_result->fetch_assoc();
-        if (!empty($location['room_allocation']) && strtolower(trim($location['room_allocation'])) !== 'unallocated') {
-            $h_name = $location['hostel_name'];
-            $f_name = $location['floor'];
-            $w_name = $location['wing_code'];
-            
-            // Search for matching floorwise warden in mapping_staff
-            $staff_query = "SELECT ms.name, ms.username 
-                            FROM mapping_staff ms
-                            WHERE ms.role = 'Warden'
-                            AND ms.username != 'warden1'
-                            AND (
-                                LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(?))
-                                OR LOWER(TRIM(ms.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(?)), '%')
-                                OR LOWER(TRIM(?)) LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)), '%')
-                                OR ms.hostel_name IS NULL OR ms.hostel_name = ''
-                            )
-                            AND (
-                                LOWER(TRIM(ms.floor_name)) = LOWER(TRIM(?))
-                                OR (? IN ('f00', 'ground', 'ground floor') AND LOWER(TRIM(ms.floor_name)) IN ('f00', 'ground', 'ground floor'))
-                                OR (? IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) IN ('f01', '1st floor'))
-                                OR (? IN ('f02', '2nd floor') AND LOWER(TRIM(ms.floor_name)) IN ('f02', '2nd floor'))
-                                OR (? IN ('f03', '3rd floor') AND LOWER(TRIM(ms.floor_name)) IN ('f03', '3rd floor'))
-                                OR ms.floor_name IS NULL OR ms.floor_name = ''
-                            )
-                            AND (LOWER(TRIM(ms.wing_name)) = LOWER(TRIM(?)) OR ms.wing_name IS NULL OR ms.wing_name = '')
-                            ORDER BY 
-                                (CASE WHEN LOWER(TRIM(ms.wing_name)) = LOWER(TRIM(?)) THEN 10 ELSE 0 END) +
-                                (CASE WHEN LOWER(TRIM(ms.floor_name)) = LOWER(TRIM(?)) 
-                                      OR (? IN ('f00', 'ground') AND LOWER(TRIM(ms.floor_name)) IN ('f00', 'ground'))
-                                      OR (? IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) IN ('f01', '1st floor'))
-                                      THEN 5 ELSE 0 END) +
-                                (CASE WHEN LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(?)) THEN 1 ELSE 0 END) DESC
-                            LIMIT 1";
-            
-            $staff_stmt = $conn->prepare($staff_query);
-            $staff_stmt->bind_param(
-                "ssssssssssssss",
-                $h_name, $h_name, $h_name,
-                $f_name, $f_name, $f_name, $f_name, $f_name,
-                $w_name, $w_name,
-                $f_name, $f_name, $f_name,
-                $h_name
-            );
-            $staff_stmt->execute();
-            $staff_result = $staff_stmt->get_result();
-            if ($staff_result->num_rows > 0) {
-                $has_warden = true;
-            }
+        $h_name = $location['hostel_name'];
+        $f_name = $location['floor'];
+        $w_name = $location['wing_code'];
+        
+        // Search for matching floorwise warden in mapping_staff
+        $staff_query = "SELECT ms.name, ms.username 
+                        FROM mapping_staff ms
+                        WHERE LOWER(TRIM(ms.role)) COLLATE utf8mb4_general_ci = 'warden' COLLATE utf8mb4_general_ci
+                        AND (
+                            LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(?)) COLLATE utf8mb4_general_ci
+                            OR LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci LIKE CONCAT('%', LOWER(TRIM(?)) COLLATE utf8mb4_general_ci, '%')
+                            OR LOWER(TRIM(?)) COLLATE utf8mb4_general_ci LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci, '%')
+                            OR ms.hostel_name IS NULL OR ms.hostel_name = ''
+                        )
+                        AND (
+                            LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(?)) COLLATE utf8mb4_general_ci
+                            OR (? COLLATE utf8mb4_general_ci IN ('f00', 'ground', 'ground floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f00', 'ground', 'ground floor'))
+                            OR (? COLLATE utf8mb4_general_ci IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f01', '1st floor'))
+                            OR (? COLLATE utf8mb4_general_ci IN ('f02', '2nd floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f02', '2nd floor'))
+                            OR (? COLLATE utf8mb4_general_ci IN ('f03', '3rd floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f03', '3rd floor'))
+                            OR (? COLLATE utf8mb4_general_ci IN ('f04', '4th floor', 'fourth') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f04', '4th floor', 'fourth'))
+                            OR ms.floor_name IS NULL OR ms.floor_name = ''
+                        )
+                        AND (LOWER(TRIM(ms.wing_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(?)) COLLATE utf8mb4_general_ci OR ms.wing_name IS NULL OR ms.wing_name = '')
+                        ORDER BY 
+                            (CASE WHEN LOWER(TRIM(ms.wing_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(?)) COLLATE utf8mb4_general_ci THEN 10 ELSE 0 END) +
+                            (CASE WHEN LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(?)) COLLATE utf8mb4_general_ci 
+                                  OR (? COLLATE utf8mb4_general_ci IN ('f00', 'ground') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f00', 'ground'))
+                                  OR (? COLLATE utf8mb4_general_ci IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f01', '1st floor'))
+                                  THEN 5 ELSE 0 END) +
+                            (CASE WHEN LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(?)) COLLATE utf8mb4_general_ci THEN 1 ELSE 0 END) DESC
+                        LIMIT 1";
+        
+        $staff_stmt = $conn->prepare($staff_query);
+        $staff_stmt->bind_param(
+            "sssssssssssssss",
+            $h_name, $h_name, $h_name,
+            $f_name, $f_name, $f_name, $f_name, $f_name, $f_name,
+            $w_name, $w_name,
+            $f_name, $f_name, $f_name,
+            $h_name
+        );
+        $staff_stmt->execute();
+        $staff_result = $staff_stmt->get_result();
+        if ($staff_result->num_rows > 0) {
+            $has_warden = true;
         }
     }
     

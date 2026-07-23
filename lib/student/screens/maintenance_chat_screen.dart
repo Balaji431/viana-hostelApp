@@ -516,8 +516,11 @@ class _MaintenanceChatScreenState extends State<MaintenanceChatScreen> {
             );
           },
           onBack: () { 
-            if (Navigator.canPop(context)) Navigator.pop(context); 
-            else context.read<UIProvider>().setActiveChatChannel(null); 
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              context.read<UIProvider>().setActiveChatChannel(null);
+            } 
           },
           rightAction: Row(
             mainAxisSize: MainAxisSize.min,
@@ -591,8 +594,9 @@ class _MaintenanceChatScreenState extends State<MaintenanceChatScreen> {
                       final currDate = _formatTimestampForDate(msg['timestamp']);
                       List<Widget> children = [];
                       if (nextDate == null || nextDate != currDate) children.add(_buildDateSeparator(currDate));
-                      if (msg['type'] == 'text') children.add(_buildTextMessage(msg));
-                      else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
+                      if (msg['type'] == 'text') {
+                        children.add(_buildTextMessage(msg));
+                      } else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
                       else if (msg['type'] == 'admin_reply') children.add(_buildAdminActionCard(msg));
                       else children.add(_buildRequestCard(msg));
                       return Column(mainAxisSize: MainAxisSize.min, children: children);

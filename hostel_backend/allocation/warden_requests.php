@@ -96,11 +96,6 @@ try {
     $assigned_wing = null;
     
     if (!$is_main_warden) {
-        if ($u_role !== 'warden') {
-            http_response_code(403);
-            echo json_encode(["success" => false, "message" => "Access Denied. You do not have the warden role."]);
-            return;
-        }
         $m_stmt = $conn->prepare("SELECT hostel_name, floor_name, wing_name FROM mapping_staff WHERE username = ? AND role = 'warden' LIMIT 1");
         $m_stmt->bind_param("s", $warden_username);
         $m_stmt->execute();
@@ -516,6 +511,11 @@ try {
                     // Release occupancy in the old room
                     $conn->query("UPDATE hostel_rooms SET occupied_rooms = GREATEST(0, occupied_rooms - 1), available_rooms = LEAST(total_capacity, available_rooms + 1) WHERE id = $old_room_id");
 
+                    // Set the old approved request status to 'transferred' so the old bed is released
+                    $up_old_stmt = $conn->prepare("UPDATE allocation_requests SET request_status = 'transferred', status = 'transferred' WHERE student_id = ? AND request_status = 'approved'");
+                    $up_old_stmt->bind_param("i", $sid);
+                    $up_old_stmt->execute();
+
                     // Create history logging table if not exists
                     $conn->query("
                         CREATE TABLE IF NOT EXISTS room_allocations (
@@ -605,9 +605,11 @@ try {
                 try {
                     if ($u_row && !empty($u_row['fcm_token'])) {
                         require_once __DIR__ . '/../send_notification.php';
-                        $title = "Room Allocation Completed!";
+                        $w_res = $conn->query("SELECT full_name FROM users WHERE id = '$warden_user_id' OR username = '$warden_username' LIMIT 1");
+                        $w_row_name = ($w_res && $w_row_fetch = $w_res->fetch_assoc()) ? $w_row_fetch['full_name'] : $warden_username;
+                        $title = (!empty($w_row_name) ? $w_row_name : 'Warden') . " (Warden)";
                         $body = "Your room allocation request has been approved and finalized. Room $room_code is now assigned to you!";
-                        sendFCM($u_row['fcm_token'], $title, $body, (string)$request_id, (string)$warden_user_id, 'Warden', $body, 'room_allocation_completed');
+                        sendFCM($u_row['fcm_token'], $title, $body, (string)$request_id, (string)$warden_user_id, 'Warden', $body, 'room_allocation');
                     }
                 } catch (Exception $e) {}
 
@@ -655,9 +657,11 @@ try {
                 try {
                     if (!empty($fcm_token)) {
                         require_once __DIR__ . '/../send_notification.php';
-                        $title = "Room Allocation Rejected";
-                        $body = "Your room allocation request has been rejected by the warden.";
-                        sendFCM($fcm_token, $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation_rejected');
+                        $w_res = $conn->query("SELECT full_name FROM users WHERE id = '$warden_user_id' OR username = '$warden_username' LIMIT 1");
+                        $w_row_name = ($w_res && $w_row_fetch = $w_res->fetch_assoc()) ? $w_row_fetch['full_name'] : $warden_username;
+                        $title = (!empty($w_row_name) ? $w_row_name : 'Warden') . " (Warden)";
+                        $body = "Your room allocation request has been rejected by " . $w_row_name . ". Reason: " . $reason;
+                        sendFCM($fcm_token, $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation');
                     }
                 } catch (Exception $e) {}
 
@@ -693,9 +697,11 @@ try {
                 try {
                     if ($student_row && !empty($student_row['fcm_token'])) {
                         require_once __DIR__ . '/../send_notification.php';
-                        $title = "Room Allocation Waitlisted";
-                        $body = "Your room allocation request has been waitlisted by the warden.";
-                        sendFCM($student_row['fcm_token'], $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation_waitlisted');
+                        $w_res = $conn->query("SELECT full_name FROM users WHERE id = '$warden_user_id' OR username = '$warden_username' LIMIT 1");
+                        $w_row_name = ($w_res && $w_row_fetch = $w_res->fetch_assoc()) ? $w_row_fetch['full_name'] : $warden_username;
+                        $title = (!empty($w_row_name) ? $w_row_name : 'Warden') . " (Warden)";
+                        $body = "Your room allocation request has been waitlisted by " . $w_row_name . ".";
+                        sendFCM($student_row['fcm_token'], $title, $body, (string)$request_id, '', 'Warden', $body, 'room_allocation');
                     }
                 } catch (Exception $e) {}
 

@@ -16,7 +16,7 @@ import 'maintenance_chat_screen.dart';
 import 'parent_warden_chat_screen.dart';
 import '../../shared/category_provider.dart';
 import '../widgets/room_vacancy_browser.dart';
-import '../widgets/room_change_request_status.dart';
+import '../widgets/student_room_change_history_dialog.dart';
 import 'warden_chat_screen.dart';
 import '../../shared/ui_provider.dart';
 import 'security_chat_screen.dart';
@@ -29,7 +29,10 @@ class StudentHomeScreen extends StatefulWidget {
   State<StudentHomeScreen> createState() => _StudentHomeScreenState();
 }
 
-class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTickerProviderStateMixin {
+class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> _announcements = [];
   bool _isLoadingAnnouncements = true;
   final ScrollController _nameScrollController = ScrollController();
@@ -41,6 +44,22 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   bool _isCheckingWarden = false; // Stack-level overlay — avoids Navigator.pop issues
   String _roomChangeStatus = 'none';
   Map<String, dynamic>? _latestRoomRequest;
+  bool _showRoomHistory = false;
+
+  void _updateOverlayState({
+    bool? showRoomOptionsModal,
+    bool? showVacancyBrowser,
+    bool? showRenewalModal,
+  }) {
+    setState(() {
+      if (showRoomOptionsModal != null) _showRoomOptionsModal = showRoomOptionsModal;
+      if (showVacancyBrowser != null) _showVacancyBrowser = showVacancyBrowser;
+      if (showRenewalModal != null) _showRenewalModal = showRenewalModal;
+    });
+
+    final showBar = !_showRoomOptionsModal && !_showVacancyBrowser && !_showRenewalModal;
+    context.read<UIProvider>().setShowBottomNavBar(showBar);
+  }
 
   @override
   void initState() {
@@ -223,12 +242,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final user = context.watch<UserProvider>();
     
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
-        title: 'Royal Residences',
+        title: 'Viana Stay',
         onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
         rightAction: ProfileButton(onTap: () {
           context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(2);
@@ -277,13 +297,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       _buildNewStudentAllocationCard(context, user),
                     ],
                     const SizedBox(height: 10), 
-                    RoomChangeRequestStatus(studentId: user.dbId ?? 0),
+                    const SizedBox.shrink(),
                     _buildProceedPaymentButton(),
                     _buildQuickActionsHeader(),
                     _buildQuickActions(context),
                     _buildAnnouncementsHeader(),
                     _buildAnnouncements(),
-                    const SizedBox(height: 25),
+                    const SizedBox(height: 120),
                   ],
                 ),
               ),
@@ -296,7 +316,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
           if (_showVacancyBrowser)
             Positioned.fill(
               child: GestureDetector(
-                onTap: () => setState(() => _showVacancyBrowser = false),
+                onTap: () => _updateOverlayState(showVacancyBrowser: false),
                 child: Container(
                   color: Colors.black.withOpacity(0.5),
                   child: GestureDetector(
@@ -307,9 +327,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                         RoomVacancyBrowser(
                           isOpen: _showVacancyBrowser,
                           onClose: () {
-                            setState(() {
-                              _showVacancyBrowser = false;
-                            });
+                            _updateOverlayState(showVacancyBrowser: false);
                           },
                           currentRoomString: user.isParent ? user.linkedStudentRoom : user.fullRoomDetails,
                           studentId: user.dbId,
@@ -325,7 +343,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
           if (_showRenewalModal)
             Positioned.fill(
               child: GestureDetector(
-                onTap: () => setState(() => _showRenewalModal = false),
+                onTap: () => _updateOverlayState(showRenewalModal: false),
                 child: Container(
                   color: Colors.black.withOpacity(0.5),
                   child: GestureDetector(
@@ -335,13 +353,14 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       children: [
                         RenewalModal(
                           isOpen: _showRenewalModal,
-                          onClose: () => setState(() => _showRenewalModal = false),
+                          onClose: () => _updateOverlayState(showRenewalModal: false),
                           currentRenewalDate: user.renewalDate,
                           currentRoomTypeId: user.roomType,
                           currentRoomFacility: user.roomFacility,
                           currentRoomBathAttached: user.roomBathAttached,
                           requestStatus: _roomChangeStatus,
                           approvedRoomType: _latestRoomRequest?['requested_room_type'],
+                          requestId: _latestRoomRequest?['request_id'],
                           onRoomChangeRequested: () {
                             _handleRoomChangePressed(context, user);
                           },
@@ -444,9 +463,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       const Spacer(),
                       InkWell(
                         onTap: () {
-                          setState(() {
-                            _showRoomOptionsModal = false;
-                          });
+                          _updateOverlayState(showRoomOptionsModal: false);
                         },
                         borderRadius: BorderRadius.circular(20),
                         child: Container(
@@ -466,14 +483,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                 
                 Container(
                   color: const Color(0xFFF9F6F0),
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 90),
                   child: Column(
                     children: [
                       InkWell(
                         onTap: () {
-                          setState(() {
-                            _showRoomOptionsModal = false;
-                          });
+                          _updateOverlayState(showRoomOptionsModal: false);
                           _showRenewalDialog(context, user);
                         },
                         borderRadius: BorderRadius.circular(16),
@@ -627,12 +642,44 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       return;
     }
     await _fetchRoomChangeStatus();
-    setState(() {
-      _showRenewalModal = true;
-    });
+    _updateOverlayState(showRenewalModal: true);
   }
 
   Future<void> _handleRoomChangePressed(BuildContext context, UserProvider user) async {
+    // Block new request if a previous one is already approved but not paid yet
+    final status = _roomChangeStatus.toLowerCase();
+    if (status == 'approved' || status == 'pre_approved') {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.block, color: Color(0xFFD4AF37), size: 24),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Request Blocked',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'You cannot submit a new room change request because your previous request has been approved by the warden.\n\nPlease complete the payment for your approved room change first. Once the payment is done, you can submit a new room change request.',
+            style: TextStyle(fontSize: 13, color: Color(0xFF555555), height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK', style: TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     // Use Stack overlay instead of showDialog — avoids Navigator.pop accidentally
     // dismissing the renewal modal on desktop layouts with nested navigators.
     setState(() => _isCheckingWarden = true);
@@ -645,7 +692,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
       if (response['success'] == true && response['data'] != null) {
         final warden = response['data']['warden'];
-        if (warden == null || warden['username'] == 'warden1') {
+        if (warden == null) {
           // No floorwise warden — show alert; renewal modal stays open underneath
           showDialog(
             context: context,
@@ -669,10 +716,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       }
 
       // Warden is assigned — close the renewal modal and open the vacancy browser
-      setState(() {
-        _showRenewalModal = false;
-        _showVacancyBrowser = true;
-      });
+      _updateOverlayState(showRenewalModal: false, showVacancyBrowser: true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isCheckingWarden = false);
@@ -684,6 +728,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       );
     }
   }
+
 
   void _showRoomDetails(Map<String, dynamic>? allocation) {
     if (allocation == null) return;
@@ -799,22 +844,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             onPressed: () {
               Navigator.pop(context);
               if (_roomChangeStatus.toLowerCase() == 'pre_approved') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => PaymentPage(
-                      requestId: _latestRoomRequest?['request_id'],
-                      requestedRoom: _latestRoomRequest?['requested_room'],
-                      customAmount: double.tryParse(_latestRoomRequest?['amount_to_pay']?.toString() ?? '0'),
-                    ),
-                  ),
-                ).then((_) => _fetchRoomChangeStatus());
+                _updateOverlayState(showRenewalModal: true);
               } else if (_roomChangeStatus.toLowerCase() == 'pending') {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Room change/renewal request is pending approval.')),
                 );
               } else {
-                setState(() => _showRoomOptionsModal = true);
+                _updateOverlayState(showRoomOptionsModal: true);
               }
             },
           ),
@@ -1110,43 +1146,80 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   const Spacer(),
                   if (!user.isParent) ...[
                     Flexible(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              _roomChangeStatus.toLowerCase() == 'pending' 
-                                  ? 'Pending Request' 
-                                  : (_roomChangeStatus.toLowerCase() == 'pre_approved' 
-                                      ? 'Awaiting Payment' 
-                                      : (_roomChangeStatus.toLowerCase() == 'approved' 
-                                          ? 'Request Approved' 
-                                          : (_roomChangeStatus.toLowerCase() == 'rejected' 
-                                              ? 'Request Rejected' 
-                                              : (_roomChangeStatus.toLowerCase() == 'completed' 
-                                                  ? 'Request Completed'
-                                                  : 'Tap to Renew')))),
-                              textAlign: TextAlign.right,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w900,
-                                color: _roomChangeStatus.toLowerCase() == 'pre_approved' 
-                                    ? const Color(0xFFC5A358) 
-                                    : ((_roomChangeStatus.toLowerCase() == 'pending' || _roomChangeStatus.toLowerCase() == 'rejected') 
-                                        ? Colors.orange 
-                                        : const Color(0xFF43A047)),
-                                fontFamily: 'Lato',
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: (_roomChangeStatus.toLowerCase() == 'completed' || 
+                                _roomChangeStatus.toLowerCase() == 'none' ||
+                                _roomChangeStatus.toLowerCase() == 'pre_approved')
+                            ? () {
+                                // Open renewal modal
+                                _updateOverlayState(showRenewalModal: true);
+                              }
+                            : null,
+                        child: Container(
+                          padding: _roomChangeStatus.toLowerCase() == 'completed'
+                              ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
+                              : EdgeInsets.zero,
+                          decoration: _roomChangeStatus.toLowerCase() == 'completed'
+                              ? BoxDecoration(
+                                  color: const Color(0xFF43A047).withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: const Color(0xFF43A047).withOpacity(0.4), width: 1),
+                                )
+                              : null,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_roomChangeStatus.toLowerCase() == 'completed') ...[
+                                const Icon(Icons.payment_outlined, size: 14, color: Color(0xFF43A047)),
+                                const SizedBox(width: 4),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  _roomChangeStatus.toLowerCase() == 'pending' 
+                                      ? 'Pending Request' 
+                                      : (_roomChangeStatus.toLowerCase() == 'pre_approved' 
+                                          ? 'Awaiting Payment' 
+                                          : (_roomChangeStatus.toLowerCase() == 'approved' 
+                                              ? 'Request Approved' 
+                                              : (_roomChangeStatus.toLowerCase() == 'rejected' 
+                                                  ? 'Request Rejected' 
+                                                  : (_roomChangeStatus.toLowerCase() == 'completed' 
+                                                      ? 'Proceed to Payment'
+                                                      : 'Tap to Renew')))),
+                                  textAlign: TextAlign.right,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                    color: _roomChangeStatus.toLowerCase() == 'pre_approved' 
+                                        ? const Color(0xFFC5A358) 
+                                        : (_roomChangeStatus.toLowerCase() == 'completed'
+                                            ? const Color(0xFF2E7D32)
+                                            : ((_roomChangeStatus.toLowerCase() == 'pending' || _roomChangeStatus.toLowerCase() == 'rejected') 
+                                                ? Colors.orange 
+                                                : const Color(0xFF43A047))),
+                                    fontFamily: 'Lato',
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                _roomChangeStatus.toLowerCase() == 'pending' 
+                                    ? Icons.hourglass_empty 
+                                    : (_roomChangeStatus.toLowerCase() == 'completed'
+                                        ? Icons.arrow_forward_ios
+                                        : Icons.chevron_right), 
+                                size: _roomChangeStatus.toLowerCase() == 'completed' ? 13 : 18, 
+                                color: _roomChangeStatus.toLowerCase() == 'pending' 
+                                    ? Colors.orange 
+                                    : (_roomChangeStatus.toLowerCase() == 'completed'
+                                        ? const Color(0xFF2E7D32)
+                                        : const Color(0xFFC5A358))
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            _roomChangeStatus.toLowerCase() == 'pending' ? Icons.hourglass_empty : Icons.chevron_right, 
-                            size: 18, 
-                            color: _roomChangeStatus.toLowerCase() == 'pending' ? Colors.orange : const Color(0xFFC5A358)
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ],
@@ -1195,20 +1268,64 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildQuickActionsHeader() {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(20, 4, 16, 2),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          'Quick Actions',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF666666),
-            fontFamily: 'Lato',
-            letterSpacing: 0.2,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 16, 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Quick Actions',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF666666),
+              fontFamily: 'Lato',
+              letterSpacing: 0.2,
+            ),
           ),
-        ),
+          if (context.read<UserProvider>().dbId != null)
+            GestureDetector(
+              onTap: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => StudentRoomChangeHistoryDialog(studentId: context.read<UserProvider>().dbId ?? 0),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFFCCCCCC),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.history,
+                      size: 13,
+                      color: Color(0xFF888888),
+                    ),
+                    const SizedBox(width: 4),
+                    const Text(
+                      'View History',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF888888),
+                        fontFamily: 'Lato',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1235,41 +1352,6 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     final catProvider = Provider.of<CategoryProvider>(context, listen: false);
 
     final String roleKey = category.toLowerCase();
-    final assignedStaff = catProvider.assignedStaff;
-
-    if (!assignedStaff.containsKey(roleKey) || assignedStaff[roleKey] == null) {
-      if (mounted) {
-        String capitalizedTitle = category[0].toUpperCase() + category.substring(1).toLowerCase();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.info_outline, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    '$capitalizedTitle is not assigned yet.',
-                    style: const TextStyle(
-                      fontFamily: 'Lato',
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: const Color(0xFFC5A358), 
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-      return;
-    }
-
     if (isDesktop) {
       ui.setActiveChatChannel(category);
       return;
@@ -1286,7 +1368,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     
     await Navigator.push(context, MaterialPageRoute(
       builder: (context) => target,
-      settings: RouteSettings(name: '/chat_${normalizedCat}'),
+      settings: RouteSettings(name: '/chat_$normalizedCat'),
     ));
     if (context.mounted) {
       context.read<CategoryProvider>().fetchCounts(
@@ -1381,7 +1463,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               ),
             ),
           );
-        }).toList(),
+        }),
         // 🔥 Add empty Expanded containers as placeholders if there are less than 3 actions.
         // This ensures the single action (Warden for Parent) takes exactly 1/3 of the width,
         // matching the exact size used in Student and Warden logins.

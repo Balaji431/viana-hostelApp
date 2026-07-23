@@ -67,30 +67,32 @@ try {
         $f_name = $location['floor'];
         $w_name = $location['wing_code'];
 
-        $staff_query = "SELECT ms.name, ms.role, ms.phone, ms.username 
+        $staff_query = "SELECT COALESCE(su.full_name, ms.name) as name, ms.role, COALESCE(su.phone_number, ms.phone) as phone, COALESCE(ms.staff_bio_id, ms.username) as username 
                        FROM mapping_staff ms
+                       LEFT JOIN users su ON ms.staff_bio_id COLLATE utf8mb4_general_ci = su.username COLLATE utf8mb4_general_ci
                        WHERE (
-                            LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(:h_name))
-                            OR LOWER(TRIM(ms.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(:h_name)), '%')
-                            OR LOWER(TRIM(:h_name)) LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)), '%')
+                            LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(:h_name)) COLLATE utf8mb4_general_ci
+                            OR LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci LIKE CONCAT('%', LOWER(TRIM(:h_name)) COLLATE utf8mb4_general_ci, '%')
+                            OR LOWER(TRIM(:h_name)) COLLATE utf8mb4_general_ci LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci, '%')
                             OR ms.hostel_name IS NULL OR ms.hostel_name = ''
                        )
                        AND (
-                            LOWER(TRIM(ms.floor_name)) = LOWER(TRIM(:f_name))
-                            OR (LOWER(TRIM(:f_name)) IN ('f00', 'ground', 'ground floor') AND LOWER(TRIM(ms.floor_name)) IN ('f00', 'ground', 'ground floor'))
-                            OR (LOWER(TRIM(:f_name)) IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) IN ('f01', '1st floor'))
-                            OR (LOWER(TRIM(:f_name)) IN ('f02', '2nd floor') AND LOWER(TRIM(ms.floor_name)) IN ('f02', '2nd floor'))
-                            OR (LOWER(TRIM(:f_name)) IN ('f03', '3rd floor') AND LOWER(TRIM(ms.floor_name)) IN ('f03', '3rd floor'))
+                            LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci
+                            OR (LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci IN ('f00', 'ground', 'ground floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f00', 'ground', 'ground floor'))
+                            OR (LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f01', '1st floor'))
+                            OR (LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci IN ('f02', '2nd floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f02', '2nd floor'))
+                            OR (LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci IN ('f03', '3rd floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f03', '3rd floor'))
+                            OR (LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci IN ('f04', '4th floor', 'fourth') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f04', '4th floor', 'fourth'))
                             OR ms.floor_name IS NULL OR ms.floor_name = ''
                        )
-                       AND (LOWER(TRIM(ms.wing_name)) = LOWER(TRIM(:w_name)) OR ms.wing_name IS NULL OR ms.wing_name = '')
+                       AND (LOWER(TRIM(ms.wing_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(:w_name)) COLLATE utf8mb4_general_ci OR ms.wing_name IS NULL OR ms.wing_name = '')
                        ORDER BY 
-                            (CASE WHEN LOWER(TRIM(ms.wing_name)) = LOWER(TRIM(:w_name)) THEN 10 ELSE 0 END) +
-                            (CASE WHEN LOWER(TRIM(ms.floor_name)) = LOWER(TRIM(:f_name)) 
-                                  OR (LOWER(TRIM(:f_name)) IN ('f00', 'ground') AND LOWER(TRIM(ms.floor_name)) IN ('f00', 'ground'))
-                                  OR (LOWER(TRIM(:f_name)) IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) IN ('f01', '1st floor'))
+                            (CASE WHEN LOWER(TRIM(ms.wing_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(:w_name)) COLLATE utf8mb4_general_ci THEN 10 ELSE 0 END) +
+                            (CASE WHEN LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci 
+                                  OR (LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci IN ('f00', 'ground') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f00', 'ground'))
+                                  OR (LOWER(TRIM(:f_name)) COLLATE utf8mb4_general_ci IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) COLLATE utf8mb4_general_ci IN ('f01', '1st floor'))
                                   THEN 5 ELSE 0 END) +
-                            (CASE WHEN LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(:h_name)) THEN 1 ELSE 0 END) DESC";
+                            (CASE WHEN LOWER(TRIM(ms.hostel_name)) COLLATE utf8mb4_general_ci = LOWER(TRIM(:h_name)) COLLATE utf8mb4_general_ci THEN 1 ELSE 0 END) DESC";
         
         $stmt = $db->prepare($staff_query);
         $stmt->bindParam(':h_name', $h_name);

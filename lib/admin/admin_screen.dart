@@ -15,6 +15,8 @@ import 'screens/room_master_screen.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 import '../shared/user_provider.dart';
 import '../shared/main_layout.dart';
+import 'package:intl/intl.dart';
+import '../warden/widgets/warden_modals.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -23,8 +25,13 @@ class AdminScreen extends StatefulWidget {
   State<AdminScreen> createState() => _AdminScreenState();
 }
 
-class _AdminScreenState extends State<AdminScreen> {
+class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   int _roomCount = 0;
+  List<Map<String, dynamic>> _announcements = [];
+  bool _isLoadingAnnouncements = true;
 
   @override
   void initState() {
@@ -70,9 +77,29 @@ class _AdminScreenState extends State<AdminScreen> {
         context.read<MappingProvider>().loadMappings(),
         context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username),
         _fetchRoomCount(),
+        _fetchAnnouncements(),
       ]);
     } catch (e) {
       debugPrint('Error refreshing admin data: $e');
+    }
+  }
+
+  Future<void> _fetchAnnouncements() async {
+    try {
+      final response = await ApiService.getAnnouncements();
+      if (response['status'] == 'success' && response['data'] != null) {
+        if (mounted) {
+          setState(() {
+            _announcements = List<Map<String, dynamic>>.from(response['data']);
+            _isLoadingAnnouncements = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoadingAnnouncements = false);
+      }
+    } catch (e) {
+      debugPrint('Error fetching announcements: $e');
+      if (mounted) setState(() => _isLoadingAnnouncements = false);
     }
   }
 
@@ -91,6 +118,7 @@ class _AdminScreenState extends State<AdminScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return LinenGridBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -224,6 +252,8 @@ class _AdminScreenState extends State<AdminScreen> {
                   );
                 },
               ),
+              if (context.watch<UserProvider>().username != 'admin1')
+                _buildAnnouncementsSection(context),
               const SizedBox(height: 100),
             ],
           ),
@@ -327,6 +357,114 @@ class _AdminScreenState extends State<AdminScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementsSection(BuildContext context) {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: const [
+                Icon(Icons.notifications_active, color: Color(0xFFB08900), size: 18),
+                SizedBox(width: 8),
+                Text('ANNOUNCEMENTS', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+              ],
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_circle, color: Color(0xFFB08900), size: 28), 
+              onPressed: () => showDialog(
+                context: context,
+                builder: (context) => NewAnnouncementModal(
+                  onPost: (title, content) async {
+                    final user = context.read<UserProvider>();
+                    final response = await ApiService.postAnnouncement(title, content, username: user.username);
+                    if (response['status'] == 'success') {
+                      _fetchAnnouncements();
+                    }
+                  }
+                )
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_isLoadingAnnouncements)
+          const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+        else if (_announcements.isEmpty)
+          const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No announcements yet", style: TextStyle(color: Colors.grey))))
+        else
+          ..._announcements.map((a) => _buildAnnouncementItem(a)),
+      ],
+    );
+  }
+
+  Widget _buildAnnouncementItem(Map<String, dynamic> announcement) {
+    String dateStr = announcement['date'] ?? DateTime.now().toString();
+    DateTime? date;
+    try {
+      date = DateTime.parse(dateStr);
+    } catch (e) {
+      date = DateTime.now();
+    }
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFFB08900), shape: BoxShape.circle)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        announcement['title'] ?? '',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1A2744),
+                          fontFamily: 'Lato',
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                DateFormat('dd MMM yyyy').format(date),
+                style: const TextStyle(fontSize: 10, color: Colors.grey, fontFamily: 'Lato'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            announcement['content'] ?? '',
+            style: const TextStyle(fontSize: 13, color: Colors.blueGrey, fontFamily: 'Lato'),
+          ),
+        ],
       ),
     );
   }

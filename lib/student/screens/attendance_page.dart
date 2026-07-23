@@ -4,6 +4,172 @@ import 'package:provider/provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/user_provider.dart';
 import '../../core/api_service.dart';
+import '../../core/app_logger.dart';
+
+// ─────────────────────────────────────────────────────────
+//  Utility Helper Functions
+// ─────────────────────────────────────────────────────────
+
+/// Formats HH:mm string to 12-hour AM/PM format (e.g. "07:53" -> "7:53 AM", "19:34" -> "7:34 PM")
+String formatAmPm(String? timeStr) {
+  if (timeStr == null || timeStr.isEmpty || timeStr == '--:--') return '—';
+  try {
+    final parts = timeStr.split(':');
+    int h = int.parse(parts[0]);
+    final m = int.parse(parts[1]);
+    final period = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h == 0) h = 12;
+    final mStr = m.toString().padLeft(2, '0');
+    return '$h:$mStr $period';
+  } catch (_) {
+    return timeStr;
+  }
+}
+
+/// Checks if movement triggers a Gold Dot alert:
+/// 1. Out time (checkOut) <= 8:00 AM (480 mins)
+/// 2. Out time or In time >= 8:00 PM / 20:00 (1200 mins)
+/// 3. In time (checkIn) <= 8:00 AM (480 mins)
+bool hasGoldDotAlert(Map<String, dynamic> attendance) {
+  final String? checkIn = attendance['checkIn'];
+  final String? checkOut = attendance['checkOut'];
+
+  int? parseMinutes(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty || timeStr == '--:--') return null;
+    try {
+      final parts = timeStr.split(':');
+      final h = int.parse(parts[0]);
+      final m = int.parse(parts[1]);
+      return h * 60 + m;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  final inMin = parseMinutes(checkIn);
+  final outMin = parseMinutes(checkOut);
+
+  // Out time <= 8:00 AM (480) OR >= 8:00 PM / 20:00 (1200)
+  if (outMin != null && (outMin <= 480 || outMin >= 1200)) return true;
+  // In time >= 8:00 PM / 20:00 (1200) OR <= 8:00 AM (480)
+  if (inMin != null && (inMin >= 1200 || inMin <= 480)) return true;
+
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────
+//  Standalone Biometric History Page (for tab/sidebar nav)
+// ─────────────────────────────────────────────────────────
+
+class BiometricHistoryPage extends StatefulWidget {
+  const BiometricHistoryPage({super.key});
+
+  @override
+  State<BiometricHistoryPage> createState() => _BiometricHistoryPageState();
+}
+
+class _BiometricHistoryPageState extends State<BiometricHistoryPage> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  Map<String, Map<String, dynamic>> _processedAttendance = {};
+  bool _isLoading = true;
+
+  final Color royalNavy = const Color(0xFF1B2744);
+  final Color royalGold = const Color(0xFFD4AF37);
+  final Color attendanceGreen = const Color(0xFF2E7D32);
+  final Color attendanceRed = const Color(0xFFC62828);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAttendance());
+  }
+
+  Future<void> _loadAttendance() async {
+    setState(() => _isLoading = true);
+    try {
+      final userProvider = Provider.of<UserProvider>(context, listen: false);
+      final int? studentId = userProvider.isParent
+          ? (userProvider.linkedStudentId ?? userProvider.dbId)
+          : userProvider.dbId;
+
+      if (studentId != null) {
+        AppLogger.info("Fetching attendance logs for studentId: $studentId");
+        final response = await ApiService.getAttendance(studentId);
+        AppLogger.info("Attendance API response status: ${response['status']}");
+        if (response['status'] == true && response['data'] != null) {
+          final List rawData = response['data'];
+          final Map<String, Map<String, dynamic>> loadedData = {};
+          for (var item in rawData) {
+            final String date = item['date'];
+            final String status =
+                item['status']?.toString().toLowerCase() ?? 'none';
+            final String? inTime = item['in_time'];
+            final String? outTime = item['out_time'];
+            loadedData[date] = {
+              "status": status == 'late'
+                  ? 'present'
+                  : (status == 'half_day' ? 'half-day' : status),
+              "checkIn": inTime != null && inTime.isNotEmpty
+                  ? inTime.substring(0, 5)
+                  : null,
+              "checkOut": outTime != null && outTime.isNotEmpty
+                  ? outTime.substring(0, 5)
+                  : null,
+              "source": item['source']?.toString().toLowerCase(),
+            };
+          }
+          AppLogger.info("Successfully loaded ${loadedData.length} attendance dates into memory");
+          setState(() {
+            _processedAttendance = loadedData;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading attendance: $e");
+    }
+    setState(() {
+      _processedAttendance = {};
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: SkeuomorphicNavBar(
+        title: 'Biometric History',
+        rightAction: IconButton(
+          icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+          onPressed: _loadAttendance,
+        ),
+      ),
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+              ),
+            )
+          : _BiometricHistoryBody(
+              processedAttendance: _processedAttendance,
+              royalNavy: royalNavy,
+              royalGold: royalGold,
+              attendanceGreen: attendanceGreen,
+              attendanceRed: attendanceRed,
+            ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+//  Attendance Calendar Page
+// ─────────────────────────────────────────────────────────
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});
@@ -12,8 +178,10 @@ class AttendancePage extends StatefulWidget {
   State<AttendancePage> createState() => _AttendancePageState();
 }
 
-class _AttendancePageState extends State<AttendancePage> {
-  DateTime _focusedDay = DateTime.now(); 
+class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+  DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   Map<String, Map<String, dynamic>> _processedAttendance = {};
   bool _isLoading = true;
@@ -24,8 +192,8 @@ class _AttendancePageState extends State<AttendancePage> {
 
   final Color royalNavy = const Color(0xFF1B2744);
   final Color royalGold = const Color(0xFFD4AF37);
-  final Color attendanceGreen = const Color(0xFF2E7D32); 
-  final Color attendanceRed = const Color(0xFFC62828);   
+  final Color attendanceGreen = const Color(0xFF2E7D32);
+  final Color attendanceRed = const Color(0xFFC62828);
 
   @override
   void initState() {
@@ -39,23 +207,33 @@ class _AttendancePageState extends State<AttendancePage> {
     setState(() => _isLoading = true);
     try {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
-      final int? studentId = userProvider.isParent ? userProvider.linkedStudentId : userProvider.dbId;
+      final int? studentId = userProvider.isParent
+          ? (userProvider.linkedStudentId ?? userProvider.dbId)
+          : userProvider.dbId;
+
       if (studentId != null) {
         final response = await ApiService.getAttendance(studentId);
         if (response['status'] == true && response['data'] != null) {
           final List rawData = response['data'];
           final Map<String, Map<String, dynamic>> loadedData = {};
-          
+
           for (var item in rawData) {
             final String date = item['date'];
-            final String status = item['status']?.toString().toLowerCase() ?? 'none';
+            final String status =
+                item['status']?.toString().toLowerCase() ?? 'none';
             final String? inTime = item['in_time'];
             final String? outTime = item['out_time'];
-            
+
             loadedData[date] = {
-              "status": status == 'late' ? 'present' : status,
-              "checkIn": inTime != null && inTime.isNotEmpty ? inTime.substring(0, 5) : null,
-              "checkOut": outTime != null && outTime.isNotEmpty ? outTime.substring(0, 5) : null,
+              "status": status == 'late'
+                  ? 'present'
+                  : (status == 'half_day' ? 'half-day' : status),
+              "checkIn": inTime != null && inTime.isNotEmpty
+                  ? inTime.substring(0, 5)
+                  : null,
+              "checkOut": outTime != null && outTime.isNotEmpty
+                  ? outTime.substring(0, 5)
+                  : null,
               "source": item['source']?.toString().toLowerCase(),
             };
           }
@@ -74,9 +252,8 @@ class _AttendancePageState extends State<AttendancePage> {
       debugPrint("Error loading attendance: $e");
     }
 
-    // Fallback to mock data if loading fails or studentId is null
     setState(() {
-      _loadMockData();
+      _processedAttendance = {};
       _focusedDay = DateTime.now();
       _selectedDay = DateTime.now();
       _calculateSummary();
@@ -92,9 +269,9 @@ class _AttendancePageState extends State<AttendancePage> {
     _processedAttendance.forEach((dateKey, data) {
       try {
         DateTime parsedDate = DateTime.parse(dateKey);
-        if (parsedDate.year == _focusedDay.year && parsedDate.month == _focusedDay.month) {
+        if (parsedDate.year == _focusedDay.year &&
+            parsedDate.month == _focusedDay.month) {
           String status = data['status'] ?? 'none';
-
           if (status == 'present') {
             _presentCount++;
           } else if (status == 'absent') {
@@ -107,39 +284,19 @@ class _AttendancePageState extends State<AttendancePage> {
     });
   }
 
-  void _loadMockData() {
-    _processedAttendance = {
-      "2026-04-01": {"status": "absent", "checkIn": "21:30", "source": "warden"},
-      "2026-04-02": {"status": "absent", "checkIn": "21:45", "source": "warden"},
-      "2026-04-03": {"status": "present", "checkIn": "09:15", "source": "warden"},
-      "2026-04-04": {"status": "present", "checkIn": "09:30", "source": "warden"},
-      "2026-04-08": {"status": "present", "checkIn": "08:21", "source": "biometric"},
-      "2026-04-09": {"status": "absent", "checkIn": "21:10", "source": "warden"},
-      "2026-04-10": {"status": "absent", "checkIn": "21:15", "source": "warden"},
-      "2026-04-16": {"status": "absent", "checkIn": "22:00", "source": "warden"},
-      "2026-04-21": {"status": "present", "checkIn": "09:20", "source": "warden"},
-      "2026-04-24": {"status": "present", "checkIn": "09:05", "source": "warden"},
-      "2026-04-26": {"status": "half-day", "checkIn": "14:15", "source": "warden"},
-      "2026-05-01": {"status": "present", "checkIn": "10:30", "source": "warden"},
-      "2026-05-02": {"status": "absent", "checkIn": "21:05", "source": "warden"},
-      "2026-05-03": {"status": "present", "checkIn": "08:50", "source": "warden"},
-      "2026-05-04": {"status": "present", "checkIn": "08:45", "source": "warden"},
-      "2026-05-05": {"status": "present", "checkIn": "08:55", "source": "warden"},
-      "2026-05-06": {"status": "present", "checkIn": "09:00", "source": "warden"},
-      "2026-05-07": {"status": "present", "checkIn": "08:45", "source": "biometric"},
-    };
-  }
-
   void _changeMonth(int offset) {
     setState(() {
       _focusedDay = DateTime(_focusedDay.year, _focusedDay.month + offset, 1);
-      _selectedDay = null; 
+      _selectedDay = null;
       _calculateSummary();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+    final userProvider = Provider.of<UserProvider>(context);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: const SkeuomorphicNavBar(
@@ -150,12 +307,14 @@ class _AttendancePageState extends State<AttendancePage> {
           constraints: const BoxConstraints(maxWidth: 400),
           child: Column(
             children: [
+              if (userProvider.isParent) _buildParentBanner(userProvider),
               _buildMonthSelector(),
               Expanded(
                 child: _isLoading
                     ? const Center(
                         child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
                         ),
                       )
                     : SingleChildScrollView(
@@ -165,7 +324,7 @@ class _AttendancePageState extends State<AttendancePage> {
                             const SizedBox(height: 15),
                             _buildSummaryRow(),
                             const SizedBox(height: 20),
-                            _buildCalendarCard(), 
+                            _buildCalendarCard(),
                             const SizedBox(height: 30),
                           ],
                         ),
@@ -178,11 +337,78 @@ class _AttendancePageState extends State<AttendancePage> {
     );
   }
 
+  Widget _buildParentBanner(UserProvider userProvider) {
+    final studentName = userProvider.linkedStudentName.isNotEmpty
+        ? userProvider.linkedStudentName
+        : userProvider.userName;
+    final studentId = userProvider.linkedStudentUsername.isNotEmpty
+        ? userProvider.linkedStudentUsername
+        : "";
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: royalNavy,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: royalGold.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: royalNavy.withValues(alpha: 0.2),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.family_restroom, color: royalGold, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                children: [
+                  const TextSpan(
+                    text: 'Student: ',
+                    style: TextStyle(
+                      fontFamily: 'Lato',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  TextSpan(
+                    text: studentName,
+                    style: TextStyle(
+                      fontFamily: 'Lato',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: royalGold,
+                    ),
+                  ),
+                  if (studentId.isNotEmpty)
+                    TextSpan(
+                      text: ' ($studentId)',
+                      style: const TextStyle(
+                        fontFamily: 'Lato',
+                        fontSize: 11,
+                        color: Colors.white54,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMonthSelector() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
       decoration: BoxDecoration(
-        color: royalNavy.withOpacity(0.98),
+        color: royalNavy.withValues(alpha: 0.98),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -204,7 +430,7 @@ class _AttendancePageState extends State<AttendancePage> {
                 style: TextStyle(
                   fontFamily: 'Lato',
                   fontSize: 14,
-                  color: Colors.white.withOpacity(0.5),
+                  color: Colors.white.withValues(alpha: 0.5),
                   letterSpacing: 1.2,
                 ),
               ),
@@ -224,7 +450,7 @@ class _AttendancePageState extends State<AttendancePage> {
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
         ),
         child: Icon(icon, color: Colors.white, size: 20),
       ),
@@ -239,7 +465,8 @@ class _AttendancePageState extends State<AttendancePage> {
         children: [
           _buildSummaryCard('$_presentCount', 'PRESENT', attendanceGreen),
           _buildSummaryCard('$_absentCount', 'ABSENT', attendanceRed),
-          _buildSummaryCard('$_halfDayCount', 'HALF DAY', Colors.brown.shade800),
+          _buildSummaryCard(
+              '$_halfDayCount', 'HALF DAY', Colors.brown.shade800),
         ],
       ),
     );
@@ -255,7 +482,7 @@ class _AttendancePageState extends State<AttendancePage> {
           borderRadius: BorderRadius.circular(15),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -279,7 +506,7 @@ class _AttendancePageState extends State<AttendancePage> {
                 fontFamily: 'Lato',
                 fontSize: 8,
                 fontWeight: FontWeight.w900,
-                color: Colors.grey.shade400,
+                color: Colors.grey.shade600,
                 letterSpacing: 0.5,
               ),
             ),
@@ -298,7 +525,7 @@ class _AttendancePageState extends State<AttendancePage> {
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -309,10 +536,10 @@ class _AttendancePageState extends State<AttendancePage> {
           _buildCalendarHeaders(),
           const SizedBox(height: 15),
           _buildCalendarGrid(),
-          const SizedBox(height: 25),
+          const SizedBox(height: 8),
           if (_selectedDay != null) ...[
             _buildDetailCard(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 10),
           ],
           const Divider(height: 1),
           const SizedBox(height: 15),
@@ -326,20 +553,22 @@ class _AttendancePageState extends State<AttendancePage> {
     final weekDays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: weekDays.map((day) => Expanded(
-        child: Center(
-          child: Text(
-            day,
-            style: const TextStyle(
-              fontFamily: 'Lato',
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF1B2744),
-              letterSpacing: 0.5,
-            ),
-          ),
-        ),
-      )).toList(),
+      children: weekDays
+          .map((day) => Expanded(
+                child: Center(
+                  child: Text(
+                    day,
+                    style: const TextStyle(
+                      fontFamily: 'Lato',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF1B2744),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ))
+          .toList(),
     );
   }
 
@@ -357,6 +586,7 @@ class _AttendancePageState extends State<AttendancePage> {
     }
     return GridView.count(
       shrinkWrap: true,
+      padding: EdgeInsets.zero,
       physics: const NeverScrollableScrollPhysics(),
       crossAxisCount: 7,
       mainAxisSpacing: 8,
@@ -366,14 +596,17 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Widget _buildDayCell(int day) {
-    final DateTime currentDay = DateTime(_focusedDay.year, _focusedDay.month, day);
+    final DateTime currentDay =
+        DateTime(_focusedDay.year, _focusedDay.month, day);
     final String dateKey = DateFormat('yyyy-MM-dd').format(currentDay);
     final attendance = _processedAttendance[dateKey] ?? {"status": "none"};
-    bool isSelected = _selectedDay != null && 
-                     _selectedDay!.year == currentDay.year && 
-                     _selectedDay!.month == currentDay.month && 
-                     _selectedDay!.day == currentDay.day;
+    bool isSelected = _selectedDay != null &&
+        _selectedDay!.year == currentDay.year &&
+        _selectedDay!.month == currentDay.month &&
+        _selectedDay!.day == currentDay.day;
     String status = attendance['status'] ?? 'none';
+    final bool showGoldDot = hasGoldDotAlert(attendance);
+
     Decoration decoration;
     Color textColor = Colors.white;
     if (status == 'present') {
@@ -392,37 +625,60 @@ class _AttendancePageState extends State<AttendancePage> {
         gradient: LinearGradient(
           begin: Alignment.bottomLeft,
           end: Alignment.topRight,
-          colors: [attendanceRed, attendanceRed, attendanceGreen, attendanceGreen],
+          colors: [
+            attendanceRed,
+            attendanceRed,
+            attendanceGreen,
+            attendanceGreen
+          ],
           stops: const [0.0, 0.5, 0.5, 1.0],
         ),
       );
     } else {
       decoration = BoxDecoration(
-        color: const Color(0xFFDED8CE).withOpacity(0.8), 
+        color: const Color(0xFFDED8CE).withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(4),
       );
-      textColor = const Color(0xFF1B2744).withOpacity(0.2);
+      textColor = const Color(0xFF1B2744).withValues(alpha: 0.2);
     }
+
     return GestureDetector(
       onTap: () {
         setState(() => _selectedDay = currentDay);
       },
       child: Container(
-        decoration: isSelected 
-          ? (decoration as BoxDecoration).copyWith(
-              border: Border.all(color: royalNavy, width: 2),
-            )
-          : decoration,
-        child: Center(
-          child: Text(
-            '$day',
-            style: TextStyle(
-              fontFamily: 'Lato',
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: textColor,
+        decoration: isSelected
+            ? (decoration as BoxDecoration).copyWith(
+                border: Border.all(color: royalNavy, width: 2),
+              )
+            : decoration,
+        child: Stack(
+          children: [
+            Center(
+              child: Text(
+                '$day',
+                style: TextStyle(
+                  fontFamily: 'Lato',
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
             ),
-          ),
+            if (showGoldDot)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Container(
+                  width: 5,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: royalGold,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -437,6 +693,7 @@ class _AttendancePageState extends State<AttendancePage> {
           _buildLegendItem(attendanceGreen, 'Present'),
           _buildLegendItem(attendanceRed, 'Absent'),
           _buildHalfDayLegend(),
+          _buildLegendItem(royalGold, 'Late/Early', isDot: true),
         ],
       ),
     );
@@ -458,11 +715,11 @@ class _AttendancePageState extends State<AttendancePage> {
         const SizedBox(width: 6),
         Text(
           label,
-          style: TextStyle(
+          style: const TextStyle(
             fontFamily: 'Lato',
             fontSize: 10,
             fontWeight: FontWeight.bold,
-            color: Colors.grey.shade600,
+            color: Color(0xFF2D3748),
           ),
         ),
       ],
@@ -481,7 +738,12 @@ class _AttendancePageState extends State<AttendancePage> {
             gradient: LinearGradient(
               begin: Alignment.bottomLeft,
               end: Alignment.topRight,
-              colors: [attendanceRed, attendanceRed, attendanceGreen, attendanceGreen],
+              colors: [
+                attendanceRed,
+                attendanceRed,
+                attendanceGreen,
+                attendanceGreen
+              ],
               stops: const [0.0, 0.5, 0.5, 1.0],
             ),
           ),
@@ -489,11 +751,11 @@ class _AttendancePageState extends State<AttendancePage> {
         const SizedBox(width: 6),
         Text(
           'Half Day',
-          style: TextStyle(
+          style: const TextStyle(
             fontFamily: 'Lato',
             fontSize: 10,
             fontWeight: FontWeight.bold,
-            color: Colors.grey.shade600,
+            color: Color(0xFF2D3748),
           ),
         ),
       ],
@@ -505,17 +767,17 @@ class _AttendancePageState extends State<AttendancePage> {
     final attendance = _processedAttendance[dateKey] ?? {"status": "none"};
     final String status = attendance['status'] ?? 'none';
     if (status == 'none') return const SizedBox.shrink();
-    
+
     final String? checkIn = attendance['checkIn'];
-    final String? source = attendance['source'];
+    final String? checkOut = attendance['checkOut'];
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8E0D5).withOpacity(0.6), 
+        color: const Color(0xFFE8E0D5).withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -528,11 +790,11 @@ class _AttendancePageState extends State<AttendancePage> {
                 children: [
                   Text(
                     DateFormat('EEEE').format(_selectedDay!).toUpperCase(),
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontFamily: 'Lato',
                       fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF2D3748),
                       letterSpacing: 1.0,
                     ),
                   ),
@@ -557,10 +819,11 @@ class _AttendancePageState extends State<AttendancePage> {
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade300.withOpacity(0.8),
+                        color: Colors.grey.shade400,
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.close, size: 16, color: Colors.white),
+                      child: const Icon(Icons.close,
+                          size: 16, color: Colors.white),
                     ),
                   ),
                 ],
@@ -568,10 +831,22 @@ class _AttendancePageState extends State<AttendancePage> {
             ],
           ),
           const SizedBox(height: 16),
-          _buildUnifiedTimeCard(
-            status: status,
-            time: checkIn,
-            source: source,
+          Row(
+            children: [
+              Expanded(
+                child: _buildTimeCardSideBySide(
+                  time: checkIn,
+                  isCheckIn: false,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildTimeCardSideBySide(
+                  time: checkOut,
+                  isCheckIn: true,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -579,7 +854,9 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Widget _buildStatusBadge(String status) {
-    Color color = status == 'present' ? attendanceGreen : (status == 'half-day' ? Colors.brown : attendanceRed);
+    Color color = status == 'present'
+        ? attendanceGreen
+        : (status == 'half-day' ? Colors.brown : attendanceRed);
     String label = status[0].toUpperCase() + status.substring(1);
     if (status == 'half-day') label = "Half Day";
     return Container(
@@ -588,137 +865,785 @@ class _AttendancePageState extends State<AttendancePage> {
         color: color,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: color.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3)),
+          BoxShadow(
+              color: color.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 3)),
         ],
       ),
       child: Text(
         label,
-        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+        style: const TextStyle(
+            color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
       ),
     );
   }
 
-  Widget _buildUnifiedTimeCard({
-    required String status,
+  Widget _buildTimeCardSideBySide({
     required String? time,
-    required String? source,
+    required bool isCheckIn,
   }) {
-    final bool isPresent = status == 'present' || status == 'late';
-    final Color mainColor = isPresent ? attendanceGreen : attendanceRed;
-    
-    String actionTitle = "";
-    IconData iconData;
-    
-    final String src = source?.trim().toLowerCase() ?? "";
-    
-    if (src == 'warden' || src == 'manual' || src == 'manual_override') {
-      if (isPresent) {
-        actionTitle = "TAKEN PRESENT BY WARDEN";
-        iconData = Icons.verified_rounded;
-      } else {
-        actionTitle = "MARKED ABSENT BY WARDEN";
-        iconData = Icons.gpp_bad_rounded;
-      }
-    } else if (src == 'biometric') {
-      if (isPresent) {
-        actionTitle = "BIOMETRIC PRESENT VERIFICATION";
-        iconData = Icons.fingerprint_rounded;
-      } else {
-        actionTitle = "BIOMETRIC ABSENT VERIFICATION";
-        iconData = Icons.fingerprint_rounded;
-      }
-    } else {
-      if (isPresent) {
-        actionTitle = "ATTENDANCE VERIFIED PRESENT";
-        iconData = Icons.check_circle_rounded;
-      } else {
-        actionTitle = "ATTENDANCE VERIFIED ABSENT";
-        iconData = Icons.cancel_rounded;
-      }
-    }
-
-    final String formattedTime = _formatTime12Hour(time);
+    final bool hasTime = time != null && time.isNotEmpty && time != '--:--';
+    final Color mainColor =
+        isCheckIn ? attendanceGreen : const Color(0xFFC62828);
+    final IconData iconData =
+        isCheckIn ? Icons.login_rounded : Icons.logout_rounded;
+    final String label = isCheckIn ? "IN" : "OUT";
+    final String formattedTime = formatAmPm(time);
 
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: Colors.black.withOpacity(0.02)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(iconData, color: mainColor, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Lato',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: mainColor,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hasTime ? formattedTime : '--:--',
+            style: const TextStyle(
+              fontFamily: 'Lato',
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1B2B44),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+//  Shared History Body (used by both Page & Sheet)
+// ─────────────────────────────────────────────────────────
+
+class _BiometricHistoryBody extends StatefulWidget {
+  final Map<String, Map<String, dynamic>> processedAttendance;
+  final Color royalNavy;
+  final Color royalGold;
+  final Color attendanceGreen;
+  final Color attendanceRed;
+
+  const _BiometricHistoryBody({
+    required this.processedAttendance,
+    required this.royalNavy,
+    required this.royalGold,
+    required this.attendanceGreen,
+    required this.attendanceRed,
+  });
+
+  @override
+  State<_BiometricHistoryBody> createState() => _BiometricHistoryBodyState();
+}
+
+class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
+  String _filterStatus = 'all';
+  // Selected month — initialised to latest month in initState
+  DateTime? _selectedMonth;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to the most recent month that has data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final months = _availableMonths;
+      if (months.isNotEmpty && _selectedMonth == null) {
+        setState(() => _selectedMonth = months.first);
+      }
+    });
+  }
+
+  // Build sorted, month-filtered, status-filtered entries
+  List<MapEntry<String, Map<String, dynamic>>> get _filteredEntries {
+    final all = widget.processedAttendance.entries.toList()
+      ..sort((a, b) => b.key.compareTo(a.key));
+
+    return all.where((e) {
+      // Month filter
+      if (_selectedMonth != null) {
+        try {
+          final d = DateTime.parse(e.key);
+          if (d.year != _selectedMonth!.year ||
+              d.month != _selectedMonth!.month) {
+            return false;
+          }
+        } catch (_) {
+          return false;
+        }
+      }
+      // Status filter
+      if (_filterStatus != 'all') {
+        final s = e.value['status'] ?? 'none';
+        return s == _filterStatus;
+      }
+      return true;
+    }).toList();
+  }
+
+  // All unique months from the data (sorted newest first)
+  List<DateTime> get _availableMonths {
+    final seen = <String>{};
+    final months = <DateTime>[];
+    for (final key in widget.processedAttendance.keys) {
+      try {
+        final d = DateTime.parse(key);
+        final monthKey = '${d.year}-${d.month.toString().padLeft(2, '0')}';
+        if (!seen.contains(monthKey)) {
+          seen.add(monthKey);
+          months.add(DateTime(d.year, d.month));
+        }
+      } catch (_) {}
+    }
+    months.sort((a, b) => b.compareTo(a));
+    return months;
+  }
+
+  // Stats for currently selected month (or all months)
+  Map<String, int> get _stats {
+    int present = 0, absent = 0, halfDay = 0, total = 0;
+    for (final e in widget.processedAttendance.entries) {
+      if (_selectedMonth != null) {
+        try {
+          final d = DateTime.parse(e.key);
+          if (d.year != _selectedMonth!.year ||
+              d.month != _selectedMonth!.month) {
+            continue;
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+      total++;
+      final s = e.value['status'] ?? 'none';
+      if (s == 'present') {
+        present++;
+      } else if (s == 'absent') {
+        absent++;
+      } else if (s == 'half-day') {
+        halfDay++;
+      }
+    }
+    return {
+      'total': total,
+      'present': present,
+      'absent': absent,
+      'halfDay': halfDay
+    };
+  }
+
+  String _totalHours(String? checkIn, String? checkOut) {
+    if (checkIn == null || checkOut == null) return 'N/A';
+    try {
+      final inParts = checkIn.split(':');
+      final outParts = checkOut.split(':');
+      final inMin = int.parse(inParts[0]) * 60 + int.parse(inParts[1]);
+      final outMin = int.parse(outParts[0]) * 60 + int.parse(outParts[1]);
+      final diff = outMin - inMin;
+      if (diff <= 0) return 'N/A';
+      final h = diff ~/ 60;
+      final m = diff % 60;
+      if (h == 0) return '${m}m';
+      return m == 0 ? '${h}h' : '${h}h ${m}m';
+    } catch (_) {
+      return 'N/A';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _filteredEntries;
+    final stats = _stats;
+    final userProvider = Provider.of<UserProvider>(context);
+
+    return Column(
+      children: [
+        if (userProvider.isParent) _buildParentBanner(userProvider),
+        // ── Stats Row ──
+        _buildStatsRow(stats),
+        // ── Month Selector ──
+        _buildMonthSelector(),
+        // ── Filter Chips ──
+        _buildFilterChips(),
+        // ── Column Headers ──
+        Container(
+          height: 1,
+          color: Colors.black.withValues(alpha: 0.06),
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+        ),
+        _buildColumnHeaders(),
+        // ── List ──
+        Expanded(
+          child: entries.isEmpty
+              ? _buildEmpty()
+              : ListView.builder(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.only(bottom: 30),
+                  itemCount: entries.length,
+                  itemBuilder: (_, i) => _buildHistoryRow(entries[i]),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildParentBanner(UserProvider userProvider) {
+    final studentName = userProvider.linkedStudentName.isNotEmpty
+        ? userProvider.linkedStudentName
+        : userProvider.userName;
+    final studentId = userProvider.linkedStudentUsername.isNotEmpty
+        ? userProvider.linkedStudentUsername
+        : "";
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: widget.royalNavy,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: widget.royalGold.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: widget.royalNavy.withValues(alpha: 0.2),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: mainColor.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              iconData,
-              color: mainColor,
-              size: 28,
+          Icon(Icons.family_restroom, color: widget.royalGold, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                children: [
+                  const TextSpan(
+                    text: 'Student: ',
+                    style: TextStyle(
+                      fontFamily: 'Lato',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  TextSpan(
+                    text: studentName,
+                    style: TextStyle(
+                      fontFamily: 'Lato',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: widget.royalGold,
+                    ),
+                  ),
+                  if (studentId.isNotEmpty)
+                    TextSpan(
+                      text: ' ($studentId)',
+                      style: const TextStyle(
+                        fontFamily: 'Lato',
+                        fontSize: 11,
+                        color: Colors.white54,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  actionTitle,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsRow(Map<String, int> stats) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          _statChip('${stats['total']}', 'Total', const Color(0xFF1B2744)),
+          _statDivider(),
+          _statChip('${stats['present']}', 'Present', widget.attendanceGreen),
+          _statDivider(),
+          _statChip('${stats['absent']}', 'Absent', widget.attendanceRed),
+          _statDivider(),
+          _statChip('${stats['halfDay']}', 'Half Day', Colors.brown.shade800),
+        ],
+      ),
+    );
+  }
+
+  Widget _statChip(String count, String label, Color color) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            count,
+            style: TextStyle(
+              fontFamily: 'Lato',
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Lato',
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF2D3748),
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statDivider() {
+    return Container(width: 1, height: 32, color: Colors.grey.shade200);
+  }
+
+  // ── Month/Year Dropdown Selector ──
+  Widget _buildMonthSelector() {
+    final months = _availableMonths;
+    if (months.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: widget.royalNavy,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: widget.royalNavy.withValues(alpha: 0.25),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.calendar_month, color: widget.royalGold, size: 16),
+          const SizedBox(width: 10),
+          const Text(
+            'SELECT MONTH',
+            style: TextStyle(
+              fontFamily: 'Lato',
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const Spacer(),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<DateTime?>(
+              value: _selectedMonth,
+              dropdownColor: const Color(0xFF1E2E50),
+              borderRadius: BorderRadius.circular(12),
+              icon: Icon(Icons.keyboard_arrow_down,
+                  color: widget.royalGold, size: 20),
+              style: const TextStyle(
+                fontFamily: 'Lato',
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
+              selectedItemBuilder: (context) {
+                final items = <DateTime?>[null, ...months];
+                return items
+                    .map((m) => Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            m != null
+                                ? DateFormat('MMMM yyyy').format(m)
+                                : 'All Months',
+                            style: TextStyle(
+                              fontFamily: 'Lato',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                              color: widget.royalGold,
+                            ),
+                          ),
+                        ))
+                    .toList();
+              },
+              items: [
+                DropdownMenuItem<DateTime?>(
+                  value: null,
+                  child: Text(
+                    'All Months',
+                    style: TextStyle(
+                      fontFamily: 'Lato',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                  ),
+                ),
+                ...months.map((m) => DropdownMenuItem<DateTime?>(
+                      value: m,
+                      child: Text(
+                        DateFormat('MMMM yyyy').format(m),
+                        style: TextStyle(
+                          fontFamily: 'Lato',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: (_selectedMonth != null &&
+                                  _selectedMonth!.year == m.year &&
+                                  _selectedMonth!.month == m.month)
+                              ? widget.royalGold
+                              : Colors.white,
+                        ),
+                      ),
+                    )),
+              ],
+              onChanged: (val) => setState(() => _selectedMonth = val),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChips() {
+    const filters = [
+      {'key': 'all', 'label': 'All'},
+      {'key': 'present', 'label': 'Present'},
+      {'key': 'absent', 'label': 'Absent'},
+      {'key': 'half-day', 'label': 'Half Day'},
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Row(
+        children: filters.map((f) {
+          final isActive = _filterStatus == f['key'];
+          Color activeColor = widget.royalNavy;
+          if (f['key'] == 'present') activeColor = widget.attendanceGreen;
+          if (f['key'] == 'absent') activeColor = widget.attendanceRed;
+          if (f['key'] == 'half-day') activeColor = Colors.brown.shade700;
+
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _filterStatus = f['key']!),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.symmetric(vertical: 7),
+                decoration: BoxDecoration(
+                  color: isActive ? activeColor : Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isActive ? activeColor : Colors.grey.shade300,
+                    width: 1.5,
+                  ),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: activeColor.withValues(alpha: 0.25),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          )
+                        ]
+                      : [],
+                ),
+                child: Text(
+                  f['label']!,
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     fontFamily: 'Lato',
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
-                    color: mainColor,
-                    letterSpacing: 0.5,
+                    color: isActive ? Colors.white : const Color(0xFF2D3748),
+                    letterSpacing: 0.2,
                   ),
                 ),
-                const SizedBox(height: 4),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildColumnHeaders() {
+    const headerStyle = TextStyle(
+      fontFamily: 'Lato',
+      fontSize: 10,
+      fontWeight: FontWeight.w900,
+      color: Color(0xFF1B2744), // Thick dark navy for maximum readability
+      letterSpacing: 0.8,
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
+      color: const Color(0xFFE2DACD), // Rich cream header bar contrast
+      child: Row(
+        children: const [
+          SizedBox(width: 75, child: Text('DATE', style: headerStyle)),
+          SizedBox(
+              width: 75,
+              child: Text('OUT TIME',
+                  style: headerStyle, textAlign: TextAlign.center)),
+          SizedBox(
+              width: 75,
+              child: Text('IN TIME',
+                  style: headerStyle, textAlign: TextAlign.center)),
+          Expanded(
+              child:
+                  Text('TOTAL', style: headerStyle, textAlign: TextAlign.center)),
+          SizedBox(
+              width: 65,
+              child:
+                  Text('STATUS', style: headerStyle, textAlign: TextAlign.right)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryRow(MapEntry<String, Map<String, dynamic>> entry) {
+    final dateStr = entry.key;
+    final data = entry.value;
+    final status = data['status'] ?? 'none';
+    final checkIn = data['checkIn'] as String?;
+    final checkOut = data['checkOut'] as String?;
+    final totalHrs = _totalHours(checkIn, checkOut);
+
+    DateTime? parsedDate;
+    try {
+      parsedDate = DateTime.parse(dateStr);
+    } catch (_) {}
+
+    final dayStr = parsedDate != null ? DateFormat('d').format(parsedDate) : '';
+    final monthStr = parsedDate != null
+        ? DateFormat('MMM').format(parsedDate).toUpperCase()
+        : '';
+    final weekDayStr = parsedDate != null
+        ? DateFormat('EEE').format(parsedDate).toUpperCase()
+        : '';
+
+    Color statusColor;
+    String statusLabel;
+    Color rowBg;
+    switch (status) {
+      case 'present':
+        statusColor = widget.attendanceGreen;
+        statusLabel = 'PRESENT';
+        rowBg = const Color(0xFFF5F0E8);
+        break;
+      case 'absent':
+        statusColor = widget.attendanceRed;
+        statusLabel = 'ABSENT';
+        rowBg = const Color(0xFFFFF3F3);
+        break;
+      case 'half-day':
+        statusColor = Colors.brown.shade800;
+        statusLabel = 'HALF DAY';
+        rowBg = const Color(0xFFFFF8F0);
+        break;
+      default:
+        statusColor = Colors.grey.shade600;
+        statusLabel = 'N/A';
+        rowBg = const Color(0xFFF5F0E8);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: rowBg,
+        border: Border(
+          bottom: BorderSide(color: Colors.black.withValues(alpha: 0.08)),
+          left: BorderSide(color: statusColor, width: 4),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 75,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$dayStr ',
+                        style: TextStyle(
+                          fontFamily: 'Lato',
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: widget.royalNavy,
+                        ),
+                      ),
+                      TextSpan(
+                        text: monthStr,
+                        style: TextStyle(
+                          fontFamily: 'Lato',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: widget.royalGold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 Text(
-                  formattedTime,
+                  weekDayStr,
                   style: const TextStyle(
                     fontFamily: 'Lato',
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1B2B44),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF2D3748),
+                    letterSpacing: 0.5,
                   ),
                 ),
               ],
             ),
           ),
+          SizedBox(
+            width: 75,
+            child: Text(
+              formatAmPm(checkIn),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Lato',
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: checkIn != null
+                    ? const Color(0xFF1E7E34)
+                    : const Color(0xFF4A5568),
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 75,
+            child: Text(
+              formatAmPm(checkOut),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Lato',
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: checkOut != null
+                    ? const Color(0xFFD32F2F)
+                    : const Color(0xFF4A5568),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              totalHrs,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'Lato',
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF1A202C),
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 65,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: statusColor.withValues(alpha: 0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  statusLabel,
+                  style: const TextStyle(
+                    fontFamily: 'Lato',
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  String _formatTime12Hour(String? timeStr) {
-    if (timeStr == null || timeStr.isEmpty || timeStr == '--:--') return '--:--';
-    try {
-      final parts = timeStr.split(':');
-      if (parts.isEmpty) return timeStr;
-      int hour = int.parse(parts[0]);
-      int minute = parts.length > 1 ? int.parse(parts[1]) : 0;
-      
-      final String period = hour >= 12 ? 'PM' : 'AM';
-      hour = hour % 12;
-      if (hour == 0) hour = 12;
-      
-      final String minStr = minute.toString().padLeft(2, '0');
-      final String hrStr = hour.toString().padLeft(2, '0');
-      
-      return '$hrStr:$minStr $period';
-    } catch (_) {
-      return timeStr;
-    }
+  Widget _buildEmpty() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.history_toggle_off, size: 52, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          const Text(
+            'No records found',
+            style: TextStyle(
+              fontFamily: 'Lato',
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF2D3748),
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Try a different month or filter',
+            style: TextStyle(
+              fontFamily: 'Lato',
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF4A5568),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

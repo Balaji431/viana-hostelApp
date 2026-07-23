@@ -30,7 +30,7 @@ try {
               FROM request1 r
               LEFT JOIN users stu ON r.student_id = stu.id
               LEFT JOIN profile p ON stu.username = p.reg_no
-              WHERE r.student_id = ?
+              WHERE r.student_id = ? AND r.request_type != 'General Inquiry'
               ORDER BY r.updated_at DESC";
 
     $stmt = $db->prepare($query);

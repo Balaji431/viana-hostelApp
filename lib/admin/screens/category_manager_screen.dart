@@ -298,8 +298,9 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
     if (selectedIcon.contains('.')) {
       selectedIcon = selectedIcon.split('.').last;
     }
-    if (selectedIcon.contains('group')) selectedIcon = 'group';
-    else if (selectedIcon.contains('security') || selectedIcon.contains('shield')) selectedIcon = 'shield';
+    if (selectedIcon.contains('group')) {
+      selectedIcon = 'group';
+    } else if (selectedIcon.contains('security') || selectedIcon.contains('shield')) selectedIcon = 'shield';
     else if (selectedIcon.contains('maintenance') || selectedIcon.contains('build') || selectedIcon.contains('0e148')) selectedIcon = 'build';
     else if (!availableIcons.any((i) => i['name'] == selectedIcon)) {
       // Fallback to group if icon not found in available list

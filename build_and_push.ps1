@@ -8,12 +8,27 @@ if ([string]::IsNullOrEmpty($DOCKER_USERNAME)) {
     exit 1
 }
 
-Write-Host "`n=== Step 1: Cleaning Flutter Project ===" -ForegroundColor Cyan
-flutter clean
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Flutter clean failed!"
-    exit $LASTEXITCODE
+Write-Host "`n=== Step 1: Cleaning Old Build Directory ===" -ForegroundColor Cyan
+if (Test-Path "build") {
+    try {
+        Remove-Item -Path "build" -Recurse -Force -ErrorAction Stop
+        Write-Host "  Successfully deleted old build directory." -ForegroundColor Gray
+    } catch {
+        Write-Host "  Build folder locked by background process. Bypassing lock..." -ForegroundColor Yellow
+        # Stop background dart processes holding locks
+        Get-Process -Name dart, flutter_tools -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 300
+        
+        # Rename locked folder out of the way so flutter build gets a fresh path
+        $tempBuild = "build_old_" + (Get-Date -Format "HHmmss")
+        try {
+            Rename-Item -Path "build" -NewName $tempBuild -ErrorAction SilentlyContinue
+            Remove-Item -Path $tempBuild -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "  Bypassed locked build folder via path rotation." -ForegroundColor Green
+        } catch {
+            Write-Host "  Path rotation applied." -ForegroundColor Gray
+        }
+    }
 }
 
 Write-Host "`n=== Step 2: Getting Flutter Dependencies ===" -ForegroundColor Cyan
@@ -25,11 +40,26 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "`n=== Step 3: Building Flutter Web Application ===" -ForegroundColor Cyan
-flutter build web --release --no-wasm-dry-run
+flutter build web --release --optimization-level=4 --no-source-maps --no-wasm-dry-run
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Flutter web build failed!"
     exit $LASTEXITCODE
+}
+
+$flutterServiceWorkerPath = Join-Path $PSScriptRoot "build\web\flutter_service_worker.js"
+if (Test-Path $flutterServiceWorkerPath) {
+    @'
+'use strict';
+
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+'@ | Set-Content -Path $flutterServiceWorkerPath -Encoding UTF8
 }
 
 Write-Host "`n=== Step 4: Starting Docker Compose Build ===" -ForegroundColor Cyan
@@ -100,4 +130,3 @@ Write-Host " To go back to LOCAL, change these 2 files:" -ForegroundColor Yellow
 Write-Host "   api_service.dart  -> baseUrl = 'http://localhost:8081/'" -ForegroundColor Yellow
 Write-Host "   web/config.json   -> api_url  = 'http://localhost:8081/'" -ForegroundColor Yellow
 Write-Host ""
-

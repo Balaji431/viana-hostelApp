@@ -40,7 +40,7 @@ try {
     $fetch_error = "";
 
     if ($biometric_id) {
-        $college_api_url = "http://172.25.15.20:8084/hostel-project/api/vaigai-server.php?UserId=" . urlencode($biometric_id);
+        $college_api_url = "https://stay.saveetha.com/attendance/vaigai_attendance.php?UserId=" . urlencode($biometric_id);
         $raw_response = false;
 
         // Try cURL
@@ -85,9 +85,15 @@ try {
             if (is_array($attendance_logs)) {
                 $grouped = [];
                 foreach ($attendance_logs as $log) {
-                    $date = $log['date'] ?? null;
-                    $time = $log['time'] ?? null;
-                    if ($date && $time) $grouped[$date][] = $time;
+                    if (isset($log['LogDate']['date'])) {
+                        $datetime_str = $log['LogDate']['date'];
+                        $parts = explode(' ', $datetime_str);
+                        if (count($parts) >= 2) {
+                            $date = $parts[0];
+                            $time = explode('.', $parts[1])[0]; // Strip microseconds
+                            $grouped[$date][] = $time;
+                        }
+                    }
                 }
 
                 foreach ($grouped as $date => $times) {

@@ -18,6 +18,7 @@ dependencies:
   shared_preferences: ^2.5.4
   uuid: ^4.2.1
   url_launcher: ^6.3.0
+  google_sign_in: ^6.2.1
 
   # Hive for local caching
   hive: ^2.2.3
@@ -27,11 +28,16 @@ dependencies:
   file_picker: ^8.0.0
   csv: ^6.0.0
 
+  # Image picker for custom wallpapers
+  image_picker: ^1.1.2
+
   # DataTable2 for desktop data grids
   data_table_2: ^2.5.15
 
   # 🔥 Firebase (Xcode 16 compatible versions)
   firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
   firebase_messaging: ^15.1.4
   flutter_local_notifications: ^17.1.2
   
@@ -50,3 +56,4 @@ flutter:
     - assets/images/
     - assets/images/logo.jpg
     - assets/images/login_bg.jpg
+    - assets/wallpapers/

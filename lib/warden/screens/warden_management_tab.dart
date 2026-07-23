@@ -16,11 +16,15 @@ class WardenManagementTab extends StatefulWidget {
   State<WardenManagementTab> createState() => _WardenManagementTabState();
 }
 
-class _WardenManagementTabState extends State<WardenManagementTab> {
+class _WardenManagementTabState extends State<WardenManagementTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   int _activeSubTab = 0; // 0: Conduct, 1: Payments, 2: Renewals
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final user = context.watch<UserProvider>();
     final showInternalAppBar = (user.role == UserRole.warden || user.role == UserRole.admin);
 
@@ -43,11 +47,24 @@ class _WardenManagementTabState extends State<WardenManagementTab> {
                 child: Container(
                   color: const Color(0xFFF9F6F1),
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  child: Text(
-                    user.role == UserRole.admin 
-                        ? 'Fee Management' 
-                        : (_activeSubTab == 0 ? 'Conduct Records' : (_activeSubTab == 1 ? 'Payment History' : 'Renewal Logs')),
-                    style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                  child: Row(
+                    children: [
+                      if (user.role != UserRole.admin && _activeSubTab == 0) ...[
+                        const Icon(Icons.shield_outlined, size: 18, color: Color(0xFF1B2B48)),
+                        const SizedBox(width: 8),
+                      ],
+                      Text(
+                        user.role == UserRole.admin 
+                            ? 'Fee Management' 
+                            : (_activeSubTab == 0 ? 'Student Conduct' : (_activeSubTab == 1 ? 'Payment History' : 'Renewal Logs')),
+                        style: TextStyle(
+                          fontSize: (user.role != UserRole.admin && _activeSubTab == 0) ? 15 : 12,
+                          color: (user.role != UserRole.admin && _activeSubTab == 0) ? const Color(0xFF1B2B48) : Colors.grey,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: (user.role != UserRole.admin && _activeSubTab == 0) ? null : 1.2,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -81,6 +98,20 @@ class _WardenManagementTabState extends State<WardenManagementTab> {
     String name = user.userName;
     String initials = name.isNotEmpty ? name.split(' ').where((s)=>s.isNotEmpty).map((l)=>l[0]).take(2).join().toUpperCase() : "?";
     
+    List<String> assignmentParts = [];
+    if (user.hostelName.isNotEmpty && user.hostelName != 'N/A') {
+      assignmentParts.add(user.hostelName);
+    }
+    if (user.block.isNotEmpty && user.block != 'N/A') {
+      assignmentParts.add("${user.block} Floor");
+    }
+    if (user.wing.isNotEmpty && user.wing != 'N/A' && user.wing != '') {
+      assignmentParts.add("${user.wing} Wing");
+    }
+    String assignmentText = assignmentParts.isNotEmpty 
+        ? assignmentParts.join(' - ')
+        : "";
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 25),
       decoration: const BoxDecoration(
@@ -94,15 +125,26 @@ class _WardenManagementTabState extends State<WardenManagementTab> {
             child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
           ),
           const SizedBox(width: 15),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(name, style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 18, color: Colors.white)),
-              Text(
-                (user.institution.isNotEmpty && user.institution != 'N/A' ? user.institution : "ID: ${user.username}"), 
-                style: SkeuomorphicStyles.latoBody.copyWith(fontSize: 13, color: Colors.white70)
-              ),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 18, color: Colors.white), overflow: TextOverflow.ellipsis),
+                Text(
+                  (user.institution.isNotEmpty && user.institution != 'N/A' ? user.institution : "ID: ${user.username}"), 
+                  style: SkeuomorphicStyles.latoBody.copyWith(fontSize: 13, color: Colors.white70),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (assignmentText.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    "Assigned: $assignmentText",
+                    style: SkeuomorphicStyles.latoBody.copyWith(fontSize: 12, color: const Color(0xFFD4AF37), fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
@@ -135,9 +177,9 @@ class _WardenManagementTabState extends State<WardenManagementTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: active 
-          ? BoxDecoration(gradient: SkeuomorphicColors.goldGlossyGradient, borderRadius: BorderRadius.circular(20), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))])
-          : BoxDecoration(color: Colors.black.withOpacity(0.05), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.black12)),
-        child: Text(label, style: TextStyle(color: active ? Colors.white : Colors.grey, fontWeight: FontWeight.bold, fontSize: 13)),
+          ? BoxDecoration(gradient: SkeuomorphicColors.goldGlossyGradient, borderRadius: BorderRadius.circular(10), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))])
+          : BoxDecoration(color: const Color(0xFFF0EFEA), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.black12)),
+        child: Text(label, style: TextStyle(color: active ? const Color(0xFF1B2B48) : Colors.black54, fontWeight: FontWeight.bold, fontSize: 13)),
       ),
     );
   }
@@ -161,6 +203,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
   List<Map<String, dynamic>> _students = [];
   bool _isLoading = true;
   String _selectedFilter = 'All';
+  String _searchQuery = '';
 
   @override 
   void initState() { 
@@ -186,16 +229,74 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
   @override
   Widget build(BuildContext context) {
     final filtered = _students.where((s) {
-      if (_selectedFilter == 'All') return true;
-      return (s['conduct'] ?? 'Good').toString().toLowerCase() == _selectedFilter.toLowerCase();
+      final room = s['room_no'];
+      final isCheckedOut = room == null || room.toString().isEmpty || room.toString().toLowerCase() == 'unallocated';
+
+      // 1. Filter by search query
+      if (_searchQuery.isNotEmpty) {
+        final query = _searchQuery.toLowerCase();
+        final name = (s['full_name'] ?? s['name'] ?? '').toString().toLowerCase();
+        final regNo = (s['register_number'] ?? s['reg_no'] ?? '').toString().toLowerCase();
+        final roomNo = (s['room_no'] ?? '').toString().toLowerCase();
+        if (!name.contains(query) && !regNo.contains(query) && !roomNo.contains(query)) {
+          return false;
+        }
+      }
+
+      // 2. Filter by status pill
+      if (_selectedFilter == 'Checked-out') {
+        return isCheckedOut;
+      } else if (_selectedFilter == 'All') {
+        return true;
+      } else {
+        if (isCheckedOut) return false;
+        return (s['conduct'] ?? 'Good').toString().toLowerCase() == _selectedFilter.toLowerCase();
+      }
     }).toList();
 
     return SliverMainAxisGroup(
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-            child: _buildFilterPills(),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10).copyWith(top: 15),
+            child: TextField(
+              onChanged: (val) => setState(() => _searchQuery = val),
+              decoration: InputDecoration(
+                hintText: 'Search name or room...',
+                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Colors.grey.shade200),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFD4AF37)),
+                ),
+              ),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildFilterPills(),
+                const SizedBox(height: 10),
+                Text(
+                  '${filtered.length} students',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey, fontFamily: 'Lato'),
+                ),
+              ],
+            ),
           ),
         ),
         if (_isLoading)
@@ -225,8 +326,8 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
             child: Container(
               margin: const EdgeInsets.only(right: 10),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(color: active ? _getColor(f) : Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: active ? Colors.transparent : Colors.black12)),
-              child: Text(f, style: TextStyle(color: active ? Colors.white : _getColor(f), fontSize: 12, fontWeight: FontWeight.bold)),
+              decoration: _getFilterDecoration(f, active),
+              child: Text(f, style: _getFilterTextStyle(f, active)),
             ),
           );
         }).toList(),
@@ -234,11 +335,71 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     );
   }
 
+  BoxDecoration _getFilterDecoration(String f, bool active) {
+    final val = f.trim().toLowerCase();
+    if (val == 'all') {
+      return BoxDecoration(
+        color: active ? const Color(0xFF1B2B48) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF1B2B48), width: 1.2),
+      );
+    }
+    Color color;
+    Color borderColor;
+    if (val == 'good') {
+      color = const Color(0xFF2E7D32);
+      borderColor = const Color(0xFFA5D6A7);
+    } else if (val == 'satisfactory') {
+      color = const Color(0xFFE65100);
+      borderColor = const Color(0xFFFFCC80);
+    } else if (val == 'poor') {
+      color = const Color(0xFFC62828);
+      borderColor = const Color(0xFFEF9A9A);
+    } else {
+      color = Colors.grey;
+      borderColor = Colors.grey.shade300;
+    }
+
+    return BoxDecoration(
+      color: active ? color : Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: borderColor, width: 1.2),
+    );
+  }
+
+  TextStyle _getFilterTextStyle(String f, bool active) {
+    final val = f.trim().toLowerCase();
+    if (val == 'all') {
+      return TextStyle(
+        color: active ? Colors.white : const Color(0xFF1B2B48),
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+      );
+    }
+    Color color;
+    if (val == 'good') {
+      color = const Color(0xFF2E7D32);
+    } else if (val == 'satisfactory') {
+      color = const Color(0xFFE65100);
+    } else if (val == 'poor') {
+      color = const Color(0xFFC62828);
+    } else {
+      color = Colors.grey;
+    }
+
+    return TextStyle(
+      color: active ? Colors.white : color,
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+    );
+  }
+
   Color _getColor(String f) {
     final val = f.trim().toLowerCase();
-    if (val == 'good') return Colors.green;
-    if (val == 'satisfactory') return Colors.orange;
-    if (val == 'poor') return Colors.red;
+    if (val == 'good') return const Color(0xFF2E7D32);
+    if (val == 'satisfactory') return const Color(0xFFE65100);
+    if (val == 'poor') return const Color(0xFFC62828);
+    if (val == 'checked-out') return Colors.purple;
     return const Color(0xFF1B2B48);
   }
 
@@ -247,6 +408,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     String room = student['room_no'] ?? 'N/A';
     String conduct = student['conduct'] ?? 'Good';
     String initials = name.isNotEmpty ? name.split(' ').where((s)=>s.isNotEmpty).map((l)=>l[0]).take(2).join().toUpperCase() : "?";
+    bool isCheckedOut = room == null || room.isEmpty || room.toLowerCase() == 'unallocated';
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -265,7 +427,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
           child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ),
         title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-        subtitle: Text('Room $room'),
+        subtitle: Text(isCheckedOut ? 'Checked-out / Deallocated' : 'Room $room', style: TextStyle(color: isCheckedOut ? Colors.red.shade700 : Colors.grey.shade600, fontWeight: isCheckedOut ? FontWeight.bold : null)),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(color: _getColor(conduct).withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
@@ -522,7 +684,11 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
     if (mounted) {
       setState(() {
         if (response['success'] == true || response['status'] == 'success') {
-          _renewals = List<Map<String, dynamic>>.from(response['data'] ?? []);
+          final List rawList = response['data'] ?? [];
+          _renewals = rawList
+              .map<Map<String, dynamic>>((r) => Map<String, dynamic>.from(r))
+              .where((r) => (r['status'] ?? '').toString().toLowerCase() == 'pending')
+              .toList();
         }
         _isLoading = false;
       });

@@ -28,7 +28,7 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
     try {
       final user = context.read<UserProvider>();
       final response = await ApiService.getRoomChangeRequests(
-        status: _selectedStatus == 'all' ? null : _selectedStatus,
+        status: _selectedStatus,
         wardenUsername: user.username,
       );
       if (response['success'] == true) {

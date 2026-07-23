@@ -9,9 +9,9 @@ if (file_exists($secrets_file)) {
     $secrets = include($secrets_file);
 }
 
-define('VSTAAY_API_KEY', $secrets['VSTAAY_API_KEY'] ?? 'BGNVLg7dC0/svRNIl08Q7fnQtvKIe9Zl11VJmz6ciGQ=');
-define('VSTUDY_CLIENT_ID', $secrets['VSTUDY_CLIENT_ID'] ?? 'client_51e2de18e4a27a525e2fd17a');
-define('VSTUDY_CLIENT_SECRET', $secrets['VSTUDY_CLIENT_SECRET'] ?? 'secret_7f8fdb2dc219dd64be8d496201590db3bd18c8fe6b1e9faf');
+define('VSTAAY_API_KEY', getenv('VSTAAY_API_KEY') ?: ($secrets['VSTAAY_API_KEY'] ?? ''));
+define('VSTUDY_CLIENT_ID', getenv('VSTUDY_CLIENT_ID') ?: ($secrets['VSTUDY_CLIENT_ID'] ?? ''));
+define('VSTUDY_CLIENT_SECRET', getenv('VSTUDY_CLIENT_SECRET') ?: ($secrets['VSTUDY_CLIENT_SECRET'] ?? ''));
 define('VSTUDY_PAYMENT_API_URL', 'https://vstudy.saveetha.com/api/hostel-applications/paid');
-?>
-
+define('EXTERNAL_EMP_API_URL', getenv('EXTERNAL_EMP_API_URL') ?: ($secrets['EXTERNAL_EMP_API_URL'] ?? 'https://360.saveetha.com/api/external/get-emp-lists.php'));
+define('EXTERNAL_EMP_API_KEY', getenv('EXTERNAL_EMP_API_KEY') ?: ($secrets['EXTERNAL_EMP_API_KEY'] ?? ''));

@@ -4,6 +4,7 @@ import '../core/providers/hierarchical_hostel_provider.dart';
 import 'fee_manager_screen.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 import '../core/styles.dart';
+import '../core/api_service.dart';
 
 class HostelFeeSelectorScreen extends StatefulWidget {
   final bool isEmbedded;
@@ -15,6 +16,7 @@ class HostelFeeSelectorScreen extends StatefulWidget {
 
 class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
   List<dynamic> _hostels = [];
+  Map<String, int> _roomCounts = {};
   bool _isLoading = true;
 
   @override
@@ -30,15 +32,30 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
     try {
       final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
       await provider.loadHostels();
-      setState(() => _hostels = provider.hostels.map((h) => {
-        'id': h.id,
-        'name': h.name,
-        'campus': h.campus,
-      }).toList());
+      
+      final summaryRes = await ApiService.getExternalFeesSummary();
+      Map<String, int> counts = {};
+      if (summaryRes['success']) {
+        final data = summaryRes['data'] as Map<String, dynamic>;
+        data.forEach((k, v) => counts[k] = v as int);
+      }
+      
+      if (mounted) {
+        setState(() {
+          _hostels = provider.hostels.map((h) => {
+            'id': h.id,
+            'name': h.name,
+            'campus': h.campus,
+          }).toList();
+          _roomCounts = counts;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint("Load hostels error: $e");
-    } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -58,8 +75,9 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
                   return Container(
                     margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: const Color(0xFFFAF6EE),
                       borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFE8E0D5), width: 1),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.05),
@@ -79,12 +97,31 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
                         child: const Icon(Icons.apartment, color: Color(0xFF1A2744), size: 28),
                       ),
                       title: Text(
-                        hostel['name'] ?? 'Unknown Hostel',
+                        () {
+                          final name = hostel['name'] ?? 'Unknown Hostel';
+                          return name.toLowerCase().contains('hostel') ? name : '$name Hostel';
+                        }(),
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1A2744)),
                       ),
-                      subtitle: Text(
-                        'ID: ${hostel['id']} | Campus: ${hostel['campus'] ?? 'N/A'}',
-                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Builder(builder: (context) {
+                          final name = hostel['name'] ?? '';
+                          // Fuzzy lookup: try exact, then add/strip 'Hostel'
+                          int count = _roomCounts[name] ?? 0;
+                          if (count == 0) {
+                            final nameWithHostel = name.endsWith('Hostel') ? name : '$name Hostel';
+                            count = _roomCounts[nameWithHostel] ?? 0;
+                          }
+                          if (count == 0) {
+                            final nameWithoutHostel = name.replaceAll(RegExp(r'\s*Hostel\s*$', caseSensitive: false), '').trim();
+                            count = _roomCounts[nameWithoutHostel] ?? 0;
+                          }
+                          return Text(
+                            'Campus: ${hostel['campus'] ?? 'N/A'}\nRoom Types: $count',
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.4),
+                          );
+                        }),
                       ),
                       trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
                       onTap: () {

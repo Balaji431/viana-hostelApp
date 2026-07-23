@@ -21,7 +21,10 @@ class MaintenanceHomeTab extends StatefulWidget {
   State<MaintenanceHomeTab> createState() => _MaintenanceHomeTabState();
 }
 
-class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> {
+class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> _announcements = [];
   bool _isLoadingAnnouncements = true;
   Timer? _refreshTimer;
@@ -91,6 +94,7 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final user = context.watch<UserProvider>();
 
     return Scaffold(

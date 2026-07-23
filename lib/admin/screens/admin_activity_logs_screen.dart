@@ -12,7 +12,10 @@ class AdminActivityLogsScreen extends StatefulWidget {
   State<AdminActivityLogsScreen> createState() => _AdminActivityLogsScreenState();
 }
 
-class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
+class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   int _activeTab = 0; // 0: Complaints, 1: Feedback
   List<Map<String, dynamic>> _complaints = [];
   List<Map<String, dynamic>> _feedbacks = [];
@@ -47,6 +50,7 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(

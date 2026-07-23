@@ -667,7 +667,7 @@ class _RoomEditDialogState extends State<RoomEditDialog> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: _selectedType,
+                        initialValue: _selectedType,
                         hint: const Text('Select Room Type'),
                         items: widget.roomTypes.map((t) => DropdownMenuItem(value: t['name'].toString(), child: Text(t['name'].toString()))).toList(),
                         onChanged: (v) => setState(() {
@@ -777,7 +777,7 @@ class RoomDataTableSource extends DataTableSource {
           SizedBox(
             width: double.infinity,
             child: DropdownButtonFormField<String>(
-              value: dropdownValue,
+              initialValue: dropdownValue,
               isExpanded: true,
               decoration: InputDecoration(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -815,7 +815,7 @@ class RoomDataTableSource extends DataTableSource {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     );
-                  }).toList(),
+                  }),
                 ];
               },
               items: [
@@ -832,7 +832,7 @@ class RoomDataTableSource extends DataTableSource {
                       style: const TextStyle(fontSize: 13),
                     ),
                   );
-                }).toList(),
+                }),
               ],
               onChanged: (newValue) => onRoomTypeChanged(r, newValue ?? 'Not Assigned'),
             ),

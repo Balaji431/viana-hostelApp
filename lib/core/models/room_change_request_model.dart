@@ -85,9 +85,9 @@ class RoomChangeRequest {
       processedBy: processedBy ?? this.processedBy,
       remarks: remarks ?? this.remarks,
       requestedRoomType: requestedRoomType ?? this.requestedRoomType,
-      amountToPay: this.amountToPay,
-      paymentStatus: this.paymentStatus,
-      reservedUntil: this.reservedUntil,
+      amountToPay: amountToPay,
+      paymentStatus: paymentStatus,
+      reservedUntil: reservedUntil,
     );
   }
 

@@ -88,7 +88,24 @@ function logAudit($userId = null, $username = null, $role = null, $action = '', 
 
         $ipAddress = getClientIp();
 
-        $stmt = $pdo->prepare("INSERT INTO audit_logs (user_id, username, role, action, module_name, old_value, new_value, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        // Determine target table based on role
+        $targetTable = 'admin_audit_logs'; // Default
+        if ($role !== null) {
+            $r = strtolower(trim($role));
+            if ($r === 'warden' || $r === 'main_warden' || $r === 'warden1') {
+                $targetTable = 'warden_audit_logs';
+            } elseif ($r === 'security') {
+                $targetTable = 'security_audit_logs';
+            } elseif ($r === 'maintenance') {
+                $targetTable = 'maintenance_audit_logs';
+            } elseif ($r === 'student' || $r === 'parent') {
+                $targetTable = 'student_audit_logs';
+            } elseif ($r === 'admin' || $r === 'admin1' || strpos($r, 'admin') !== false) {
+                $targetTable = 'admin_audit_logs';
+            }
+        }
+
+        $stmt = $pdo->prepare("INSERT INTO `$targetTable` (user_id, username, role, action, module_name, old_value, new_value, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$userId, $username, $role, $action, $moduleName, $oldValue, $newValue, $ipAddress]);
         return true;
     } catch (Exception $e) {

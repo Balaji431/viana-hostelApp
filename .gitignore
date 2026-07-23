@@ -65,4 +65,4 @@ hostel_backend/token_debug.log
 
 # Uploads and temporary runtime cache
 /hostel_backend/uploads/
-
+.env

@@ -24,15 +24,15 @@ class Database {
             $secrets = include($secrets_file);
         }
 
-        $this->host = $secrets['DB_HOST'] ?? getenv('DB_HOST') ?? "db";
-        $this->db_name = $secrets['DB_NAME'] ?? getenv('DB_NAME') ?? "stay_simats";
-        $this->username = $secrets['DB_USER'] ?? getenv('DB_USER') ?? "root";
-        $this->password = $secrets['DB_PASS'] ?? getenv('DB_PASS') ?? "vstay2026";
-        $this->port = (int)($secrets['DB_PORT'] ?? getenv('DB_PORT') ?? 3306);
+        $this->host = getenv('DB_HOST') ?: ($secrets['DB_HOST'] ?? "db");
+        $this->db_name = getenv('DB_NAME') ?: ($secrets['DB_NAME'] ?? "stay_simats");
+        $this->username = getenv('DB_USER') ?: ($secrets['DB_USER'] ?? "root");
+        $this->password = getenv('DB_PASS') ?: ($secrets['DB_PASS'] ?? "");
+        $this->port = (int)(getenv('DB_PORT') ?: ($secrets['DB_PORT'] ?? 3306));
 
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' || gethostbyname('db') === 'db') {
-            $this->host = $secrets['DB_HOST_LOCAL'] ?? "127.0.0.1";
-            $this->port = (int)($secrets['DB_PORT_LOCAL'] ?? 3307);
+            $this->host = getenv('DB_HOST_LOCAL') ?: ($secrets['DB_HOST_LOCAL'] ?? "127.0.0.1");
+            $this->port = (int)(getenv('DB_PORT_LOCAL') ?: ($secrets['DB_PORT_LOCAL'] ?? 3307));
         }
     }
 

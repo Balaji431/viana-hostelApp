@@ -20,8 +20,8 @@ class AppLogger {
   }
 
   static bool get _shouldLog {
-    if (!_isProduction) {
-      // Allow all logs in development/localhost environment
+    if (kDebugMode || !_isProduction) {
+      // Always allow terminal logs in debug mode and dev environment
       return true;
     }
     // Production environment: only allow logs for the developer's email

@@ -21,9 +21,16 @@ try {
         exit();
     }
 
-    // Fetch logs ordered by created_at DESC
-    $query = "SELECT id, user_id, username, role, action, module_name, old_value, new_value, ip_address, created_at 
-              FROM audit_logs 
+    // Fetch logs from all role-based tables ordered by created_at DESC
+    $query = "SELECT id, user_id, username, role, action, module_name, old_value, new_value, ip_address, created_at FROM admin_audit_logs 
+              UNION ALL 
+              SELECT id, user_id, username, role, action, module_name, old_value, new_value, ip_address, created_at FROM warden_audit_logs 
+              UNION ALL 
+              SELECT id, user_id, username, role, action, module_name, old_value, new_value, ip_address, created_at FROM security_audit_logs 
+              UNION ALL 
+              SELECT id, user_id, username, role, action, module_name, old_value, new_value, ip_address, created_at FROM maintenance_audit_logs 
+              UNION ALL 
+              SELECT id, user_id, username, role, action, module_name, old_value, new_value, ip_address, created_at FROM student_audit_logs 
               ORDER BY created_at DESC 
               LIMIT 500";
     

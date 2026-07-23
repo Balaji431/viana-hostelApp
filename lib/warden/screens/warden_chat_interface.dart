@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
 import '../../shared/category_provider.dart';
+import 'package:flutter/services.dart';
 import '../../core/api_service.dart';
 import '../../core/notification_service.dart';
 import '../../core/models/request_model.dart';
@@ -35,6 +36,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
   String _currentFilter = 'All';
   bool _isTyping = false;
   bool _isSending = false; 
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -190,7 +192,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
   void _sendMessage() async {
     if (_messageController.text.trim().isEmpty || 
         _activeRequestId == null || 
-        _isSending) return;
+        _isSending) {
+      return;
+    }
 
     final user = context.read<UserProvider>();
     String msg = _messageController.text.trim();
@@ -305,8 +309,11 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                   ? "Parent Logs" 
                   : "${widget.channel[0].toUpperCase()}${widget.channel.substring(1).toLowerCase()} Logs",
                 onBack: () {
-                  if (Navigator.canPop(context)) Navigator.pop(context);
-                  else context.read<UIProvider>().setActiveChatChannel(null);
+                  if (Navigator.canPop(context)) {
+                    Navigator.pop(context);
+                  } else {
+                    context.read<UIProvider>().setActiveChatChannel(null);
+                  }
                 },
                 rightAction: IconButton(
                   icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
@@ -346,8 +353,22 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
             if (response['success'] == true && response['data'] != null) {
               final phone = response['data']['phone']?.toString();
               if (phone != null && phone.isNotEmpty) {
-                final Uri telUri = Uri.parse('tel:${phone.replaceAll(' ', '')}');
+                final cleanPhone = phone.replaceAll(RegExp(r'\s+'), '');
+                Clipboard.setData(ClipboardData(text: cleanPhone));
+                final Uri telUri = Uri.parse('tel:$cleanPhone');
                 await launchUrl(telUri, mode: LaunchMode.externalApplication);
+              } else {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Phone number not found for this student.')),
+                  );
+                }
+              }
+            } else {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Failed to fetch student details.')),
+                );
               }
             }
           });
@@ -359,15 +380,57 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
   }
 
   Widget _buildConversationListBody() {
-    return _isLoading 
-      ? const Center(child: CircularProgressIndicator())
-      : _conversations.isEmpty
-        ? const Center(child: Text("No conversations found"))
-        : ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            itemCount: _conversations.length,
-            itemBuilder: (context, index) => _buildConversationCard(_conversations[index]),
-          );
+    final filteredConversations = _conversations.where((conv) {
+      if (_searchQuery.isEmpty) return true;
+      final query = _searchQuery.toLowerCase();
+      final name = (conv['name'] ?? '').toString().toLowerCase();
+      final username = (conv['student_username'] ?? '').toString().toLowerCase();
+      final room = (conv['room_allocation'] ?? '').toString().toLowerCase();
+      return name.contains(query) || username.contains(query) || room.contains(query);
+    }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: TextField(
+            onChanged: (val) => setState(() => _searchQuery = val),
+            style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'Search student by name, reg no, room...',
+              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+              prefixIcon: const Icon(Icons.search, color: Color(0xFF1B2B48), size: 20),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: const BorderSide(color: Color(0xFFD4AF37)),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: _isLoading 
+            ? const Center(child: CircularProgressIndicator())
+            : filteredConversations.isEmpty
+              ? const Center(child: Text("No conversations found"))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  itemCount: filteredConversations.length,
+                  itemBuilder: (context, index) => _buildConversationCard(filteredConversations[index]),
+                ),
+        ),
+      ],
+    );
   }
 
   Widget _buildConversationCard(Map<String, dynamic> conv) {
@@ -441,15 +504,37 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
             children: [
               const SizedBox(height: 4),
               Text(
-                conv['last_msg']?.toString() ?? "No messages", 
-                style: const TextStyle(fontSize: 12, color: Color(0xFF5D6D7E)), 
-                maxLines: 1, 
-                overflow: TextOverflow.ellipsis
+                () {
+                  final msg = conv['last_msg']?.toString() ?? '';
+                  if (msg.isEmpty || msg == 'New Request') return 'No messages yet';
+                  return msg;
+                }(),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: (conv['last_msg']?.toString() ?? '').isEmpty || conv['last_msg']?.toString() == 'New Request'
+                      ? Colors.grey.shade400
+                      : const Color(0xFF5D6D7E),
+                  fontStyle: (conv['last_msg']?.toString() ?? '').isEmpty || conv['last_msg']?.toString() == 'New Request'
+                      ? FontStyle.italic
+                      : FontStyle.normal,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 2),
-              Text(
-                conv['room_allocation']?.toString() ?? "Room N/A", 
-                style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w500)
+              Row(
+                children: [
+                  const Icon(Icons.meeting_room_outlined, size: 10, color: Colors.blueGrey),
+                  const SizedBox(width: 3),
+                  Text(
+                    () {
+                      final room = conv['room_allocation']?.toString() ?? '';
+                      if (room.isEmpty || room == 'null' || room == 'unallocated') return 'Room not assigned';
+                      return room;
+                    }(),
+                    style: const TextStyle(fontSize: 10, color: Colors.blueGrey, fontWeight: FontWeight.w500),
+                  ),
+                ],
               ),
             ],
           ),
@@ -508,8 +593,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
           final isSelected = _currentFilter == filter;
           
           IconData icon;
-          if (filter == 'All') icon = Icons.chat_bubble_outline;
-          else if (filter == 'Calls') icon = Icons.phone_outlined;
+          if (filter == 'All') {
+            icon = Icons.chat_bubble_outline;
+          } else if (filter == 'Calls') icon = Icons.phone_outlined;
           else if (filter.toLowerCase().contains('emergency')) icon = Icons.warning_amber_outlined;
           else icon = Icons.assignment_outlined;
 

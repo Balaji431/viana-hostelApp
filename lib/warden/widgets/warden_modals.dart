@@ -403,7 +403,7 @@ class _EditConductModalState extends State<EditConductModal> {
                       Icon(Icons.logout_rounded, color: Colors.red.shade700, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        'Checkout / Deallocate Student',
+                        'Checkout Student',
                         style: TextStyle(
                           color: Colors.red.shade700,
                           fontWeight: FontWeight.bold,
@@ -444,7 +444,7 @@ class _EditConductModalState extends State<EditConductModal> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Are you sure you want to checkout $name and deallocate them from their current room? This action cannot be undone.',
+                  'Are you sure you want to checkout $name? This action cannot be undone.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.black87, fontSize: 14),
                 ),

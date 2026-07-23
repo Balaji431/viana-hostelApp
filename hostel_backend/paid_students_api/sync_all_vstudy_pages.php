@@ -16,14 +16,26 @@ $totalPages = 1;
 $inserted_count = 0;
 
 $upsert_sql = "INSERT INTO vstudy_payments (
-    student_name, roll_number, gender, academic_year, campus, 
+    student_name, roll_number, email, gender, academic_year, campus, 
     hostel_preference, hostel_name, payment_status, application_status, paid_date, 
     transaction_reference, paid_amount
 ) VALUES (
-    :student_name, :roll_number, :gender, :academic_year, :campus, 
+    :student_name, :roll_number, :email, :gender, :academic_year, :campus, 
     :hostel_preference, :hostel_name, :payment_status, :application_status, :paid_date, 
     :transaction_reference, :paid_amount
-)";
+) ON DUPLICATE KEY UPDATE 
+    student_name = VALUES(student_name),
+    email = VALUES(email),
+    gender = VALUES(gender),
+    academic_year = VALUES(academic_year),
+    campus = VALUES(campus),
+    hostel_preference = VALUES(hostel_preference),
+    hostel_name = VALUES(hostel_name),
+    payment_status = VALUES(payment_status),
+    application_status = VALUES(application_status),
+    paid_date = VALUES(paid_date),
+    transaction_reference = VALUES(transaction_reference),
+    paid_amount = VALUES(paid_amount)";
 $stmt_upsert = $conn->prepare($upsert_sql);
 
 do {
@@ -118,6 +130,8 @@ do {
             }
         }
 
+        $email = $student['email'] ?? $record['email'] ?? null;
+
         if (empty($roll_number)) {
             continue;
         }
@@ -125,6 +139,7 @@ do {
         $stmt_upsert->execute([
             ':student_name' => $student_name,
             ':roll_number' => trim($roll_number),
+            ':email' => $email,
             ':gender' => $gender,
             ':academic_year' => $academic_year,
             ':campus' => $campus,

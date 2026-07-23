@@ -5,10 +5,12 @@ import '../screens/payment_screens.dart';
 
 class RoomChangeRequestStatus extends StatefulWidget {
   final int studentId;
+  final bool showHistory;
   
   const RoomChangeRequestStatus({
     super.key,
     required this.studentId,
+    this.showHistory = false,
   });
 
   @override
@@ -120,10 +122,26 @@ class _RoomChangeRequestStatusState extends State<RoomChangeRequestStatus> {
     final latestRequest = _requests.first;
     final requestId = latestRequest['request_id']?.toString() ?? '';
 
-    // If the latest one is dismissed, we show nothing (don't fall back to older ones)
-    if (_dismissedIds.contains(requestId)) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Latest request card (only if not dismissed)
+        if (!_dismissedIds.contains(requestId))
+          _buildRequestCard(latestRequest, isLatest: true),
 
-    final status = latestRequest['status'] ?? 'pending';
+        // History section (controlled by parent via showHistory prop)
+        if (widget.showHistory) ...[
+          for (int i = 0; i < _requests.length; i++)
+            if (i > 0 || _dismissedIds.contains(requestId))
+              _buildHistoryCard(_requests[i]),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRequestCard(Map<String, dynamic> request, {bool isLatest = false}) {
+    final requestId = request['request_id']?.toString() ?? '';
+    final status = request['status'] ?? 'pending';
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20).copyWith(bottom: 8),
@@ -149,7 +167,7 @@ class _RoomChangeRequestStatusState extends State<RoomChangeRequestStatus> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Room Change Request', style: TextStyle(fontWeight: FontWeight.bold, color: _getStatusColor(status), fontSize: 13), overflow: TextOverflow.ellipsis),
-                      Text(latestRequest['request_id'] ?? '', style: TextStyle(fontSize: 10, color: Colors.grey), overflow: TextOverflow.ellipsis),
+                      Text(request['request_id'] ?? '', style: const TextStyle(fontSize: 10, color: Colors.grey), overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
@@ -159,19 +177,18 @@ class _RoomChangeRequestStatusState extends State<RoomChangeRequestStatus> {
                   child: Text(status.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: _getStatusColor(status))),
                 ),
                 const SizedBox(width: 8),
-                // Only show dismiss button if status is not pending (optional, but requested for "REJECTED" in screenshot)
-                // Actually user said "enable the cross button" so I'll show it for all states if they want to clear it.
-                InkWell(
-                  onTap: () => _dismissRequest(requestId),
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.grey.withOpacity(0.1),
+                if (isLatest)
+                  InkWell(
+                    onTap: () => _dismissRequest(requestId),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey.withOpacity(0.1),
+                      ),
+                      child: const Icon(Icons.close, size: 16, color: Colors.grey),
                     ),
-                    child: const Icon(Icons.close, size: 16, color: Colors.grey),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -181,19 +198,19 @@ class _RoomChangeRequestStatusState extends State<RoomChangeRequestStatus> {
               decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8)),
               child: Row(
                 children: [
-                  Flexible(child: Text(latestRequest['current_room'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis)),
+                  Flexible(child: Text(request['current_room'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis)),
                   const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: Icon(Icons.arrow_forward, size: 14, color: Colors.grey)),
-                  Flexible(child: Text(latestRequest['requested_room'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD4AF37), fontSize: 13), overflow: TextOverflow.ellipsis)),
+                  Flexible(child: Text(request['requested_room'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD4AF37), fontSize: 13), overflow: TextOverflow.ellipsis)),
                 ],
               ),
             ),
-            if (latestRequest['reason'] != null) ...[
+            if (request['reason'] != null) ...[
               const SizedBox(height: 12),
               const Text('REASON:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 4),
-              Text(latestRequest['reason'], style: const TextStyle(fontSize: 12, color: Colors.black87)),
+              Text(request['reason'], style: const TextStyle(fontSize: 12, color: Colors.black87)),
             ],
-            if (status.toLowerCase() == 'rejected' && latestRequest['remarks'] != null && latestRequest['remarks'].toString().isNotEmpty) ...[
+            if (status.toLowerCase() == 'rejected' && request['remarks'] != null && request['remarks'].toString().isNotEmpty) ...[
               const SizedBox(height: 12),
               const Text('REJECTION REASON:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFE53935))),
               const SizedBox(height: 4),
@@ -206,7 +223,7 @@ class _RoomChangeRequestStatusState extends State<RoomChangeRequestStatus> {
                   border: Border.all(color: const Color(0xFFE53935).withOpacity(0.1)),
                 ),
                 child: Text(
-                  latestRequest['remarks'], 
+                  request['remarks'], 
                   style: const TextStyle(fontSize: 12, color: Color(0xFFE53935), fontWeight: FontWeight.bold),
                 ),
               ),
@@ -223,8 +240,8 @@ class _RoomChangeRequestStatusState extends State<RoomChangeRequestStatus> {
                       MaterialPageRoute(
                         builder: (context) => PaymentPage(
                           requestId: requestId,
-                          requestedRoom: latestRequest['requested_room'],
-                          customAmount: double.tryParse(latestRequest['amount_to_pay']?.toString() ?? '0'),
+                          requestedRoom: request['requested_room'],
+                          customAmount: double.tryParse(request['amount_to_pay']?.toString() ?? '0'),
                         ),
                       ),
                     ).then((_) => _loadRequests()); // Reload after returning
@@ -242,6 +259,89 @@ class _RoomChangeRequestStatusState extends State<RoomChangeRequestStatus> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryCard(Map<String, dynamic> request) {
+    final status = request['status'] ?? 'pending';
+    final statusColor = _getStatusColor(status);
+
+    // Format date if available
+    String dateStr = '';
+    final createdAt = request['created_at']?.toString() ?? request['request_date']?.toString() ?? '';
+    if (createdAt.isNotEmpty) {
+      try {
+        final dt = DateTime.parse(createdAt);
+        dateStr = '${dt.day}/${dt.month}/${dt.year}';
+      } catch (_) {
+        dateStr = createdAt;
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20).copyWith(bottom: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F7F7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: statusColor.withOpacity(0.15), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: statusColor.withOpacity(0.12),
+            ),
+            child: Icon(_getStatusIcon(status), color: statusColor, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${request['current_room'] ?? ''}  →  ${request['requested_room'] ?? ''}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF333333)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        status.toUpperCase(),
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: statusColor),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    Text(
+                      request['request_id'] ?? '',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                    if (dateStr.isNotEmpty) ...[
+                      const Text('  •  ', style: TextStyle(color: Colors.grey, fontSize: 10)),
+                      Text(dateStr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

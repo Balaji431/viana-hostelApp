@@ -280,7 +280,7 @@ class _HostelExplorerScreenState extends State<HostelExplorerScreen> {
           borderRadius: BorderRadius.circular(25),
           child: Stack(
             children: [
-              Container(
+              SizedBox(
                 width: double.infinity,
                 height: double.infinity,
                 child: Image.asset(
@@ -545,7 +545,7 @@ class _HostelDetailSheetState extends State<_HostelDetailSheet> {
             ],
           ),
         ),
-        ...wings.map((wingData) => _buildWingSection(floorName, wingData)).toList(),
+        ...wings.map((wingData) => _buildWingSection(floorName, wingData)),
       ],
     );
   }
@@ -778,7 +778,7 @@ class _HostelDetailSheetState extends State<_HostelDetailSheet> {
       
       final response = await ApiService.submitRoomChangeRequest(
         studentId: user.dbId ?? 0,
-        currentRoom: user.roomNumber,
+        currentRoom: user.roomCode.isNotEmpty ? user.roomCode : user.roomNumber,
         requestedRoom: roomCode,
         reason: 'New Application via Explorer: $hostelName - $floorName - $wingName - Room $roomNo',
         requestedRoomType: roomType,

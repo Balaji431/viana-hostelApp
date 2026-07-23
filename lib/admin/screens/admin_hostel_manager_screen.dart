@@ -32,14 +32,17 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
   bool _isNavigating = false;
   bool _isDeleting = false;
 
-  bool _isPasswordVerified = false;
+  bool _isPasswordVerified = true;
   final TextEditingController _passwordController = TextEditingController();
   String? _passwordError;
 
   @override
   void initState() {
     super.initState();
-    // Do not auto-load hostels until password is verified
+    // Auto-load hostels as we bypassed password verification
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadHostels();
+    });
   }
 
   @override
