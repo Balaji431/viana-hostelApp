@@ -30,7 +30,7 @@ class Database {
             $this->db_name = 'stay_simtas';
         }
         $this->username = getenv('DB_USER') ?: ($secrets['DB_USER'] ?? "root");
-        $this->password = getenv('DB_PASS') ?: ($secrets['DB_PASS'] ?? "");
+        $this->password = getenv('DB_PASS') ?: ($secrets['DB_PASS'] ?? "vstay2026");
         $this->port = (int)(getenv('DB_PORT') ?: ($secrets['DB_PORT'] ?? 3306));
 
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' || gethostbyname('db') === 'db') {
@@ -43,7 +43,7 @@ class Database {
         // Force PHP to use IST
         date_default_timezone_set('Asia/Kolkata');
 
-        $candidates = [
+        $hosts_and_ports = [
             ['host' => $this->host, 'port' => $this->port],
             ['host' => '127.0.0.1', 'port' => 3306],
             ['host' => 'localhost', 'port' => 3306],
@@ -51,24 +51,34 @@ class Database {
             ['host' => 'db', 'port' => 3306],
         ];
 
-        $tried = [];
-        foreach ($candidates as $cand) {
-            $key = $cand['host'] . ':' . $cand['port'];
-            if (isset($tried[$key])) continue;
-            $tried[$key] = true;
+        $passwords = array_values(array_unique([$this->password, 'vstay2026', '']));
+        $users = array_values(array_unique([$this->username, 'root']));
+        $db_names = array_values(array_unique([$this->db_name, 'stay_simtas', 'stay_simats']));
 
-            try {
-                $dsn = "mysql:host=" . $cand['host'] . ";port=" . $cand['port'] . ";dbname=" . $this->db_name;
-                $conn = new PDO($dsn, $this->username, $this->password, [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_TIMEOUT => 3
-                ]);
-                $conn->exec("set names utf8mb4");
-                $conn->exec("SET time_zone = '+05:30'");
-                $this->conn = $conn;
-                return $this->conn;
-            } catch (PDOException $e) {
-                // Try next candidate in loop
+        $tried = [];
+        foreach ($hosts_and_ports as $hp) {
+            foreach ($db_names as $dbname) {
+                foreach ($users as $user) {
+                    foreach ($passwords as $pass) {
+                        $key = $hp['host'] . ':' . $hp['port'] . ':' . $dbname . ':' . $user . ':' . $pass;
+                        if (isset($tried[$key])) continue;
+                        $tried[$key] = true;
+
+                        try {
+                            $dsn = "mysql:host=" . $hp['host'] . ";port=" . $hp['port'] . ";dbname=" . $dbname;
+                            $conn = new PDO($dsn, $user, $pass, [
+                                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                                PDO::ATTR_TIMEOUT => 2
+                            ]);
+                            $conn->exec("set names utf8mb4");
+                            $conn->exec("SET time_zone = '+05:30'");
+                            $this->conn = $conn;
+                            return $this->conn;
+                        } catch (PDOException $e) {
+                            // Try next combination
+                        }
+                    }
+                }
             }
         }
 
