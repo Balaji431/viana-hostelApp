@@ -436,7 +436,7 @@ try {
         'source' => 'Google Login',
         'reason' => 'Email not found'
     ]);
-    sendResponse(false, "Email not found. Please contact administration.", null, 404);
+    sendResponse(false, "No VStay account was found for this email. Use email which u have used to pay the hostel fee.", null, 404);
 } catch (Exception $e) {
     sendResponse(false, "Server error: " . $e->getMessage(), null, 500);
 }

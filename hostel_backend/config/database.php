@@ -43,19 +43,36 @@ class Database {
         // Force PHP to use IST
         date_default_timezone_set('Asia/Kolkata');
 
-        $this->conn = null;
-        try {
-            $this->conn = new PDO("mysql:host=" . $this->host . ";port=" . $this->port . ";dbname=" . $this->db_name, $this->username, $this->password);
-            $this->conn->exec("set names utf8mb4");
-            
-            // 🔥 Force MySQL session to align with IST (+5:30)
-            $this->conn->exec("SET time_zone = '+05:30'");
-            
-            $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        } catch(PDOException $exception) {
-            return null;
+        $candidates = [
+            ['host' => $this->host, 'port' => $this->port],
+            ['host' => '127.0.0.1', 'port' => 3306],
+            ['host' => 'localhost', 'port' => 3306],
+            ['host' => '127.0.0.1', 'port' => 3307],
+            ['host' => 'db', 'port' => 3306],
+        ];
+
+        $tried = [];
+        foreach ($candidates as $cand) {
+            $key = $cand['host'] . ':' . $cand['port'];
+            if (isset($tried[$key])) continue;
+            $tried[$key] = true;
+
+            try {
+                $dsn = "mysql:host=" . $cand['host'] . ";port=" . $cand['port'] . ";dbname=" . $this->db_name;
+                $conn = new PDO($dsn, $this->username, $this->password, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_TIMEOUT => 3
+                ]);
+                $conn->exec("set names utf8mb4");
+                $conn->exec("SET time_zone = '+05:30'");
+                $this->conn = $conn;
+                return $this->conn;
+            } catch (PDOException $e) {
+                // Try next candidate in loop
+            }
         }
-        return $this->conn;
+
+        return null;
     }
 }
 

@@ -549,23 +549,19 @@ class _LoginScreenState extends State<LoginScreen> {
           if (mounted) {
             setState(() {
               _isLoading = false;
-              _errorMessage = response['message'] ?? 'Verification failed';
+              _errorMessage = response['message'] ?? 'No VStay account was found for this email. Use email which u have used to pay the hostel fee.';
             });
           }
         }
         return;
       }
 
-      // Case 3: New email (free for temporary stay booking)
-      setState(() => _isLoading = false);
+      // Case 3: Unregistered email — temporary stay booking disabled for now
       if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => TemporaryStayDialog(
-            googleEmail: googleEmail,
-            googleName: googleName,
-          ),
-        );
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No VStay account was found for this email. Use email which u have used to pay the hostel fee.';
+        });
       }
     } catch (e) {
       if (mounted) {
