@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
@@ -119,7 +120,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                 );
               }
               final zone = widget.hostel.zones[index];
-              return _buildFloorCard(zone);
+              return _buildFloorCard(zone, index);
             },
           );
 
@@ -141,112 +142,49 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
     );
   }
 
-  Widget _buildFloorCard(Zone zone) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.all(16),
-        leading: Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: const Color(0xFFD4AF37).withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(
-            Icons.stairs,
-            color: Color(0xFFD4AF37),
-            size: 24,
-          ),
-        ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                zone.name,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A2744),
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            SizedBox(
-              width: 32,
-              height: 32,
-              child: IconButton(
-                icon: const Icon(Icons.edit, size: 16, color: Colors.blue),
-                onPressed: () => _editFloor(zone),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ),
-            SizedBox(
-              width: 32,
-              height: 32,
-              child: IconButton(
-                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
-                onPressed: () => _deleteFloor(zone),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ),
-          ],
-        ),
-        subtitle: Text(
-          '${zone.subZones.length} Wings',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey.shade600,
-          ),
-        ),
-        children: [
-          ...zone.subZones.map((subZone) => _buildWingTile(subZone, zone)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: TextButton.icon(
-              onPressed: () => _addWingToFloor(zone),
-              icon: const Icon(Icons.add_business, size: 20),
-              label: const Text('Add New Wing'),
-              style: TextButton.styleFrom(foregroundColor: const Color(0xFFD4AF37)),
-            ),
-          ),
-        ],
-      ),
+  static const List<IconData> _floorIcons = [
+    Icons.stairs,
+    Icons.layers_outlined,
+    Icons.apartment,
+    Icons.deck_outlined,
+    Icons.balcony_outlined,
+  ];
+
+  Widget _buildFloorCard(Zone zone, int index) {
+    final icon = _floorIcons[index % _floorIcons.length];
+    return _FloorCardWidget(
+      zone: zone,
+      index: index,
+      icon: icon,
+      onEdit: () => _editFloor(zone),
+      onDelete: () => _deleteFloor(zone),
+      onAddWing: () => _addWingToFloor(zone),
+      buildWingTile: (subZone, parentZone) => _buildWingTile(subZone, parentZone),
     );
   }
 
   Widget _buildWingTile(SubZone subZone, Zone parentZone) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: const Color(0xFFF9F8F5),
         border: Border(
-          left: BorderSide(color: const Color(0xFFD4AF37).withValues(alpha: 0.3), width: 2),
+          left: const BorderSide(color: Color(0xFFD4AF37), width: 3),
+          bottom: BorderSide(color: Colors.black.withOpacity(0.06), width: 1),
         ),
       ),
       child: ExpansionTile(
-        tilePadding: const EdgeInsets.only(left: 32, right: 16, top: 8, bottom: 8),
+        tilePadding: const EdgeInsets.only(left: 20, right: 16, top: 6, bottom: 6),
+        iconColor: const Color(0xFF1A2744),
+        collapsedIconColor: Colors.grey.shade600,
         title: Row(
           children: [
             Expanded(
               child: Text(
                 subZone.name,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xFF1A2744),
+                style: GoogleFonts.outfit(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF1A2744),
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1586,6 +1524,209 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FloorCardWidget extends StatefulWidget {
+  final Zone zone;
+  final int index;
+  final IconData icon;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback onAddWing;
+  final Widget Function(SubZone subZone, Zone parentZone) buildWingTile;
+
+  const _FloorCardWidget({
+    required this.zone,
+    required this.index,
+    required this.icon,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onAddWing,
+    required this.buildWingTile,
+  });
+
+  @override
+  State<_FloorCardWidget> createState() => _FloorCardWidgetState();
+}
+
+class _FloorCardWidgetState extends State<_FloorCardWidget> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withOpacity(0.12), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.07),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Colors.white.withOpacity(0.8),
+            blurRadius: 1,
+            offset: const Offset(0, -1),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          children: [
+            // ── 100% Full Width Gradient Header Banner ──────────────────
+            InkWell(
+              onTap: () => setState(() => _isExpanded = !_isExpanded),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF1A2744), Color(0xFF2D4A7A)],
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    // Full-Color 3D Glossy Gold Icon Badge
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0xFFF7EAAD), Color(0xFFD4AF37), Color(0xFFA8801A)],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFFF6D6), width: 1.2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.25),
+                            blurRadius: 5,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Icon(widget.icon, color: const Color(0xFF1A2744), size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.zone.name,
+                            style: GoogleFonts.outfit(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${widget.zone.subZones.length} Wings',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.white.withOpacity(0.85),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Stylish Edit Button Badge
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: widget.onEdit,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.white.withOpacity(0.35)),
+                          ),
+                          child: Text(
+                            'Edit',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Delete Action Button
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: widget.onDelete,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+                          ),
+                          child: const Icon(Icons.delete_outline, size: 16, color: Color(0xFFFF8A80)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Expand/Collapse Chevron Indicator
+                    AnimatedRotation(
+                      turns: _isExpanded ? 0.5 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD4AF37).withOpacity(0.2),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.5)),
+                        ),
+                        child: const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: Color(0xFFD4AF37),
+                          size: 18,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // ── Expanded Content ───────────────────────────────────────
+            if (_isExpanded) ...[
+              ...widget.zone.subZones.map((subZone) => widget.buildWingTile(subZone, widget.zone)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: TextButton.icon(
+                  onPressed: widget.onAddWing,
+                  icon: const Icon(Icons.add_business, size: 18),
+                  label: Text('Add New Wing', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFFD4AF37),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    backgroundColor: const Color(0xFF1A2744).withOpacity(0.05),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

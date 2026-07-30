@@ -12,6 +12,7 @@ import 'screens/admin_hostel_manager_screen.dart';
 import 'screens/hostel_detail_screen.dart';
 import 'screens/category_manager_screen.dart';
 import 'screens/room_master_screen.dart';
+import 'screens/temporary_stay_admin_screen.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 import '../shared/user_provider.dart';
 import '../shared/main_layout.dart';
@@ -169,6 +170,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
             children: [
               _buildManagerCard(
                 title: 'Category Management',
+                subtitle: 'Manage room types & categories',
                 icon: Icons.layers_rounded,
                 accentColor: const Color(0xFFB08900),
                 iconBg: const Color(0xFFB08900),
@@ -183,6 +185,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
               const SizedBox(height: 12),
               _buildManagerCard(
                 title: 'Hostel Management',
+                subtitle: 'Manage hostels, floors & wings',
                 icon: Icons.business_rounded,
                 accentColor: const Color(0xFF2A4A8C),
                 iconBg: const Color(0xFF2A4A8C),
@@ -205,6 +208,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
               const SizedBox(height: 12),
               _buildManagerCard(
                 title: 'Mapping Management',
+                subtitle: 'Map staff & student allocations',
                 icon: Icons.map_rounded,
                 accentColor: const Color(0xFF7B3FC4),
                 iconBg: const Color(0xFF7B3FC4),
@@ -219,11 +223,12 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
               const SizedBox(height: 12),
               _buildManagerCard(
                 title: 'Room Master',
+                subtitle: isDesktop ? 'Manage room inventory & setups' : 'Desktop Only',
                 icon: Icons.bed_rounded,
                 accentColor: const Color(0xFF2E7D32),
                 iconBg: const Color(0xFF2E7D32),
                 count: _roomCount,
-                subtitle: isDesktop ? null : 'Desktop Only',
+                isWarningSubtitle: !isDesktop,
                 onTap: () {
                   if (!isDesktop) {
                     showDialog(
@@ -269,92 +274,120 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
     required int count,
     required VoidCallback onTap,
     String? subtitle,
+    bool isWarningSubtitle = false,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFFFFF), Color(0xFFFAF7F2)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
         ),
-        child: IntrinsicHeight(
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                child: Container(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE2DACC),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+          BoxShadow(
+            color: Colors.white.withOpacity(0.9),
+            blurRadius: 2,
+            offset: const Offset(0, -1),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                // Avatar Box on Left
+                Container(
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
                     color: iconBg,
                     borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: iconBg.withOpacity(0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Icon(icon, color: Colors.white, size: 22),
                 ),
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1A2744),
-                        fontFamily: 'Lato',
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                       Text(
-                        subtitle,
+                        title,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1A2744),
+                          fontFamily: 'Lato',
                         ),
                       ),
+                      if (subtitle != null && subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isWarningSubtitle ? Colors.redAccent : Colors.grey.shade600,
+                            fontWeight: isWarningSubtitle ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-              ),
-              if (count > 0)
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: const BoxDecoration(
-                    color: Colors.blue,
-                    shape: BoxShape.circle,
                   ),
-                  child: Center(
+                ),
+                if (count > 0) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2196F3),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF2196F3).withOpacity(0.35),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
                     child: Text(
                       '$count',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        fontSize: 11,
                       ),
                     ),
                   ),
+                  const SizedBox(width: 10),
+                ],
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFF8E8276),
+                  size: 22,
                 ),
-              Padding(
-                padding: const EdgeInsets.only(left: 8, right: 14),
-                child: Icon(
-                  Icons.keyboard_arrow_right_rounded,
-                  color: Colors.grey.shade400,
-                  size: 24,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

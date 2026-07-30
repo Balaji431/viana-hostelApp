@@ -173,7 +173,7 @@ try {
         ];
     }
     
-    $allowedBuildings = ['T22', 'T30'];
+    $allowedBuildings = ['T09', 'T10', 'T12', 'T14', 'T19', 'T22', 'T30', 'T32', 'P05', 'P10'];
     $filtered = [];
     
     // Construct parallel fetch URLs

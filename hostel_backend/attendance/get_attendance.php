@@ -29,11 +29,11 @@ try {
     // =========================================================
     // STEP 1: Try biometric API if biometric_id is configured
     // =========================================================
-    $stmt = $db->prepare("SELECT biometric_id FROM users WHERE id = :id OR username = :id");
+    $stmt = $db->prepare("SELECT username, biometric_id FROM users WHERE id = :id OR username = :id");
     $stmt->execute([':id' => $student_id]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    $biometric_id = (!empty($user['biometric_id'])) ? trim($user['biometric_id']) : null;
+    $biometric_id = (!empty($user['biometric_id'])) ? trim($user['biometric_id']) : (!empty($user['username']) ? trim($user['username']) : null);
     $biometric_success = false;
     $processed = [];
     $active_method = "none";
@@ -114,67 +114,8 @@ try {
         }
     }
 
-    // =========================================================
-    // STEP 2: Always merge manual/warden attendance from DB
-    //         Manual records override biometric for that date
-    // =========================================================
-    $manualStmt = $db->prepare(
-        "SELECT 
-            DATE(log_time)   AS att_date,
-            MIN(log_time)    AS in_time,
-            MAX(log_time)    AS out_time,
-            COUNT(*)         AS scan_count,
-            MAX(source)      AS source,
-            MAX(CASE WHEN source = 'warden' THEN status END) AS warden_status
-         FROM attendance a
-         WHERE (student_id = (SELECT id FROM users WHERE id = :id OR username = :id)
-            OR student_id = (SELECT username FROM users WHERE id = :id OR username = :id))
-         GROUP BY DATE(log_time)
-         ORDER BY att_date DESC"
-    );
-    $manualStmt->execute([':id' => $student_id]);
-    $manualRows = $manualStmt->fetchAll(PDO::FETCH_ASSOC);
+    // Strictly biometric API logs only (no local DB merging or fallback)
 
-    $biometricDateMap = [];
-    foreach ($processed as $item) {
-        $biometricDateMap[$item['date']] = true;
-    }
-
-    foreach ($manualRows as $row) {
-        $date = $row['att_date'];
-        if ($row['source'] === 'warden' && $row['warden_status']) {
-            $status = $row['warden_status'];
-        } else {
-            $count  = intval($row['scan_count']);
-            $status = $count >= 2 ? 'present' : ($count === 1 ? 'half_day' : 'absent');
-        }
-
-        $in_time  = $row['in_time']  ? date('H:i:s', strtotime($row['in_time']))  : null;
-        $out_time = $row['out_time'] && $row['out_time'] !== $row['in_time']
-                    ? date('H:i:s', strtotime($row['out_time']))
-                    : null;
-
-        if (isset($biometricDateMap[$date])) {
-            foreach ($processed as &$item) {
-                if ($item['date'] === $date) {
-                    $item['status']   = $status;
-                    $item['in_time']  = $in_time ?? $item['in_time'];
-                    $item['out_time'] = $out_time ?? $item['out_time'];
-                    $item['source']   = 'manual_override';
-                    break;
-                }
-            }
-            unset($item);
-        } else {
-            $processed[] = [
-                'date'     => $date,
-                'in_time'  => $in_time,
-                'out_time' => $out_time,
-                'status'   => $status,
-                'source'   => $row['source'] ?? 'manual',
-            ];
-        }
-    }
 
     usort($processed, function ($a, $b) {
         return strcmp($b['date'], $a['date']);

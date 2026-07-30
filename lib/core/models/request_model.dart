@@ -8,6 +8,7 @@ class RequestModel {
   final String requestType;
   final String message;
   final String? destination;
+  final String? attachment;
   final DateTime? fromDate;
   final DateTime? toDate;
   final String status;
@@ -23,6 +24,7 @@ class RequestModel {
     required this.requestType,
     required this.message,
     this.destination,
+    this.attachment,
     this.fromDate,
     this.toDate,
     required this.status,
@@ -40,6 +42,7 @@ class RequestModel {
       requestType: json['request_type'] ?? '',
       message: json['purpose'] ?? json['reason'] ?? json['message'] ?? 'No purpose provided',
       destination: json['destination'],
+      attachment: json['attachment'] ?? json['image_url'],
       fromDate: json['departure_date'] != null ? DateTime.tryParse(json['departure_date']) : (json['from_date'] != null ? DateTime.tryParse(json['from_date']) : null),
       toDate: json['return_date'] != null ? DateTime.tryParse(json['return_date']) : (json['to_date'] != null ? DateTime.tryParse(json['to_date']) : null),
       status: json['request_status']?.toString() ?? json['status']?.toString() ?? 'pending',

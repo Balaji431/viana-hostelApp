@@ -21,6 +21,8 @@ import 'warden_chat_screen.dart';
 import '../../shared/ui_provider.dart';
 import 'security_chat_screen.dart';
 import '../../shared/main_layout.dart';
+import '../widgets/temporary_stay_dialog.dart';
+import 'package:flutter/foundation.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({super.key});
@@ -244,6 +246,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   Widget build(BuildContext context) {
     super.build(context);
     final user = context.watch<UserProvider>();
+    final isTempStayPaid = user.temporaryStayRequest != null &&
+        (user.temporaryStayRequest!['status'] == 'allocated' ||
+            user.temporaryStayRequest!['payment_status'] == 'paid');
     
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -284,16 +289,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   children: [
                     _buildProfileHeader(user),
                     const SizedBox(height: 10),
-                    if (user.isRoomAllocated) ...[
+                    if (user.temporaryStayRequest != null && !isTempStayPaid) ...[
+                      _buildTemporaryStayCard(context, user),
+                    ] else if (user.isRoomAllocated || isTempStayPaid) ...[
+                      // Student has a room — show ONLY the room allocation card
                       _buildAllocationCard(context, user),
-                      const SizedBox(height: 10),
-                      if (!user.isParent &&
-                          context.watch<AllocationProvider>().paidHostelData != null &&
-                          context.watch<AllocationProvider>().allocationStatus != 'approved' &&
-                          context.watch<AllocationProvider>().allocationStatus != 'confirmed') ...[
-                        _buildNewStudentAllocationCard(context, user),
-                      ],
                     ] else if (!user.isParent) ...[
+                      // Student has NO room — show ONLY the fee paid card with Contact Hostel Warden
                       _buildNewStudentAllocationCard(context, user),
                     ],
                     const SizedBox(height: 10), 
@@ -483,47 +485,59 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                 
                 Container(
                   color: const Color(0xFFF9F6F0),
-                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 90),
+                  padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: kIsWeb ? 20 : 90),
                   child: Column(
                     children: [
-                      InkWell(
-                        onTap: () {
-                          _updateOverlayState(showRoomOptionsModal: false);
-                          _showRenewalDialog(context, user);
-                        },
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFD4AF37),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.calendar_today, 
-                                       color: Color(0xFF1A2744), size: 24),
-                              const SizedBox(width: 12),
-                              const Text(
-                                'Renew Current Stay',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1A2744),
+                      if (!user.isGuest) ...[
+                        InkWell(
+                          onTap: null,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade400,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.lock_outline, 
+                                         color: Colors.grey.shade800, size: 22),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Contact the VStudy Portal for Renewal',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
+                      ] else ...[
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Text(
+                            'Temporary Stay allocations cannot be renewed.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 20),
                     ],
                   ),
@@ -630,6 +644,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Future<void> _showRenewalDialog(BuildContext context, UserProvider user) async {
+    if (user.isGuest) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Renewal is not available for temporary stay.')),
+      );
+      return;
+    }
     if (user.hasBadConduct) {
       showDialog(
         context: context,
@@ -734,6 +754,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     if (allocation == null) return;
     
     final bool isPaid = allocation['allocation_status'] == 'approved';
+    final user = Provider.of<UserProvider>(context, listen: false);
 
     ds.SkeuomorphicModal.show(
       context,
@@ -838,7 +859,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               ),
             ),
           ),
-        ] else ...[
+        ] else if (!user.isGuest) ...[
           ds.SkeuomorphicButton(
             text: 'Renew / Room Options',
             onPressed: () {
@@ -880,7 +901,14 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
   Widget _buildDivider() => Divider(height: 1, color: Colors.black.withOpacity(0.05), indent: 16, endIndent: 16);
 
-  Widget _buildStatusPill(int days) {
+  Widget _buildStatusPill(int days, {bool isTemporary = false}) {
+    if (isTemporary) {
+      return const ds.GlossyBadge(
+        label: "TEMP",
+        isActive: true,
+        colorOverride: Color(0xFF1E88E5), // Blue card/badge according to application theme
+      );
+    }
     String label = "Active";
     Color color = ds.RoyalTheme.successMid;
     if (days <= 0) {
@@ -1091,7 +1119,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            user.isParent ? user.linkedStudentRoom : user.fullRoomDetails,
+                            user.isParent ? user.linkedStudentRoom : user.roomNumber,
                             style: TextStyle(
                               fontSize: 13, 
                               color: Colors.grey.shade600, 
@@ -1106,7 +1134,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   ),
                   Transform.translate(
                     offset: const Offset(0, -10),
-                    child: _buildStatusPill(daysRemaining),
+                    child: _buildStatusPill(
+                      daysRemaining,
+                      isTemporary: user.temporaryStayRequest != null,
+                    ),
                   ),
                 ],
               ),
@@ -1391,12 +1422,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       return true;
     }).map((cat) {
       final name = cat['name']?.toString() ?? 'Unnamed';
+      final iconStr = cat['icon']?.toString() ?? cat['icon_name']?.toString() ?? name;
       
       String displayTitle = name; // 🔥 Keep it as 'Warden' for parent login as requested
 
       return <String, dynamic>{
         "title": displayTitle,
-        "icon": _getIconForCategory(name),
+        "icon": catProvider.getIconData(iconStr),
         "color": catProvider.getColor(cat['color']?.toString() ?? cat['color_hex']?.toString()),
         "count": catProvider.getUnreadCount(name),
         "onTap": () => _handleServiceClick(context, name, 'General Inquiry')
@@ -1499,7 +1531,8 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 }
 
   Widget _buildProceedPaymentButton() {
-    if (_roomChangeStatus.toLowerCase() != 'approved') return const SizedBox.shrink();
+    final user = context.read<UserProvider>();
+    if (user.isGuest || _roomChangeStatus.toLowerCase() != 'approved') return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -1879,6 +1912,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     final academicYear = paidData['academic_year'] ?? '1st Year';
     final hostelPref = paidData['hostel_preference'] ?? rType;
 
+    final bool hasRoomAllocation = paidData['has_room_allocation'] == true;
     final bool isPaid = paymentStatus.toString().toLowerCase() == 'paid';
 
     return Container(
@@ -1958,8 +1992,8 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             ),
             const SizedBox(height: 20),
             ds.SkeuomorphicButton(
-              text: 'Request Room Allocation',
-              onPressed: isPaid ? () async {
+              text: hasRoomAllocation ? 'Request Room Allocation' : 'Contact Hostel Warden',
+              onPressed: hasRoomAllocation && isPaid ? () async {
                 setState(() => _isCheckingWarden = true);
                 final response = await alloc.requestNewStudentAllocation(user.dbId!, user.username);
                 if (mounted) {
@@ -1999,6 +2033,233 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             value,
             textAlign: TextAlign.right,
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF1B2B48)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTemporaryStayCard(BuildContext context, UserProvider user) {
+    final req = user.temporaryStayRequest;
+    if (req == null) return const SizedBox.shrink();
+
+    final status = req['status'] ?? 'pending';
+    final paymentStatus = req['payment_status'] ?? 'unpaid';
+    final double amount = (req['amount'] != null) ? double.tryParse(req['amount'].toString()) ?? 0.0 : 0.0;
+    final String amountStr = amount > 0 ? '₹${amount.toStringAsFixed(2)}' : 'Calculating...';
+    final String roomCodeDisplay = (req['room_code'] != null && req['room_code'].toString().isNotEmpty)
+        ? req['room_code']
+        : (req['room_no'] ?? 'N/A');
+
+    IconData statusIcon = Icons.hourglass_top_rounded;
+    Color statusColor = Colors.amber;
+    String statusTitle = 'Suggested Room Allocation';
+    String statusSubtitle = 'Pending Admin Approval';
+    Color bannerBg = const Color(0xFFFFF8E1);
+
+    if (status == 'approved' && paymentStatus != 'paid') {
+      statusIcon = Icons.verified_rounded;
+      statusColor = const Color(0xFF2E7D32);
+      statusTitle = 'Temporary Stay Approved! 🎉';
+      statusSubtitle = 'Payment Required to Allocate Room';
+      bannerBg = const Color(0xFFE8F5E9);
+    } else if (status == 'allocated' || paymentStatus == 'paid') {
+      statusIcon = Icons.vpn_key_rounded;
+      statusColor = const Color(0xFF1B2B48);
+      statusTitle = 'Room Allocated & Confirmed! 🔑';
+      statusSubtitle = 'Temporary Stay Active';
+      bannerBg = const Color(0xFFE3F2FD);
+    } else if (status == 'rejected') {
+      statusIcon = Icons.cancel_rounded;
+      statusColor = Colors.red;
+      statusTitle = 'Application Rejected ❌';
+      statusSubtitle = req['admin_notes'] ?? 'Administrative Decision';
+      bannerBg = const Color(0xFFFFEBEE);
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: bannerBg,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(statusIcon, color: statusColor, size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      statusTitle,
+                      style: GoogleFonts.outfit(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1B2B48),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      statusSubtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Details Box (matching photo)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              children: [
+                _tempCardRow('Hostel Name', req['hostel_name'] ?? 'N/A'),
+                const Divider(height: 14),
+                _tempCardRow('Suggested Room', roomCodeDisplay),
+                const Divider(height: 14),
+                _tempCardRow('Stay Duration', '${req['duration_value']} ${req['duration_type']} (${req['from_date']} to ${req['to_date']})', fontSize: 10.5),
+                const Divider(height: 14),
+                _tempCardRow('Calculated Fee', amountStr),
+              ],
+            ),
+          ),
+
+          if (status == 'approved' && paymentStatus != 'paid') ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2E7D32),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 2,
+                ),
+                icon: const Icon(Icons.payment, size: 20),
+                label: Text(
+                  'Pay Now & Allocate Room ($amountStr)',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                onPressed: () async {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (ctx) => PaymentPage(
+                        requestId: req['request_id'],
+                        customAmount: amount,
+                        requestedRoom: roomCodeDisplay,
+                        isTemporaryStay: true,
+                      ),
+                    ),
+                  ).then((_) {
+                    if (mounted) setState(() {});
+                  });
+                },
+              ),
+            ),
+          ] else if (status == 'rejected') ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1B2B48),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 2,
+                ),
+                icon: const Icon(Icons.refresh, size: 20),
+                label: const Text(
+                  'Reapply for Temporary Stay',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => TemporaryStayDialog(
+                      googleEmail: user.email,
+                      googleName: user.displayName,
+                    ),
+                  ).then((_) async {
+                    final checkRes = await ApiService.checkTemporaryStayEmail(user.email);
+                    if (checkRes['has_request'] == true && checkRes['request_details'] != null) {
+                      final updatedReq = Map<String, dynamic>.from(checkRes['request_details']);
+                      final freshUserData = {
+                        'id': updatedReq['id'] ?? 0,
+                        'username': updatedReq['email'] ?? user.email,
+                        'full_name': updatedReq['full_name'] ?? user.displayName,
+                        'email': user.email,
+                        'role': 'guest',
+                        'hostel_name': updatedReq['hostel_name'] ?? '',
+                        'room_no': updatedReq['room_no'] ?? '',
+                        'room_code': updatedReq['room_code'] ?? updatedReq['room_no'] ?? '',
+                        'temporary_stay_request': updatedReq,
+                      };
+                      if (context.mounted) {
+                        await user.login(freshUserData);
+                        setState(() {});
+                      }
+                    }
+                  });
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _tempCardRow(String label, String value, {double fontSize = 12.5}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12.5)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              fontWeight: FontWeight.bold, 
+              fontSize: fontSize, 
+              color: const Color(0xFF1B2B48),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],

@@ -167,20 +167,29 @@ class CategoryProvider with ChangeNotifier {
     }
   }
 
-  // Simple icon mapper if the DB icon name doesn't match Icons.xxx
+  // Dynamic icon mapper matching Admin Category Manager choices
   IconData getIconData(String iconName) {
-    String name = iconName.toLowerCase();
+    String name = iconName.toLowerCase().trim();
     if (name.contains('.')) name = name.split('.').last;
     
     switch (name) {
       case 'warden':
       case 'group':
+      case 'groups':
+      case 'people':
+      case 'users':
         return Icons.group;
       case 'security':
       case 'shield':
-        return Icons.shield;
+      case 'lock':
+      case 'verified_user':
+        return Icons.security;
       case 'maintenance':
       case 'build':
+      case 'tools':
+      case 'repair':
+      case 'handyman':
+      case 'construction':
       case '0e148':
         return Icons.build;
       case 'internet':
@@ -194,11 +203,52 @@ class CategoryProvider with ChangeNotifier {
         return Icons.local_laundry_service;
       case 'electrical':
       case 'bolt':
+      case 'flash':
         return Icons.bolt;
       case 'plumbing':
       case 'water_drop':
+      case 'water':
         return Icons.water_drop;
+      case 'home':
+      case 'house':
+        return Icons.home;
+      case 'person':
+      case 'user':
+      case 'account_circle':
+        return Icons.person;
+      case 'phone':
+      case 'call':
+        return Icons.phone;
+      case 'email':
+      case 'mail':
+        return Icons.email;
+      case 'warning':
+      case 'alert':
+        return Icons.warning;
+      case 'info':
+        return Icons.info;
+      case 'camera':
+      case 'photo':
+        return Icons.camera_alt;
+      case 'settings':
+      case 'gear':
+        return Icons.settings;
+      case 'chat':
+      case 'message':
+        return Icons.chat;
+      case 'assignment':
+      case 'report':
+        return Icons.assignment;
+      case 'cleaning':
+      case 'cleaning_services':
+        return Icons.cleaning_services;
+      case 'ac_unit':
+      case 'ac':
+        return Icons.ac_unit;
       default:
+        if (name.contains('warden')) return Icons.group;
+        if (name.contains('sec')) return Icons.security;
+        if (name.contains('maint')) return Icons.build;
         return Icons.category;
     }
   }

@@ -19,13 +19,22 @@ try {
         throw new Exception("Database connection failed");
     }
 
-    $role = isset($_GET['role']) ? $_GET['role'] : 'warden';
+    $role = isset($_GET['role']) ? strtolower(trim($_GET['role'])) : 'warden';
 
-    // Fetch users by role
-    $query = "SELECT id, full_name, username, phone_number as phone FROM users WHERE LOWER(role) = ? ORDER BY full_name ASC";
-    $stmt = $db->prepare($query);
-    $stmt->execute([strtolower($role)]);
-    $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($role === 'security') {
+        $query = "SELECT bio_id as id, employee_name as full_name, bio_id as username, phone FROM security_users ORDER BY employee_name ASC";
+        $stmt = $db->query($query);
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } else if ($role === 'maintenance' || $role === 'maintenannce' || strpos($role, 'maint') !== false) {
+        $query = "SELECT bio_id as id, employee_name as full_name, bio_id as username, phone FROM maintenance_users ORDER BY employee_name ASC";
+        $stmt = $db->query($query);
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $query = "SELECT id, full_name, username, phone_number as phone FROM users WHERE LOWER(role) = ? ORDER BY full_name ASC";
+        $stmt = $db->prepare($query);
+        $stmt->execute([$role]);
+        $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 
     // Ensure UTF-8 encoding for each value
     foreach ($users as &$user) {

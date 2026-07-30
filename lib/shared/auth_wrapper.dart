@@ -14,12 +14,24 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
+  bool _isReady = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(context.read<UserProvider>().checkPersistence());
+      final userProvider = context.read<UserProvider>();
+      // If already logged in from synchronous prefs restore — ready immediately
+      if (userProvider.isLoggedIn) {
+        setState(() => _isReady = true);
+        unawaited(userProvider.checkPersistence());
+      } else {
+        // Need async check for edge cases (first launch, expired session etc.)
+        unawaited(userProvider.checkPersistence().then((_) {
+          if (mounted) setState(() => _isReady = true);
+        }));
+      }
     });
   }
 
@@ -27,6 +39,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
   Widget build(BuildContext context) {
     return Consumer<UserProvider>(
       builder: (context, userUpdate, _) {
+        // Show dark splash until persistence check completes
+        if (!_isReady) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0F1520),
+            body: SizedBox.expand(),
+          );
+        }
         if (!userUpdate.isLoggedIn) {
           return const LoginScreen();
         }

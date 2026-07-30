@@ -59,10 +59,12 @@ if(
     $request_id = $prefix . time();
 
     // 3. Database Insert (Using 'request1' table)
+    $attachment = $data['attachment'] ?? $data['image_url'] ?? null;
+
     $query = "INSERT INTO request1
-    (request_id, student_id, request_type, departure_date, return_date, destination, purpose, room_number, status, department) 
+    (request_id, student_id, request_type, departure_date, return_date, destination, purpose, attachment, room_number, status, department) 
     VALUES 
-    (:request_id, :student_id, :request_type, :departure_date, :return_date, :destination, :purpose, :room_number, 'pending', :department)";
+    (:request_id, :student_id, :request_type, :departure_date, :return_date, :destination, :purpose, :attachment, :room_number, 'pending', :department)";
 
     $stmt = $db->prepare($query);
 
@@ -78,6 +80,7 @@ if(
     $stmt->bindParam(":return_date", $return_date);
     $stmt->bindParam(":destination", $destination);
     $stmt->bindParam(":purpose", $data['purpose']);
+    $stmt->bindParam(":attachment", $attachment);
     $stmt->bindParam(":room_number", $data['room_number']);
     $stmt->bindParam(":department", $dept);
 
@@ -144,25 +147,44 @@ if(
             }
 
             if ($resolved_hostel) {
-                // Find matching warden in mapping_staff
-                $warden_query = "SELECT username FROM mapping_staff 
-                                 WHERE (LOWER(TRIM(hostel_name)) = LOWER(TRIM(:hostel)) OR hostel_name IS NULL OR hostel_name = '')
-                                 AND (:floor IS NULL OR floor_name IS NULL OR floor_name = '' OR LOWER(TRIM(floor_name)) = LOWER(TRIM(:floor))
-                                      OR (floor_name = 'Ground' AND :floor2 = 'F00')
-                                      OR (floor_name = '1st Floor' AND :floor2 = 'F01')
-                                      OR (floor_name = '2nd Floor' AND :floor2 = 'F02'))
-                                 AND (:wing IS NULL OR wing_name IS NULL OR wing_name = '' OR LOWER(TRIM(wing_name)) = LOWER(TRIM(:wing)))
-                                 AND role = 'Warden'
-                                 ORDER BY (CASE WHEN wing_name IS NOT NULL AND wing_name != '' THEN 4 ELSE 0 END) + 
-                                          (CASE WHEN floor_name IS NOT NULL AND floor_name != '' THEN 2 ELSE 0 END) +
-                                          (CASE WHEN hostel_name IS NOT NULL AND hostel_name != '' THEN 1 ELSE 0 END) DESC
+                $role_pat = '%warden%';
+                if (strpos(strtolower($dept), 'security') !== false) $role_pat = '%security%';
+                if (strpos(strtolower($dept), 'maint') !== false) $role_pat = '%maint%';
+
+                // Find matching staff in mapping_staff
+                $warden_query = "SELECT COALESCE(staff_bio_id, username) as username FROM mapping_staff 
+                                 WHERE LOWER(role) LIKE :role_pat
+                                 AND (
+                                     LOWER(TRIM(hostel_name)) = LOWER(TRIM(:hostel))
+                                     OR LOWER(TRIM(hostel_name)) LIKE CONCAT('%', LOWER(TRIM(:hostel)), '%')
+                                     OR LOWER(TRIM(:hostel)) LIKE CONCAT('%', LOWER(TRIM(hostel_name)), '%')
+                                     OR hostel_name IS NULL OR hostel_name = ''
+                                 )
+                                 AND (
+                                     LOWER(TRIM(floor_name)) LIKE CONCAT('%', LOWER(TRIM(:floor)), '%')
+                                     OR LOWER(TRIM(:floor)) LIKE CONCAT('%', LOWER(TRIM(floor_name)), '%')
+                                     OR floor_name IS NULL OR floor_name = ''
+                                 )
+                                 AND (
+                                     LOWER(TRIM(wing_name)) = LOWER(TRIM(:wing))
+                                     OR LOWER(TRIM(wing_name)) LIKE CONCAT('%', LOWER(TRIM(:wing)), '%')
+                                     OR LOWER(TRIM(:wing)) LIKE CONCAT('%', LOWER(TRIM(wing_name)), '%')
+                                     OR wing_name IS NULL OR wing_name = ''
+                                     OR LOWER(TRIM(wing_name)) = 'w0'
+                                 )
+                                 ORDER BY (CASE WHEN LOWER(TRIM(wing_name)) = LOWER(TRIM(:wing2)) THEN 10 ELSE 0 END) + 
+                                          (CASE WHEN LOWER(TRIM(floor_name)) LIKE CONCAT('%', LOWER(TRIM(:floor2)), '%') THEN 5 ELSE 0 END) +
+                                          (CASE WHEN LOWER(TRIM(hostel_name)) = LOWER(TRIM(:hostel2)) THEN 1 ELSE 0 END) DESC
                                  LIMIT 1";
                 $warden_stmt = $db->prepare($warden_query);
                 $warden_stmt->execute([
+                    ':role_pat' => $role_pat,
                     ':hostel' => $resolved_hostel,
-                    ':floor' => $resolved_floor,
-                    ':floor2' => $resolved_floor,
-                    ':wing' => $resolved_wing
+                    ':floor' => $resolved_floor ?? '',
+                    ':floor2' => $resolved_floor ?? '',
+                    ':wing' => $resolved_wing ?? '',
+                    ':wing2' => $resolved_wing ?? '',
+                    ':hostel2' => $resolved_hostel
                 ]);
                 $warden_row = $warden_stmt->fetch(PDO::FETCH_ASSOC);
                 if ($warden_row) {
@@ -192,8 +214,8 @@ if(
         // 🔥 NOTIFICATION Logic
         try {
             // Get the receiver token for notification
-            $warden_stmt = $db->prepare("SELECT full_name, fcm_token FROM users WHERE username = ?");
-            $warden_stmt->execute([$receiver_username]);
+            $warden_stmt = $db->prepare("SELECT full_name, fcm_token FROM users WHERE (CONVERT(username USING utf8mb4) = CONVERT(? USING utf8mb4) OR CONVERT(id USING utf8mb4) = CONVERT(? USING utf8mb4)) LIMIT 1");
+            $warden_stmt->execute([$receiver_username, $receiver_username]);
             $warden = $warden_stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($warden && !empty($warden['fcm_token'])) {

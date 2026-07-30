@@ -25,7 +25,10 @@ class Database {
         }
 
         $this->host = getenv('DB_HOST') ?: ($secrets['DB_HOST'] ?? "db");
-        $this->db_name = getenv('DB_NAME') ?: ($secrets['DB_NAME'] ?? "stay_simats");
+        $this->db_name = getenv('DB_NAME') ?: ($secrets['DB_NAME'] ?? "stay_simtas");
+        if ($this->db_name === 'stay_simats') {
+            $this->db_name = 'stay_simtas';
+        }
         $this->username = getenv('DB_USER') ?: ($secrets['DB_USER'] ?? "root");
         $this->password = getenv('DB_PASS') ?: ($secrets['DB_PASS'] ?? "");
         $this->port = (int)(getenv('DB_PORT') ?: ($secrets['DB_PORT'] ?? 3306));

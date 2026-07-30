@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
 import 'fee_manager_screen.dart';
@@ -19,6 +20,28 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
   Map<String, int> _roomCounts = {};
   bool _isLoading = true;
 
+  // Standard Navy Blue skeuomorphic theme for all hostels
+  static const _HostelTheme _navyGoldTheme = _HostelTheme(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFF1A2744), Color(0xFF2D4A7A)],
+    ),
+    icon: Icons.apartment,
+    badge: Color(0xFFD4AF37),
+  );
+
+  // Diverse hostel icons for avatars
+  static const List<IconData> _hostelIcons = [
+    Icons.apartment,
+    Icons.villa,
+    Icons.home_work,
+    Icons.domain,
+    Icons.location_city,
+    Icons.business,
+    Icons.maps_home_work,
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -32,14 +55,14 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
     try {
       final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
       await provider.loadHostels();
-      
+
       final summaryRes = await ApiService.getExternalFeesSummary();
       Map<String, int> counts = {};
       if (summaryRes['success']) {
         final data = summaryRes['data'] as Map<String, dynamic>;
         data.forEach((k, v) => counts[k] = v as int);
       }
-      
+
       if (mounted) {
         setState(() {
           _hostels = provider.hostels.map((h) => {
@@ -59,87 +82,203 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
     }
   }
 
+  int _getRoomCount(String name) {
+    int count = _roomCounts[name] ?? 0;
+    if (count == 0) {
+      final nameWithHostel = name.endsWith('Hostel') ? name : '$name Hostel';
+      count = _roomCounts[nameWithHostel] ?? 0;
+    }
+    if (count == 0) {
+      final nameWithoutHostel =
+          name.replaceAll(RegExp(r'\s*Hostel\s*$', caseSensitive: false), '').trim();
+      count = _roomCounts[nameWithoutHostel] ?? 0;
+    }
+    return count;
+  }
+
+  Widget _buildHostelCard(dynamic hostel, int index) {
+    final theme = _navyGoldTheme;
+    final icon = _hostelIcons[index % _hostelIcons.length];
+    final rawName = hostel['name'] ?? 'Unknown Hostel';
+    final displayName =
+        rawName.toLowerCase().contains('hostel') ? rawName : '$rawName Hostel';
+    final campus = hostel['campus'] ?? 'N/A';
+    final feeTypes = _getRoomCount(rawName);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) => FeeManagerScreen(
+              hostelId: int.parse(hostel['id'].toString()),
+              hostelName: hostel['name'],
+            ),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.black.withOpacity(0.08), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.07),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+            BoxShadow(
+              color: Colors.white.withOpacity(0.8),
+              blurRadius: 1,
+              offset: const Offset(0, -1),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Column(
+            children: [
+              // ── Coloured gradient header strip ──────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(gradient: theme.gradient),
+                child: Row(
+                  children: [
+                    // Icon badge
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.25)),
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName,
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Campus: $campus',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.white.withOpacity(0.78),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Arrow
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_forward_ios,
+                          size: 14, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+              // ── Stats footer ────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    _buildStat(
+                      Icons.price_change_outlined,
+                      '$feeTypes fee type${feeTypes == 1 ? '' : 's'}',
+                      theme.badge,
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: theme.badge.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: theme.badge.withOpacity(0.4)),
+                      ),
+                      child: Text(
+                        'Manage Fees →',
+                        style: GoogleFonts.outfit(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStat(IconData icon, String label, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget body = _isLoading
-        ? const Center(child: CircularProgressIndicator())
+        ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B2B48)))
         : _hostels.isEmpty
-            ? const Center(child: Text('No hostels found'))
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.apartment_outlined,
+                        size: 56, color: Colors.grey.shade300),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No hostels found',
+                      style: GoogleFonts.outfit(
+                          color: Colors.grey.shade500, fontSize: 15),
+                    ),
+                  ],
+                ),
+              )
             : ListView.builder(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                 shrinkWrap: widget.isEmbedded,
-                physics: widget.isEmbedded ? const NeverScrollableScrollPhysics() : null,
+                physics: widget.isEmbedded
+                    ? const NeverScrollableScrollPhysics()
+                    : null,
                 itemCount: _hostels.length,
-                itemBuilder: (context, index) {
-                  final hostel = _hostels[index];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFAF6EE),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFE8E0D5), width: 1),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      leading: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE3F2FD),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.apartment, color: Color(0xFF1A2744), size: 28),
-                      ),
-                      title: Text(
-                        () {
-                          final name = hostel['name'] ?? 'Unknown Hostel';
-                          return name.toLowerCase().contains('hostel') ? name : '$name Hostel';
-                        }(),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1A2744)),
-                      ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Builder(builder: (context) {
-                          final name = hostel['name'] ?? '';
-                          // Fuzzy lookup: try exact, then add/strip 'Hostel'
-                          int count = _roomCounts[name] ?? 0;
-                          if (count == 0) {
-                            final nameWithHostel = name.endsWith('Hostel') ? name : '$name Hostel';
-                            count = _roomCounts[nameWithHostel] ?? 0;
-                          }
-                          if (count == 0) {
-                            final nameWithoutHostel = name.replaceAll(RegExp(r'\s*Hostel\s*$', caseSensitive: false), '').trim();
-                            count = _roomCounts[nameWithoutHostel] ?? 0;
-                          }
-                          return Text(
-                            'Campus: ${hostel['campus'] ?? 'N/A'}\nRoom Types: $count',
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.4),
-                          );
-                        }),
-                      ),
-                      trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          PageRouteBuilder(
-                            pageBuilder: (context, animation, secondaryAnimation) => FeeManagerScreen(
-                              hostelId: int.parse(hostel['id'].toString()),
-                              hostelName: hostel['name'],
-                            ),
-                            transitionDuration: Duration.zero,
-                            reverseTransitionDuration: Duration.zero,
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
+                itemBuilder: (context, index) =>
+                    _buildHostelCard(_hostels[index], index),
               );
 
     if (widget.isEmbedded) return body;
@@ -161,4 +300,13 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
       ),
     );
   }
+}
+
+/// Immutable theme descriptor for each hostel card
+class _HostelTheme {
+  final LinearGradient gradient;
+  final IconData icon;
+  final Color badge;
+  const _HostelTheme(
+      {required this.gradient, required this.icon, required this.badge});
 }

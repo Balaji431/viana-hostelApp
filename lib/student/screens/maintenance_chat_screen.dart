@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -461,6 +462,7 @@ class _MaintenanceChatScreenState extends State<MaintenanceChatScreen> {
       department: widget.department.toLowerCase(),
       requestType: category,
       purpose: details['purpose'] ?? "Requested $category",
+      attachment: details['attachment'] ?? details['image_url'],
       roomNumber: user.fullRoomDetails,
     );
 
@@ -541,72 +543,79 @@ class _MaintenanceChatScreenState extends State<MaintenanceChatScreen> {
             ],
           ),
         ),
-        body: Center(
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
-              children: [
-                _buildSubHeader(),
-                if (!_isAssigned)
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.all(12),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF0F0),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFFFCCCC)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        )
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            '${widget.department} staff has not been assigned to your hostel block/wing yet. Please contact the administrator.',
-                            style: const TextStyle(
-                              color: Color(0xFFC62828),
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                _buildFilterChips(),
-                Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController, reverse: true, padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
-                    itemCount: _filteredMessages.length + (_isMoreLoading ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index == _filteredMessages.length) return const Center(child: Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator()));
-                      final msg = _filteredMessages[index];
-                      String? nextDate;
-                      if (index + 1 < _filteredMessages.length) nextDate = _formatTimestampForDate(_filteredMessages[index + 1]['timestamp']);
-                      final currDate = _formatTimestampForDate(msg['timestamp']);
-                      List<Widget> children = [];
-                      if (nextDate == null || nextDate != currDate) children.add(_buildDateSeparator(currDate));
-                      if (msg['type'] == 'text') {
-                        children.add(_buildTextMessage(msg));
-                      } else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
-                      else if (msg['type'] == 'admin_reply') children.add(_buildAdminActionCard(msg));
-                      else children.add(_buildRequestCard(msg));
-                      return Column(mainAxisSize: MainAxisSize.min, children: children);
-                    },
-                  ),
+        body: Column(
+          children: [
+            _buildSubHeader(),
+            if (!_isAssigned)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF0F0),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFFCCCC)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    )
+                  ],
                 ),
-                _buildBottomInputDesign(),
-              ],
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '${widget.department} has not been assigned to your hostel block/wing yet. Please contact the administrator.',
+                        style: const TextStyle(
+                          color: Color(0xFFC62828),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            _buildFilterChips(),
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController, 
+                reverse: true, 
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
+                itemCount: _filteredMessages.length + (_isMoreLoading ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == _filteredMessages.length) {
+                    return const Center(child: Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator()));
+                  }
+
+                  final msg = _filteredMessages[index];
+                  String? nextDate;
+                  if (index + 1 < _filteredMessages.length) {
+                    nextDate = _formatTimestampForDate(_filteredMessages[index + 1]['timestamp']);
+                  }
+                  final currDate = _formatTimestampForDate(msg['timestamp']);
+
+                  List<Widget> children = [];
+                  if (nextDate == null || nextDate != currDate) {
+                    children.add(_buildDateSeparator(currDate));
+                  }
+
+                  if (msg['type'] == 'text') {
+                    children.add(_buildTextMessage(msg));
+                  } else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
+                  else if (msg['type'] == 'admin_reply') children.add(_buildAdminActionCard(msg));
+                  else children.add(_buildRequestCard(msg));
+                  
+                  return Column(children: children);
+                },
+              ),
             ),
-          ),
+            _buildBottomInputDesign(),
+          ],
         ),
       ),
     );
@@ -639,7 +648,21 @@ class _MaintenanceChatScreenState extends State<MaintenanceChatScreen> {
   }
 
   Widget _buildSubHeader() {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05)))), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text(context.read<UserProvider>().fullRoomDetails.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato'))]));
+    final user = context.read<UserProvider>();
+    final roomCode = user.isParent 
+        ? user.linkedStudentRoom 
+        : (user.roomNumber.isNotEmpty ? user.roomNumber : user.roomAllocation);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05)))),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(roomCode.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato')),
+        ],
+      ),
+    );
   }
 
   Widget _buildDateSeparator(String date) {
@@ -940,26 +963,269 @@ class _NewRequestDialog extends StatefulWidget {
   final String category;
   final Function(Map<String, String>) onSubmit;
   const _NewRequestDialog({required this.category, required this.onSubmit});
+
   @override
   State<_NewRequestDialog> createState() => _NewRequestDialogState();
 }
 
 class _NewRequestDialogState extends State<_NewRequestDialog> {
   final _purposeController = TextEditingController();
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('New Request: ${widget.category}'), 
-      content: TextField(
-        controller: _purposeController, 
-        decoration: const InputDecoration(
-          hintText: 'Purpose',
+  final _destinationController = TextEditingController();
+  bool _hasError = false;
+  String _errorMessage = "";
+  XFile? _selectedImage;
+  bool _isUploading = false;
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: source, imageQuality: 70);
+      if (picked != null) {
+        setState(() {
+          _selectedImage = picked;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error picking image: $e");
+    }
+  }
+
+  void _showImageSourcePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: Color(0xFF1B2B48)),
+              title: const Text('Take Photo with Camera'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Color(0xFF1B2B48)),
+              title: const Text('Choose from Gallery'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleSubmit() async {
+    final purpose = _purposeController.text.trim();
+    if (purpose.isEmpty) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = "Please describe the issue";
+      });
+      return;
+    }
+
+    if (_selectedImage == null) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = "Photo / Document attachment is mandatory to submit this request";
+      });
+      return;
+    }
+    
+    setState(() => _isUploading = true);
+
+    String? imageUrl;
+    final uploadRes = await ApiService.uploadRequestImage(file: _selectedImage);
+    if (uploadRes['success'] == true && uploadRes['image_url'] != null) {
+      imageUrl = uploadRes['image_url'].toString();
+    } else {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _hasError = true;
+          _errorMessage = "Failed to upload document photo: ${uploadRes['message']}";
+        });
+      }
+      return;
+    }
+
+    final data = <String, String>{
+      'purpose': purpose,
+    };
+    if (imageUrl != null) {
+      data['attachment'] = imageUrl;
+      data['image_url'] = imageUrl;
+    }
+    if (_destinationController.text.trim().isNotEmpty) {
+      data['destination'] = _destinationController.text.trim();
+    }
+    
+    if (mounted) {
+      setState(() => _isUploading = false);
+      widget.onSubmit(data);
+      Navigator.pop(context);
+    }
+  }
+
+  Widget _buildTextField(TextEditingController controller, String hint, {int maxLines = 1}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F9F9),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFDCDCDC)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      child: TextField(
+        controller: controller,
+        maxLines: maxLines,
+        style: const TextStyle(fontSize: 14, color: Color(0xFF1B2B48)),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 14),
           border: InputBorder.none,
           focusedBorder: InputBorder.none,
           enabledBorder: InputBorder.none,
           filled: false,
-        )
-      ), 
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')), TextButton(onPressed: () { widget.onSubmit({'purpose': _purposeController.text}); Navigator.pop(context); }, child: const Text('Submit'))]);
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'New ${widget.category}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1B2B48),
+                    fontFamily: 'Lato',
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1B2B48), size: 24),
+                  onPressed: _showImageSourcePicker,
+                  tooltip: 'Attach photo of issue',
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _buildTextField(_purposeController, "Describe the issue...", maxLines: 4),
+            const SizedBox(height: 10),
+            // Mandatory Attachment Indicator & Preview
+            if (_selectedImage != null)
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _selectedImage!.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.green),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                      onPressed: () => setState(() => _selectedImage = null),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.camera_alt, color: Colors.amber.shade800, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Document/Photo is Mandatory *',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _showImageSourcePicker,
+                      child: const Text('Attach', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+            if (_hasError) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Text(
+                  _errorMessage,
+                  style: const TextStyle(color: Colors.red, fontSize: 12),
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _isUploading ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFFC5A358), fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: _isUploading ? null : _handleSubmit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B2B48),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: _isUploading
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Submit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
   }
 }

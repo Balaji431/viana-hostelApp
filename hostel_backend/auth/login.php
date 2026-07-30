@@ -32,11 +32,11 @@ if ($username && $password) {
         $query = "SELECT u.id, u.full_name, u.username as register_no, u.password, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType,
                          p.personal_phone as phone, p.room_allocation, p.institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic,
                          p.valid_from, p.valid_to, u.biometric_id,
-                         hr.room_no as hr_room_no, hr.building_code as block, hr.floor as floor_name, hr.wing_code as wing_name, hr.hostel_name as room_hostel, hr.room_type as room_type,
-                         hr.facility as room_facility, hr.bath_attached as room_bath_attached, hr.room_code as room_code
+                         rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel, rgd.room_type as room_type,
+                         '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code
                   FROM users u
                   LEFT JOIN profile p ON u.username = p.reg_no
-                  LEFT JOIN hostel_rooms hr ON (hr.id = p.current_room_id OR (COALESCE(p.current_room_id, 0) = 0 AND hr.room_code = p.room_allocation))
+                  LEFT JOIN rooms_groups_details rgd ON (rgd.room_number = p.room_allocation)
                   WHERE u.username = :username LIMIT 0,1";
             if ($db === null) {
                 sendResponse(false, "Database connection failed", null, 500);
@@ -50,6 +50,19 @@ if ($username && $password) {
                 $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 
                 if (password_verify($password, $row['password'])) { 
+                    // Block student login via Login ID (username/password), EXCEPT for demo student 192211929
+                    if (strtolower($row['role']) === 'student' && trim($row['register_no']) !== '192211929') {
+                        logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN_BLOCKED', 'Authentication', null, [
+                            'registration_no' => $row['register_no'],
+                            'timestamp' => date('Y-m-d H:i:s'),
+                            'ip_address' => getClientIp(),
+                            'source' => 'Normal Login',
+                            'reason' => 'Students must use Google Sign In'
+                        ]);
+                        sendResponse(false, "Students must log in using 'Sign in with Google'. Login ID access is restricted for student accounts.", null, 403);
+                        exit();
+                    }
+
                     if (isset($row['Status']) && (strtolower($row['Status']) == 'inactive' || $row['Status'] == '0') && $row['role'] !== 'admin') {
                         logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN_FAILED', 'Authentication', null, [
                             'registration_no' => $row['register_no'],
@@ -160,6 +173,10 @@ if ($username && $password) {
 
                     // Check if entered password matches default welcome123
                     if ($password === 'welcome123') {
+                        if (trim($username) !== '192211929') {
+                            sendResponse(false, "Students must log in using 'Sign in with Google'. Login ID access is restricted for student accounts.", null, 403);
+                            exit();
+                        }
                         // Create Student User
                         $hashedPassword = password_hash('welcome123', PASSWORD_BCRYPT);
                         $email = strtolower(str_replace(' ', '', $payRow['student_name'])) . '@saveetha.com';

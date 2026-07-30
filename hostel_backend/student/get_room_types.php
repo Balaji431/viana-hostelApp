@@ -47,7 +47,7 @@ try {
             SELECT u.RoomType as user_room, hr.room_type as hr_room
             FROM users u
             LEFT JOIN profile p ON u.username = p.reg_no
-            LEFT JOIN hostel_rooms hr ON (hr.id = p.current_room_id OR (COALESCE(p.current_room_id, 0) = 0 AND hr.room_code = p.room_allocation))
+            LEFT JOIN rooms_groups_details hr ON (hr.room_number = p.room_allocation)
             WHERE u.username = ? LIMIT 1
         ");
         $stmt_user->execute([$username]);

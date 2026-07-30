@@ -801,3 +801,149 @@ class _WardenRoomChangeDetailsModalState extends State<WardenRoomChangeDetailsMo
     );
   }
 }
+
+class StudentDetailsDialog extends StatefulWidget {
+  final int? studentId;
+  final String fallbackName;
+  final String fallbackRegNo;
+  final String fallbackRoom;
+
+  const StudentDetailsDialog({
+    super.key,
+    this.studentId,
+    required this.fallbackName,
+    required this.fallbackRegNo,
+    required this.fallbackRoom,
+  });
+
+  @override
+  State<StudentDetailsDialog> createState() => _StudentDetailsDialogState();
+}
+
+class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
+  bool _isLoading = false;
+  Map<String, dynamic>? _fetchedDetails;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.studentId != null) {
+      _fetchFullDetails();
+    }
+  }
+
+  Future<void> _fetchFullDetails() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiService.getUserData(widget.studentId!);
+      if (response['success'] == true && response['data'] != null) {
+        if (mounted) {
+          setState(() {
+            _fetchedDetails = Map<String, dynamic>.from(response['data']);
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String name = _fetchedDetails?['full_name'] ?? _fetchedDetails?['name'] ?? widget.fallbackName;
+    final String regNo = (_fetchedDetails?['username'] ?? _fetchedDetails?['register_number'] ?? widget.fallbackRegNo).toString();
+    final String room = (_fetchedDetails?['room_code'] ?? _fetchedDetails?['room_allocation'] ?? _fetchedDetails?['room_no'] ?? widget.fallbackRoom).toString();
+    final String phone = (_fetchedDetails?['phone'] ?? _fetchedDetails?['phone_number'] ?? 'N/A').toString();
+    final String email = (_fetchedDetails?['email'] ?? 'N/A').toString();
+    final String institution = (_fetchedDetails?['institution'] ?? 'N/A').toString();
+    final String conduct = (_fetchedDetails?['conduct'] ?? 'Good').toString();
+    final String status = (_fetchedDetails?['Status'] ?? _fetchedDetails?['status'] ?? 'active').toString();
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: const Color(0xFFF9F6F1),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Student Details',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1B2B48),
+                    fontFamily: 'PlayfairDisplay',
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                  style: IconButton.styleFrom(backgroundColor: Colors.black.withOpacity(0.05)),
+                ),
+              ],
+            ),
+            const Divider(),
+            const SizedBox(height: 15),
+            if (_isLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 30),
+                  child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                ),
+              )
+            else ...[
+              _buildDetailTile(Icons.person_outline, 'Name', name),
+              _buildDetailTile(Icons.badge_outlined, 'Register No', regNo),
+              _buildDetailTile(Icons.meeting_room_outlined, 'Room Details', room),
+              _buildDetailTile(Icons.phone_outlined, 'Phone', phone),
+              _buildDetailTile(Icons.email_outlined, 'Email', email),
+              if (institution != 'N/A')
+                _buildDetailTile(Icons.school_outlined, 'Institution', institution),
+              _buildDetailTile(Icons.shield_outlined, 'Conduct', conduct),
+              _buildDetailTile(Icons.info_outline, 'Status', status.toUpperCase()),
+            ],
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailTile(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFFD4AF37)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

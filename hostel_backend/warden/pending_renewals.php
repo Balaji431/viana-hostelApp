@@ -46,8 +46,10 @@ try {
                 rr.room_number,
                 rr.reason,
                 rr.status,
-                rr.requested_at
+                rr.requested_at,
+                hr.group_name as floor_name
             FROM renewal_requests rr
+            LEFT JOIN rooms_groups_details hr ON (TRIM(rr.room_number) = TRIM(hr.room_number))
             WHERE 1=1 $warden_filter
             ORDER BY rr.requested_at DESC";
 

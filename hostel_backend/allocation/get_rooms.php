@@ -76,76 +76,20 @@ try {
         $normalised_hostel = strtolower(trim(str_ireplace(' hostel', '', $paid_hostel_name)));
 
         // Fetch matching rooms with available_rooms > 0
-        $query = "SELECT hr.id, hr.room_no as number, hr.building_code as block, hr.floor, 
-                         hr.total_capacity as capacity, hr.occupied_rooms as occupied,
-                         hr.available_rooms as available, hr.room_type, hr.facility, 
-                         hr.amount, hr.hostel_name, hr.hostel_type, hr.room_code, hr.wing_code, hr.floor_code
-                  FROM hostel_rooms hr
-                  WHERE REPLACE(LOWER(hr.hostel_name), ' hostel', '') = ?
-                    AND hr.facility = ?
-                    AND hr.hostel_type = ?
-                    AND hr.available_rooms > 0
-                  ORDER BY hr.floor_code ASC, hr.building_code, hr.room_no";
+        $query = "SELECT rgd.s_no as id, rgd.room_number as number, rgd.hostel_name as block, rgd.group_name as floor, 
+                         rgd.total_beds as capacity, rgd.occupied_beds as occupied,
+                         rgd.available_beds as available, rgd.room_type, 'AC' as facility, 
+                         rgd.amount, rgd.hostel_name, rgd.gender as hostel_type, rgd.room_number as room_code, 'General' as wing_code, rgd.group_name as floor_code
+                  FROM rooms_groups_details rgd
+                  WHERE (TRIM(rgd.hostel_name) LIKE CONCAT('%', ?, '%'))
+                  ORDER BY rgd.group_name, rgd.room_number";
         
         $stmtRooms = $conn->prepare($query);
-        $stmtRooms->bind_param("sss", $normalised_hostel, $paid_facility, $paid_hostel_type);
+        $stmtRooms->bind_param("s", $paid_hostel_name);
         $stmtRooms->execute();
         $result = $stmtRooms->get_result();
         
         while ($row = $result->fetch_assoc()) {
-            if (isRoomTypeMatch($paid_room_type, $row['room_type'])) {
-                // Fetch occupied bed numbers for this room
-                $beds_stmt = $conn->prepare("SELECT selected_bed_number FROM allocation_requests WHERE selected_room_id = ? AND status IN ('payment_pending', 'approved') AND selected_bed_number IS NOT NULL");
-                $beds_stmt->bind_param("i", $row['id']);
-                $beds_stmt->execute();
-                $beds_res = $beds_stmt->get_result();
-                $occupied_beds = [];
-                while ($b = $beds_res->fetch_assoc()) {
-                    $occupied_beds[] = $b['selected_bed_number'];
-                }
-
-                $rooms[] = [
-                    "id" => $row['id'],
-                    "number" => $row['number'],
-                    "block" => $row['block'],
-                    "floor" => $row['floor'],
-                    "capacity" => (int)$row['capacity'],
-                    "occupied" => (int)$row['occupied'],
-                    "available" => (int)$row['available'],
-                    "room_type" => $row['room_type'],
-                    "facility" => $row['facility'],
-                    "amount" => $row['amount'],
-                    "hostel_name" => $row['hostel_name'],
-                    "hostel_type" => $row['hostel_type'],
-                    "room_code" => $row['room_code'],
-                    "wing_code" => $row['wing_code'],
-                    "floor_code" => $row['floor_code'],
-                    "occupied_beds" => $occupied_beds,
-                    "amenities" => ["WiFi", "AC"]
-                ];
-            }
-        }
-    } else {
-        // Fetch all rooms
-        $query = "SELECT hr.id, hr.room_no as number, hr.building_code as block, hr.floor, 
-                         hr.total_capacity as capacity, hr.occupied_rooms as occupied,
-                         hr.available_rooms as available, hr.room_type, hr.facility, 
-                         hr.amount, hr.hostel_name, hr.hostel_type, hr.room_code, hr.wing_code, hr.floor_code
-                  FROM hostel_rooms hr
-                  ORDER BY hr.floor_code ASC, hr.building_code, hr.room_no";
-        
-        $result = $conn->query($query);
-        while ($row = $result->fetch_assoc()) {
-            // Fetch occupied bed numbers for this room
-            $beds_stmt = $conn->prepare("SELECT selected_bed_number FROM allocation_requests WHERE selected_room_id = ? AND status IN ('payment_pending', 'approved') AND selected_bed_number IS NOT NULL");
-            $beds_stmt->bind_param("i", $row['id']);
-            $beds_stmt->execute();
-            $beds_res = $beds_stmt->get_result();
-            $occupied_beds = [];
-            while ($b = $beds_res->fetch_assoc()) {
-                $occupied_beds[] = $b['selected_bed_number'];
-            }
-
             $rooms[] = [
                 "id" => $row['id'],
                 "number" => $row['number'],
@@ -162,7 +106,38 @@ try {
                 "room_code" => $row['room_code'],
                 "wing_code" => $row['wing_code'],
                 "floor_code" => $row['floor_code'],
-                "occupied_beds" => $occupied_beds,
+                "occupied_beds" => [],
+                "amenities" => ["WiFi", "AC"]
+            ];
+        }
+    } else {
+        // Fetch all rooms from rooms_groups_details
+        $query = "SELECT rgd.s_no as id, rgd.room_number as number, rgd.hostel_name as block, rgd.group_name as floor, 
+                         rgd.total_beds as capacity, rgd.occupied_beds as occupied,
+                         rgd.available_beds as available, rgd.room_type, 'AC' as facility, 
+                         rgd.amount, rgd.hostel_name, rgd.gender as hostel_type, rgd.room_number as room_code, 'General' as wing_code, rgd.group_name as floor_code
+                  FROM rooms_groups_details rgd
+                  ORDER BY rgd.group_name, rgd.room_number";
+        
+        $result = $conn->query($query);
+        while ($row = $result->fetch_assoc()) {
+            $rooms[] = [
+                "id" => $row['id'],
+                "number" => $row['number'],
+                "block" => $row['block'],
+                "floor" => $row['floor'],
+                "capacity" => (int)$row['capacity'],
+                "occupied" => (int)$row['occupied'],
+                "available" => (int)$row['available'],
+                "room_type" => $row['room_type'],
+                "facility" => $row['facility'],
+                "amount" => $row['amount'],
+                "hostel_name" => $row['hostel_name'],
+                "hostel_type" => $row['hostel_type'],
+                "room_code" => $row['room_code'],
+                "wing_code" => $row['wing_code'],
+                "floor_code" => $row['floor_code'],
+                "occupied_beds" => [],
                 "amenities" => ["WiFi", "AC"]
             ];
         }

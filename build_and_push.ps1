@@ -40,7 +40,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "`n=== Step 3: Building Flutter Web Application ===" -ForegroundColor Cyan
-flutter build web --release --optimization-level=4 --no-source-maps --no-wasm-dry-run
+flutter build web --release --dart-define=FLUTTER_WEB_RENDERER=html --optimization-level=4 --no-source-maps --no-wasm-dry-run
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Flutter web build failed!"

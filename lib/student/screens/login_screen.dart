@@ -2,10 +2,15 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../shared/user_provider.dart';
+import '../../shared/main_layout.dart';
 import '../../core/api_service.dart';
 import '../../core/auth_service.dart';
+import '../widgets/temporary_stay_dialog.dart';
 
 class LeatherFramePainter extends CustomPainter {
   @override
@@ -156,7 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showCredentials = false;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: '907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com',
+    clientId: kIsWeb ? '907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com' : null,
     scopes: ['email', 'profile'],
   );
 
@@ -377,6 +382,8 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+
+
   Widget _buildAdminStaffLoginButton() {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -391,44 +398,35 @@ class _LoginScreenState extends State<LoginScreen> {
           width: double.infinity,
           height: 48,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFBEAA6), Color(0xFFD4AF37), Color(0xFFB8962E)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFF8B7025), width: 1.2),
+            color: const Color(0xFF0F1520),
+            borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-              BoxShadow(
-                color: Colors.white.withOpacity(0.4),
-                blurRadius: 1,
-                offset: const Offset(0, -1.5),
-                spreadRadius: 0.5,
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: const Center(
-            child: Text(
-              'Login as (Admin/Staff)',
-              style: TextStyle(
-                color: Color(0xFF3D2E0A),
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.5,
-                shadows: [
-                  Shadow(
-                    color: Colors.white70,
-                    offset: Offset(0, 1),
-                    blurRadius: 1,
-                  ),
-                ],
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.lock_outline,
+                color: Colors.white,
+                size: 20,
               ),
-            ),
+              const SizedBox(width: 12),
+              Text(
+                'Login with Bio ID',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -483,6 +481,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {}
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
         // User cancelled the login dialog
@@ -498,25 +499,73 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception("Failed to retrieve Google credentials (ID and Access Token are both null).");
       }
 
-      final response = await ApiService.googleLogin(
-        googleUser.email,
-        idToken: idToken,
-        accessToken: accessToken,
-      );
+      final String googleEmail = googleUser.email;
+      final String googleName = googleUser.displayName ?? 'Applicant';
 
-      if (response['success'] == true) {
-        final userData = response['data'];
+      // Check if email already registered in system database
+      Map<String, dynamic> checkRes = {};
+      try {
+        checkRes = await ApiService.checkTemporaryStayEmail(googleEmail);
+      } catch (_) {}
+
+      // Case 1: Already has active temporary stay request
+      if (checkRes['has_request'] == true && checkRes['request_details'] != null) {
+        final req = Map<String, dynamic>.from(checkRes['request_details']);
+        final userData = {
+          'id': req['id'] ?? 0,
+          'username': req['email'] ?? googleEmail,
+          'full_name': req['full_name'] ?? googleName,
+          'email': googleEmail,
+          'role': 'guest',
+          'hostel_name': req['hostel_name'] ?? '',
+          'room_no': req['room_no'] ?? '',
+          'room_code': req['room_code'] ?? req['room_no'] ?? '',
+          'temporary_stay_request': req,
+        };
+
         if (mounted) {
-          final provider = Provider.of<UserProvider>(context, listen: false);
-          provider.login(userData);
+          final userProvider = Provider.of<UserProvider>(context, listen: false);
+          await userProvider.login(userData);
+          setState(() => _isLoading = false);
         }
-      } else {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = response['message'] ?? 'Verification failed';
-          });
+        return;
+      }
+
+      // Case 2: Registered user (student, admin, staff) in DB but no active temporary stay request
+      if (checkRes['registered'] == true) {
+        final response = await ApiService.googleLogin(
+          googleEmail,
+          idToken: idToken,
+          accessToken: accessToken,
+        );
+
+        if (response['success'] == true) {
+          final userData = response['data'];
+          if (mounted) {
+            final provider = Provider.of<UserProvider>(context, listen: false);
+            provider.login(userData);
+          }
+        } else {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = response['message'] ?? 'Verification failed';
+            });
+          }
         }
+        return;
+      }
+
+      // Case 3: New email (free for temporary stay booking)
+      setState(() => _isLoading = false);
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => TemporaryStayDialog(
+            googleEmail: googleEmail,
+            googleName: googleName,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -586,79 +635,91 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 500;
+
     return Scaffold(
       backgroundColor: const Color(0xFF0F1520),
-      body: Stack(
-        children: [
-          // Background Gradient Overlay
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              height: 250,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.0),
-                    Colors.black.withOpacity(0.35),
-                  ],
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
+          children: [
+            // Background Gradient Overlay
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                height: 250,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.0),
+                      Colors.black.withOpacity(0.35),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          // Centered Frame Container
-          Center(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-                child: TweenAnimationBuilder<double>(
-                  duration: const Duration(milliseconds: 250),
-                  tween: Tween(begin: 0.9, end: 1.0),
-                  curve: Curves.easeOut,
-                  builder: (context, scale, child) {
-                    return Transform.scale(
-                      scale: scale,
-                      child: child,
-                    );
-                  },
-                  child: Container(
-                    width: 420,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(36),
-                      // Layered outer metallic border
-                      border: Border.all(
-                        color: Colors.black,
-                        width: 4.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.6),
-                          blurRadius: 30,
-                          offset: const Offset(0, 15),
-                        ),
-                      ],
-                    ),
+            // Centered Frame Container
+            Center(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 10 : 24,
+                    vertical: isMobile ? 20 : 40,
+                  ),
+                  child: TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 250),
+                    tween: Tween(begin: 0.9, end: 1.0),
+                    curve: Curves.easeOut,
+                    builder: (context, scale, child) {
+                      return Transform.scale(
+                        scale: scale,
+                        child: child,
+                      );
+                    },
                     child: Container(
+                      width: isMobile ? screenWidth * 0.94 : 440,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(32),
+                        borderRadius: BorderRadius.circular(36),
+                        // Layered outer metallic border
                         border: Border.all(
                           color: Colors.black,
-                          width: 4,
+                          width: 4.5,
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.6),
+                            blurRadius: 30,
+                            offset: const Offset(0, 15),
+                          ),
+                        ],
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(28),
-                        child: RepaintBoundary(
-                          child: CustomPaint(
-                            painter: LeatherFramePainter(),
-                            child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(32),
+                          border: Border.all(
+                            color: Colors.black,
+                            width: 4,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: RepaintBoundary(
+                            child: CustomPaint(
+                              painter: LeatherFramePainter(),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isMobile ? 16 : 28,
+                                  vertical: isMobile ? 28 : 40,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
                                 // Logo Section
                                 Container(
                                   width: 80,
@@ -696,9 +757,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ),
                                 ),
-                                const SizedBox(height: 15),
-                                const SizedBox(height: 15),
-                                const Text(
+                                 const SizedBox(height: 15),
+                                 const SizedBox(height: 15),
+                                 const Text(
                                   'SIMATS VSTAY',
                                   style: TextStyle(
                                     color: Colors.white,
@@ -743,7 +804,22 @@ class _LoginScreenState extends State<LoginScreen> {
                                               ),
                                             ),
                                             const SizedBox(height: 12),
-                                            if (!_showCredentials)
+                                            if (_showCredentials)
+                                              const Center(
+                                                child: Padding(
+                                                  padding: EdgeInsets.only(top: 4),
+                                                  child: Text(
+                                                    'Admin / Staff Login Only',
+                                                    style: TextStyle(
+                                                      color: Colors.black,
+                                                      fontSize: 14,
+                                                      fontWeight: FontWeight.bold,
+                                                      letterSpacing: 0.3,
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            else
                                               const Center(
                                                 child: Padding(
                                                   padding: EdgeInsets.symmetric(horizontal: 8),
@@ -762,9 +838,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                             _buildErrorBanner(),
                                             if (_showCredentials) ...[
                                               _buildInputField(
-                                                label: 'Username / Reg No',
+                                                label: 'Bio ID',
                                                 controller: _userController,
-                                                hint: 'Enter username',
+                                                hint: 'Enter Bio ID',
                                                 errorText: _usernameError,
                                               ),
                                               const SizedBox(height: 20),
@@ -815,8 +891,34 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 10),
+                               ),
+                               const SizedBox(height: 16),
+                               MouseRegion(
+                                 cursor: SystemMouseCursors.click,
+                                 child: GestureDetector(
+                                   onTap: () async {
+                                     final Uri url = Uri.parse('https://balaji431.github.io/viana-hostelApp/privacy_policy.html');
+                                     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+                                       debugPrint('Could not launch $url');
+                                     }
+                                   },
+                                   child: const Padding(
+                                     padding: EdgeInsets.symmetric(vertical: 4),
+                                     child: Text(
+                                       'Privacy Policy',
+                                       style: TextStyle(
+                                         color: Colors.white,
+                                         fontSize: 13,
+                                         fontWeight: FontWeight.w600,
+                                         decoration: TextDecoration.underline,
+                                         decorationColor: Colors.white,
+                                         letterSpacing: 0.5,
+                                       ),
+                                     ),
+                                   ),
+                                 ),
+                               ),
+                               const SizedBox(height: 10),
                             ],
                           ),
                         ),
@@ -829,8 +931,9 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
-    ],
-  ),
-);
+        ],
+      ),
+    ),
+  );
 }
 }

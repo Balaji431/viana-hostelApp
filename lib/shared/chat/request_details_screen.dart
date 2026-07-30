@@ -499,7 +499,102 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
           ],
           
           _buildDetailRow(config['purposeLabel'], widget.request.message),
+
+          if (widget.request.attachment != null && widget.request.attachment!.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1, color: Color(0xFFDED9CD)),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Attachment',
+                  style: TextStyle(
+                    color: Color(0xFF8E99A5),
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _showAttachmentDialog,
+                  icon: const Icon(Icons.remove_red_eye_outlined, size: 16, color: Colors.white),
+                  label: const Text('View Document', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B2B48),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  void _showAttachmentDialog() {
+    if (widget.request.attachment == null || widget.request.attachment!.isEmpty) return;
+    
+    String fullUrl = widget.request.attachment!;
+    if (!fullUrl.startsWith('http')) {
+      fullUrl = ApiService.baseUrl + (fullUrl.startsWith('/') ? fullUrl.substring(1) : fullUrl);
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Appliance / Issue Photo',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1B2B48)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    fullUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.broken_image, size: 48, color: Colors.grey),
+                            SizedBox(height: 8),
+                            Text('Unable to load photo attachment', style: TextStyle(color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -634,17 +729,16 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
 
   Widget _buildActionButtons() {
     final userProvider = context.read<UserProvider>();
-    bool isStudent = userProvider.role == UserRole.student;
     final reqDept = widget.request.department.toLowerCase();
     
     // Authorization Check for Staff
     bool isAuthorizedStaff = false;
-    if (!isStudent) {
-      final staffRole = userProvider.role.toString().split('.').last.toLowerCase();
-      
+    final staffRole = userProvider.role.toString().split('.').last.toLowerCase();
+    
+    if (userProvider.role != UserRole.student) {
       if (staffRole == 'admin') {
         isAuthorizedStaff = true;
-      } else if (staffRole == reqDept) {
+      } else if (staffRole == reqDept || (staffRole == 'maintenance' && reqDept == 'maintenannce')) {
         isAuthorizedStaff = true;
       } else if (staffRole == 'warden' && (reqDept == 'warden' || reqDept == 'parent_warden')) {
         isAuthorizedStaff = true;
@@ -655,10 +749,12 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
       }
     }
 
+    bool isStudent = userProvider.role == UserRole.student || !isAuthorizedStaff;
+
     // 1. Staff Actions
     if (widget.canAction && isAuthorizedStaff) {
-      if (widget.request.department.toLowerCase() == 'maintenance') {
-        if (_status == 'pending' || _status == 'approved' || _status == 'reopened') {
+      if (reqDept == 'maintenance' || reqDept == 'maintenannce') {
+        if (_status == 'pending' || _status == 'approved' || _status == 'reopened' || _status == 'in_progress') {
           return Row(
             children: [
               Expanded(
@@ -723,51 +819,74 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
       }
     }
 
-    // 2. Student Actions
+    // 2. Student Actions / Student View Verification Buttons
     if (isStudent) {
-      if (_status == 'fixed') {
+      final cleanStatus = _status.toLowerCase();
+      if (cleanStatus == 'fixed' || cleanStatus == 'verification' || cleanStatus == 'resolved') {
         return Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: Colors.orange.shade50,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.orange.shade200),
+            color: const Color(0xFFFFFDF5),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2D6BE)),
           ),
           child: Column(
             children: [
-              const Text('IS IT WORKING NOW?', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 12)),
-              const SizedBox(height: 15),
+              const Text(
+                'PLEASE VERIFY & ACKNOWLEDGE RESOLUTION',
+                style: TextStyle(color: Color(0xFF1B2B48), fontWeight: FontWeight.bold, letterSpacing: 1.0, fontSize: 11),
+              ),
+              const SizedBox(height: 14),
               Row(
                 children: [
+                  // Left Button: No, it's not working (Yellow/Amber Card)
                   Expanded(
                     child: GestureDetector(
                       onTap: _isLoading ? null : () => _acknowledgeRequest(false),
                       child: Container(
-                        height: 45,
+                        height: 50,
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.orange.shade300),
+                          color: const Color(0xFFFFC107), // Amber/Yellow Card
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))
+                          ],
                         ),
                         child: Center(
-                          child: Text('NOT WORKING', style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.bold, fontSize: 12)),
+                          child: _isLoading
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                              : const Text(
+                                  "No, it's not working",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Color(0xFF291E1A), fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
+                  // Right Button: Yes, it was fixed (Green Card)
                   Expanded(
                     child: GestureDetector(
                       onTap: _isLoading ? null : () => _acknowledgeRequest(true),
                       child: Container(
-                        height: 45,
+                        height: 50,
                         decoration: BoxDecoration(
-                          gradient: SkeuomorphicColors.goldGlossyGradient,
-                          borderRadius: BorderRadius.circular(10),
+                          color: const Color(0xFF4CAF50), // Green Card
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))
+                          ],
                         ),
-                        child: const Center(
-                          child: Text('YES, IT\'S FIXED', style: TextStyle(color: Color(0xFF291E1A), fontWeight: FontWeight.bold, fontSize: 12)),
+                        child: Center(
+                          child: _isLoading
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Text(
+                                  "Yes, it was fixed",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
                         ),
                       ),
                     ),
@@ -777,7 +896,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
             ],
           ),
         );
-      } else if (_status == 'completed') {
+      } else if (cleanStatus == 'completed') {
         return Container(
           width: double.infinity,
           height: 55,
@@ -796,10 +915,10 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
             ),
           ),
         );
-      } else if (_status == 'approved' && (reqDept == 'warden' || reqDept == 'parent_warden' || reqDept == 'security')) {
+      } else if (cleanStatus == 'approved' && (reqDept == 'warden' || reqDept == 'parent_warden' || reqDept == 'security')) {
         return _buildCloseButton();
-      } else if (_status == 'pending' || _status == 'approved' || _status == 'reopened') {
-         return Container(
+      } else if (cleanStatus == 'pending' || cleanStatus == 'approved' || cleanStatus == 'reopened' || cleanStatus == 'in_progress') {
+        return Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 18),
           decoration: BoxDecoration(

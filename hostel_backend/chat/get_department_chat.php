@@ -44,25 +44,31 @@ try {
     }
     $real_student_id = $user_row['id'];
 
-    // 🔥 FIX: Message-centric query with Universal Translation (CONVERT)
+    $dept_clean = strtolower($department);
+    $dept_pattern = '%' . $dept_clean . '%';
+    if (strpos($dept_clean, 'maint') !== false) $dept_pattern = '%maint%';
+    if (strpos($dept_clean, 'sec') !== false) $dept_pattern = '%sec%';
+
+    // 🔥 FIX: Message-centric query with Universal Translation (CONVERT) & flexible department matching
     $query = "SELECT m.*, 
                      COALESCE(u.full_name, p.parent_id, m.sender_id) as sender_name, 
                      COALESCE(u.username, p.parent_id, m.sender_id) as sender_username,
                      r.request_type, r.status AS request_status, r.departure_date, 
-                     r.return_date, r.purpose as reason, r.destination, r.room_number, 
+                     r.return_date, r.purpose as reason, r.destination, r.attachment, r.room_number, 
                      r.department, stu.full_name as student_name
               FROM chat_messages m
               JOIN request1 r ON (CONVERT(m.request_id USING utf8mb4) = CONVERT(r.request_id USING utf8mb4))
               JOIN users stu ON r.student_id = stu.id
               LEFT JOIN users u ON (CONVERT(m.sender_id USING utf8mb4) = CONVERT(u.username USING utf8mb4))
               LEFT JOIN parent_users p ON (CONVERT(m.sender_id USING utf8mb4) = CONVERT(p.parent_id USING utf8mb4) AND u.username IS NULL)
-              WHERE r.student_id = :student_id AND CONVERT(r.department USING utf8mb4) = CONVERT(:department USING utf8mb4)
+              WHERE r.student_id = :student_id AND (LOWER(r.department) = :department OR LOWER(r.department) LIKE :dept_pat)
               ORDER BY m.id DESC
               LIMIT :limit OFFSET :offset";
 
     $stmt = $db->prepare($query);
     $stmt->bindValue(':student_id', (int)$real_student_id, PDO::PARAM_INT);
     $stmt->bindValue(':department', $department, PDO::PARAM_STR);
+    $stmt->bindValue(':dept_pat', $dept_pattern, PDO::PARAM_STR);
     $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
     $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
     $stmt->execute();

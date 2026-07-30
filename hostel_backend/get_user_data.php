@@ -43,16 +43,19 @@ try {
         $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType as hostel_gender,
                          COALESCE(p.email, u.email) as email, 
                          COALESCE(p.personal_phone, u.phone_number) as phone, 
-                         COALESCE(p.institution, u.Institution) as institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic, p.room_allocation,
+                         COALESCE(p.institution, u.Institution) as institution, COALESCE(p.hostel_name, u.HostelName) as profile_hostel, p.address, p.dob, p.profile_pic,
+                         COALESCE(NULLIF(p.room_allocation,''), u.RoomId) as room_allocation,
                          COALESCE(p.check_in_date, p.valid_from) as p_from, 
                          COALESCE(p.renewal_date, p.valid_to) as p_to,
+                         p.renewal_date,
+                         p.remaining_days,
                          p.bed_no,
                          u.biometric_id,
-                         hr.room_no as hr_room_no, hr.building_code as block, hr.floor as floor_name, hr.wing_code as wing_name, hr.hostel_name as room_hostel,
-                         hr.room_type as room_type, hr.facility as room_facility, hr.bath_attached as room_bath_attached, hr.room_code as room_code
+                         rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel,
+                         rgd.room_type as room_type, '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code
                   FROM users u
                   LEFT JOIN profile p ON u.username = p.reg_no
-                  LEFT JOIN hostel_rooms hr ON (hr.id = p.current_room_id OR (COALESCE(p.current_room_id, 0) = 0 AND hr.room_code = p.room_allocation))
+                  LEFT JOIN rooms_groups_details rgd ON (rgd.room_number = COALESCE(NULLIF(p.room_allocation,''), u.RoomId))
                   WHERE u.id = :id LIMIT 1";
 
         $stmt = $db->prepare($query);
@@ -126,6 +129,8 @@ try {
                 "profile_pic" => $row['profile_pic'] ?? '',
                 "valid_from" => $valid_from,
                 "valid_to" => $valid_to,
+                "renewal_date" => $row['renewal_date'] ?? $valid_to,
+                "remaining_days" => (int)($row['remaining_days'] ?? 0),
                 "conduct" => $row['conduct'] ?? 'Good',
                 "conduct_remarks" => $row['conduct_remarks'] ?? '',
                 "biometric_id" => $row['biometric_id'] ?? '',

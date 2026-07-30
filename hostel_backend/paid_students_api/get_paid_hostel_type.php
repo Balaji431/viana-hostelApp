@@ -36,7 +36,7 @@ function normalizeRoll(string $raw): string
     return trim((string) $raw);   // trim whitespace; keep leading zeros
 }
 
-function buildPayload(array $row): array
+function buildPayload(array $row, bool $hasRoomAllocation = true): array
 {
     $hPref    = $row['hostel_preference'] ?? '';
     $gender   = $row['gender'] ?? '';
@@ -62,7 +62,26 @@ function buildPayload(array $row): array
         'application_status'    => $row['application_status'] ?? 'Application Verified',
         'paid_date'             => $row['paid_date'] ?? '',
         'transaction_reference' => $row['transaction_reference'] ?? '',
+        'has_room_allocation'   => $hasRoomAllocation,
     ];
+}
+
+function checkHasRoomInNewApi(PDO $conn, string $registerNo): bool
+{
+    // Student has room allocation if they exist in new_api (booked-rooms external, API 1)
+    // OR if they have a non-null RoomId in users table
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) FROM new_api WHERE TRIM(register_number) = TRIM(:reg) AND room_number IS NOT NULL AND room_number != ''"
+    );
+    $stmt->execute([':reg' => $registerNo]);
+    if ((int)$stmt->fetchColumn() > 0) return true;
+
+    // Also check users table RoomId
+    $stmt2 = $conn->prepare(
+        "SELECT COUNT(*) FROM users WHERE TRIM(username) = TRIM(:reg) AND RoomId IS NOT NULL AND RoomId != ''"
+    );
+    $stmt2->execute([':reg' => $registerNo]);
+    return (int)$stmt2->fetchColumn() > 0;
 }
 
 // ── input validation ─────────────────────────────────────────────────────────
@@ -108,8 +127,10 @@ try {
 
     if ($localRow) {
         error_log("$log_prefix — found in vstudy_payments (local DB)");
+        // Check if student has a room in new_api (API 1 booked-rooms)
+        $hasRoom = checkHasRoomInNewApi($conn, $register_no);
         http_response_code(200);
-        echo json_encode(['success' => true, 'source' => 'local', 'data' => buildPayload($localRow)]);
+        echo json_encode(['success' => true, 'source' => 'local', 'data' => buildPayload($localRow, $hasRoom)]);
         exit();
     }
     error_log("$log_prefix — not found locally; querying external API");
@@ -325,11 +346,14 @@ $syntheticRow = [
     'paid_amount'           => $totalFees,
 ];
 
-error_log("$log_prefix — returning 200 (source: external)");
+// Check room allocation for externally-found record too
+$hasRoom = checkHasRoomInNewApi($conn, $register_no);
+
+error_log("$log_prefix — returning 200 (source: external, has_room=$" . ($hasRoom ? 'true' : 'false') . ")");
 http_response_code(200);
 echo json_encode([
     'success' => true,
     'source'  => 'external',
-    'data'    => buildPayload($syntheticRow),
+    'data'    => buildPayload($syntheticRow, $hasRoom),
 ]);
 exit();

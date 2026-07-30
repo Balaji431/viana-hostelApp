@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../main.dart';
 import '../shared/user_provider.dart';
 import 'api_client.dart' as http;
+import 'package:http/http.dart' as http_raw;
 import 'app_logger.dart';
 
 class ApiService {
@@ -33,9 +36,14 @@ class ApiService {
   }
 
   static String _buildUrl(String endpoint) {
-    final cleanBaseUrl = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
+    String effectiveBaseUrl = baseUrl;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && effectiveBaseUrl.contains('localhost')) {
+      effectiveBaseUrl = effectiveBaseUrl.replaceAll('localhost', '192.168.31.30');
+    }
+
+    final cleanBaseUrl = effectiveBaseUrl.endsWith('/')
+        ? effectiveBaseUrl.substring(0, effectiveBaseUrl.length - 1)
+        : effectiveBaseUrl;
     final cleanEndpoint = endpoint.startsWith('/')
         ? endpoint.substring(1)
         : endpoint;
@@ -487,6 +495,7 @@ class ApiService {
     required String requestType,
     required String purpose,
     String? destination,
+    String? attachment,
     String? fromDate,
     String? toDate,
     String? roomNumber,
@@ -498,6 +507,7 @@ class ApiService {
       'request_type': requestType,
       'purpose': purpose,
       'destination': destination,
+      'attachment': attachment,
       'departure_date': fromDate,
       'return_date': toDate,
       'room_number': roomNumber,
@@ -645,8 +655,12 @@ class ApiService {
 
   // ==================== ANNOUNCEMENTS & CATEGORIES ====================
 
-  static Future<Map<String, dynamic>> getSystemStats() async {
-    return await getRequest('warden/get_system_stats.php');
+  static Future<Map<String, dynamic>> getSystemStats({String? wardenUsername}) async {
+    String url = 'warden/get_system_stats.php';
+    if (wardenUsername != null && wardenUsername.isNotEmpty) {
+      url += '?warden_username=${Uri.encodeComponent(wardenUsername)}';
+    }
+    return await getRequest(url);
   }
 
   static Future<Map<String, dynamic>> getAnnouncements() async {
@@ -1146,5 +1160,126 @@ class ApiService {
   
   static Future<Map<String, dynamic>> getExternalStaff() async {
     return await getRequest('staff/get_external_staff.php');
+  }
+
+  // Temporary Stay API Endpoints
+  static Future<Map<String, dynamic>> checkTemporaryStayEmail(String email) async {
+    return await getRequest('temporary_stay/check_email.php?email=${Uri.encodeComponent(email)}');
+  }
+
+  static Future<Map<String, dynamic>> fetchTemporaryStayOptions({
+    required String gender,
+    String? hostelName,
+    String? roomType,
+  }) async {
+    String endpoint = 'temporary_stay/fetch_options.php?gender=${Uri.encodeComponent(gender)}';
+    if (hostelName != null && hostelName.isNotEmpty) {
+      endpoint += '&hostel_name=${Uri.encodeComponent(hostelName)}';
+    }
+    if (roomType != null && roomType.isNotEmpty) {
+      endpoint += '&room_type=${Uri.encodeComponent(roomType)}';
+    }
+    return await getRequest(endpoint);
+  }
+
+  static Future<Map<String, dynamic>> submitTemporaryStayRequest(Map<String, dynamic> data) async {
+    return await postRequest('temporary_stay/submit_request.php', data);
+  }
+
+  static Future<Map<String, dynamic>> fetchAdminTemporaryStayRequests({String status = 'pending'}) async {
+    return await getRequest('temporary_stay/manage_requests.php?status=${Uri.encodeComponent(status)}');
+  }
+
+  static Future<Map<String, dynamic>> updateTemporaryStayStatus({
+    required String requestId,
+    required String status,
+    String adminNotes = '',
+  }) async {
+    return await postRequest('temporary_stay/manage_requests.php', {
+      'request_id': requestId,
+      'status': status,
+      'admin_notes': adminNotes,
+    });
+  }
+
+  static Future<Map<String, dynamic>> payTemporaryStayRequest(
+    String requestId, {
+    int renewDays = 0,
+    double renewAmount = 0.0,
+  }) async {
+    return await postRequest('temporary_stay/pay_request.php', {
+      'request_id': requestId,
+      'payment_method': 'UPI',
+      'renew_days': renewDays,
+      'renew_amount': renewAmount,
+    });
+  }
+
+  static Future<Map<String, dynamic>> uploadAndVerifyTemporaryStayDoc({
+    required String docNumber,
+    required Uint8List fileBytes,
+    required String fileName,
+  }) async {
+    // Attempt 1: Multipart upload with 10s timeout
+    try {
+      final url = _buildUrl('temporary_stay/verify_doc.php');
+      final client = http_raw.Client();
+      final request = http_raw.MultipartRequest('POST', Uri.parse(url));
+      request.fields['doc_number'] = docNumber;
+      request.files.add(
+        http_raw.MultipartFile.fromBytes(
+          'doc_file',
+          fileBytes,
+          filename: fileName,
+        ),
+      );
+      final streamedResponse = await client.send(request).timeout(const Duration(seconds: 10));
+      final response = await http_raw.Response.fromStream(streamedResponse);
+      client.close();
+      final resMap = jsonDecode(response.body);
+      if (resMap['success'] == true) return resMap;
+    } catch (e) {
+      AppLogger.warning("Multipart doc upload failed/timed out, attempting Base64 fallback: $e");
+    }
+
+    // Attempt 2: Base64 JSON POST fallback for Android devices
+    try {
+      final base64Str = base64Encode(fileBytes);
+      return await postRequest('temporary_stay/verify_doc.php', {
+        'doc_number': docNumber,
+        'file_name': fileName,
+        'file_base64': base64Str,
+      });
+    } catch (e) {
+      AppLogger.error("Base64 doc upload error: $e");
+      return {'success': false, 'matched': false, 'message': 'Upload connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> uploadRequestImage({
+    XFile? file,
+    Uint8List? bytes,
+  }) async {
+    try {
+      if (file != null) {
+        final bytesData = await file.readAsBytes();
+        final base64Str = base64Encode(bytesData);
+        final ext = file.name.contains('.') ? file.name.split('.').last.toLowerCase() : 'jpg';
+        final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+        final dataUrl = 'data:$mimeType;base64,$base64Str';
+
+        return await postRequest('requests/upload_request_image.php', {
+          'base64': dataUrl,
+        });
+      } else if (bytes != null) {
+        final base64Str = base64Encode(bytes);
+        return await postRequest('requests/upload_request_image.php', {
+          'base64': 'data:image/jpeg;base64,$base64Str',
+        });
+      }
+      return {'success': false, 'message': 'No image file provided'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
   }
 }

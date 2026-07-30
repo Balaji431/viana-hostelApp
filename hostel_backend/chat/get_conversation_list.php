@@ -14,15 +14,17 @@ require_once '../config/database.php';
 $database = new Database();
 $db = $database->getConnection();
 
-$target_dept = $_GET['department'] ?? $_GET['channel'] ?? 'warden';
+$target_dept = strtolower($_GET['department'] ?? $_GET['channel'] ?? 'warden');
+if (strpos($target_dept, 'maint') !== false) $target_dept = 'maintenance';
+if (strpos($target_dept, 'sec') !== false) $target_dept = 'security';
 $warden_username = $_GET['warden_username'] ?? $_GET['staff_username'] ?? null;
 
 try {
     // 1. Resolve mapping_role from mapping_staff (use actual stored role, case-insensitive)
     $mapping_role = null;
     if ($warden_username) {
-        $role_check = $db->prepare("SELECT role FROM mapping_staff WHERE LOWER(TRIM(username)) = LOWER(TRIM(?)) LIMIT 1");
-        $role_check->execute([$warden_username]);
+        $role_check = $db->prepare("SELECT role FROM mapping_staff WHERE LOWER(TRIM(username)) = LOWER(TRIM(?)) OR LOWER(TRIM(staff_bio_id)) = LOWER(TRIM(?)) LIMIT 1");
+        $role_check->execute([$warden_username, $warden_username]);
         $mapping_role = $role_check->fetchColumn();
     }
     // Fallback: derive from dept name
@@ -49,29 +51,49 @@ try {
         $mapped_student_ids = $sub_stmt->fetchAll(PDO::FETCH_COLUMN);
 
     } else if ($warden_username) {
-        // Normal warden: students in matching hostel/floor/wing
-        $sub_stmt = $db->prepare("SELECT u.id FROM users u 
-                          JOIN profile p ON (CONVERT(u.username USING utf8mb4) = CONVERT(p.reg_no USING utf8mb4))
-                          JOIN hostel_rooms hr ON (CONVERT(p.room_allocation USING utf8mb4) = CONVERT(hr.room_code USING utf8mb4))
-                          JOIN mapping_staff ms ON LOWER(TRIM(ms.username)) = LOWER(TRIM(?))
-                          WHERE LOWER(TRIM(ms.role)) = LOWER(TRIM(?))
-                            AND (
-                                LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(hr.hostel_name))
-                                OR LOWER(TRIM(ms.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(hr.hostel_name)), '%')
-                                OR LOWER(TRIM(hr.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)), '%')
-                            )
-                            AND (
-                                ms.floor_name IS NULL OR ms.floor_name = ''
-                                OR LOWER(TRIM(ms.floor_name)) = LOWER(TRIM(hr.floor))
-                                OR (LOWER(TRIM(hr.floor)) IN ('f00', 'ground', 'ground floor') AND LOWER(TRIM(ms.floor_name)) IN ('f00', 'ground', 'ground floor'))
-                                OR (LOWER(TRIM(hr.floor)) IN ('f01', '1st floor') AND LOWER(TRIM(ms.floor_name)) IN ('f01', '1st floor'))
-                                OR (LOWER(TRIM(hr.floor)) IN ('f02', '2nd floor') AND LOWER(TRIM(ms.floor_name)) IN ('f02', '2nd floor'))
-                                OR (LOWER(TRIM(hr.floor)) IN ('f03', '3rd floor') AND LOWER(TRIM(ms.floor_name)) IN ('f03', '3rd floor'))
-                                OR (LOWER(TRIM(hr.floor)) IN ('f04', '4th floor') AND LOWER(TRIM(ms.floor_name)) IN ('f04', '4th floor'))
-                            )
-                            AND (ms.wing_name IS NULL OR ms.wing_name = '' OR LOWER(TRIM(ms.wing_name)) = LOWER(TRIM(hr.wing_code)))");
-        $sub_stmt->execute([$warden_username, $mapping_role]);
+        // Normal warden / staff: students in matching hostel/floor/wing from rooms_groups_details & mapping_staff
+        $sub_stmt = $db->prepare("
+            SELECT DISTINCT u.id 
+            FROM users u
+            JOIN profile p ON TRIM(u.username) = TRIM(p.reg_no)
+            JOIN rooms_groups_details rgd ON TRIM(p.room_allocation) = TRIM(rgd.room_number)
+            JOIN mapping_staff ms ON (TRIM(ms.username) = TRIM(?) OR TRIM(ms.staff_bio_id) = TRIM(?))
+            WHERE (
+                LOWER(TRIM(ms.role)) = LOWER(TRIM(?))
+                OR (LOWER(TRIM(?)) IN ('warden', 'parent_warden') AND LOWER(TRIM(ms.role)) LIKE '%warden%')
+                OR (LOWER(TRIM(?)) = 'security' AND LOWER(TRIM(ms.role)) LIKE '%security%')
+                OR (LOWER(TRIM(?)) = 'maintenance' AND LOWER(TRIM(ms.role)) LIKE '%maint%')
+            )
+            AND (
+                LOWER(TRIM(ms.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(rgd.hostel_name)), '%')
+                OR LOWER(TRIM(rgd.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)), '%')
+                OR ms.hostel_name IS NULL OR ms.hostel_name = ''
+            )
+            AND (
+                LOWER(TRIM(ms.floor_name)) LIKE CONCAT('%', LOWER(TRIM(rgd.group_name)), '%')
+                OR LOWER(TRIM(rgd.group_name)) LIKE CONCAT('%', LOWER(TRIM(ms.floor_name)), '%')
+                OR ms.floor_name IS NULL OR ms.floor_name = ''
+            )
+            AND (
+                rgd.room_number LIKE CONCAT('%-', TRIM(ms.wing_name), '-%')
+                OR ms.wing_name IS NULL OR ms.wing_name = '' OR TRIM(ms.wing_name) = 'W0'
+            )
+        ");
+        $sub_stmt->execute([$warden_username, $warden_username, $mapping_role, $target_dept, $target_dept, $target_dept]);
         $mapped_student_ids = $sub_stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // Also fetch any student who has an existing chat message or request with this staff member
+        $existing_stmt = $db->prepare("
+            SELECT DISTINCT r.student_id 
+            FROM request1 r
+            JOIN chat_messages cm ON (CONVERT(r.request_id USING utf8mb4) = CONVERT(cm.request_id USING utf8mb4))
+            WHERE (cm.sender_id = ? OR cm.receiver_id = ?)
+              AND (LOWER(r.department) = LOWER(?) OR LOWER(r.department) LIKE CONCAT('%', LOWER(SUBSTRING(?, 1, 4)), '%'))
+        ");
+        $existing_stmt->execute([$warden_username, $warden_username, $target_dept, $target_dept]);
+        $existing_ids = $existing_stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        $mapped_student_ids = array_unique(array_merge($mapped_student_ids, $existing_ids));
     }
 
     // 3. Bulk INSERT IGNORE for all students missing a request1 row (single efficient query)
@@ -85,12 +107,12 @@ try {
                  SELECT student_id FROM request1 WHERE LOWER(department) = LOWER('$target_dept')
              )"
         );
-        $missing_ids = $missing_stmt->fetchAll(PDO::FETCH_COLUMN);
+        $missing_ids = $missing_stmt ? $missing_stmt->fetchAll(PDO::FETCH_COLUMN) : [];
         if (!empty($missing_ids)) {
             $insert_values = [];
             foreach ($missing_ids as $sid) {
                 $req_id = $prefix . "-" . time() . "-" . intval($sid);
-                $escaped_req_id = $db->quote($req_id); // already wraps in quotes
+                $escaped_req_id = $db->quote($req_id);
                 $insert_values[] = "($escaped_req_id, " . intval($sid) . ", 'General Inquiry', " . $db->quote($target_dept) . ", 'chat', 'Auto-created for warden logs')";
             }
             if (!empty($insert_values)) {
@@ -150,7 +172,7 @@ try {
             ) as unread_count
         FROM users u
         WHERE u.id IN ($id_list_placeholder)
-        ORDER BY last_time DESC
+        ORDER BY unread_count DESC, last_time DESC
     ";
 
     $params = [

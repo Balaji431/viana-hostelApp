@@ -37,48 +37,75 @@ try {
         exit();
     }
 
-    // 2. Get all rooms for this hostel with active reservation counts
+    $hostelName = $hostel['hostel_name'];
+
+    // 2. Get all rooms for this hostel from rooms_groups_details
     $stmt = $pdo->prepare("
-        SELECT hr.*, 
-               (hr.available_rooms - COALESCE(res.res_count, 0)) as real_available,
-               COALESCE(res.res_count, 0) as res_count
-        FROM hostel_rooms hr
-        LEFT JOIN (
-            SELECT TRIM(requested_room) as requested_room, COUNT(*) as res_count 
-            FROM room_change_requests 
-            WHERE status IN ('pre_approved', 'approved') 
-            AND payment_status = 'unpaid'
-            AND reserved_until > NOW()
-            AND requested_room IS NOT NULL 
-            AND requested_room != ''
-            GROUP BY TRIM(requested_room)
-        ) res ON TRIM(hr.room_code) = res.requested_room
-        WHERE hr.hostel_id = ? 
-        ORDER BY hr.wing_code, hr.floor_code, hr.room_no
+        SELECT rgd.s_no as id,
+               rgd.room_number as room_no,
+               rgd.room_number as room_code,
+               rgd.group_name as floor,
+               'General' as wing_code,
+               rgd.total_beds as total_capacity,
+               rgd.occupied_beds as occupied_rooms,
+               rgd.available_beds as available_rooms,
+               rgd.available_beds as real_available,
+               0 as res_count,
+               rgd.room_type,
+               'AC' as facility,
+               rgd.amount
+        FROM rooms_groups_details rgd
+        WHERE TRIM(rgd.hostel_name) = TRIM(?)
+        ORDER BY rgd.group_name, rgd.room_number
     ");
-    $stmt->execute([$hostel_id]);
+    $stmt->execute([$hostelName]);
     $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // 3. Build hierarchy: Floor -> Wing -> Room
     $hierarchy = [];
     $floors_grouped = [];
 
+    // Helper to clean floor names
+    $cleanFloor = function($rawFloor, $hName) {
+        $clean = preg_replace('/^' . preg_quote($hName, '/') . '\s*/i', '', $rawFloor);
+        $clean = preg_replace('/^\(New\)\s*/i', '', $clean);
+        return trim($clean) ?: $rawFloor;
+    };
+
+    // Helper for ordinal floor sorting weight
+    $floorWeight = function($floorName) {
+        $f = strtolower($floorName);
+        if (strpos($f, 'ground') !== false) return 0;
+        if (strpos($f, 'first') !== false || strpos($f, '1st') !== false) return 1;
+        if (strpos($f, 'second') !== false || strpos($f, '2nd') !== false) return 2;
+        if (strpos($f, 'third') !== false || strpos($f, '3rd') !== false) return 3;
+        if (strpos($f, 'fourth') !== false || strpos($f, '4th') !== false) return 4;
+        if (strpos($f, 'fifth') !== false || strpos($f, '5th') !== false) return 5;
+        if (strpos($f, 'sixth') !== false || strpos($f, '6th') !== false) return 6;
+        if (strpos($f, 'seventh') !== false || strpos($f, '7th') !== false) return 7;
+        if (strpos($f, 'eighth') !== false || strpos($f, '8th') !== false) return 8;
+        if (strpos($f, 'ninth') !== false || strpos($f, '9th') !== false) return 9;
+        if (strpos($f, 'tenth') !== false || strpos($f, '10th') !== false) return 10;
+        return 99;
+    };
+
     foreach ($rooms as $room) {
-        $floorName = $room['floor'] ?: 'Ground';
+        $rawFloorName = $room['floor'] ?: 'Ground';
+        $floorName = $cleanFloor($rawFloorName, $hostelName);
         $wingName = $room['wing_code'] ?: 'General';
 
         if (!isset($floors_grouped[$floorName])) {
             $floors_grouped[$floorName] = [
                 "name" => $floorName,
-                "code" => $room['floor_code'] ?: $floorName,
-                "floors" => [] // We use "floors" key here because the provider expects it for sub-level
+                "code" => $floorName,
+                "floors" => []
             ];
         }
 
         if (!isset($floors_grouped[$floorName]['floors'][$wingName])) {
             $floors_grouped[$floorName]['floors'][$wingName] = [
                 "name" => $wingName,
-                "code" => $room['wing_code'] ?: $wingName,
+                "code" => $wingName,
                 "rooms" => []
             ];
         }
@@ -90,14 +117,14 @@ try {
             "capacity" => $room['total_capacity'],
             "available" => max(0, (int)$room['real_available']),
             "physical_available" => (int)$room['available_rooms'],
-            "reserved_count" => (int)($room['res_count'] ?? 0),
+            "reserved_count" => 0,
             "type" => $room['room_type'],
             "facility" => $room['facility'],
             "amount" => $room['amount']
         ];
     }
 
-    // Convert associative arrays to indexed arrays for JSON
+    // Convert associative arrays to indexed arrays for JSON and sort by floor order
     $finalFloors = [];
     foreach ($floors_grouped as $fName => $fData) {
         $finalWings = [];
@@ -108,6 +135,10 @@ try {
         $finalFloors[] = $fData; // Top-level is now Floors
     }
 
+    usort($finalFloors, function($a, $b) use ($floorWeight) {
+        return $floorWeight($a['name']) <=> $floorWeight($b['name']);
+    });
+
     echo json_encode([
         "success" => true,
         "data" => [
@@ -116,7 +147,7 @@ try {
             "campus" => $hostel['campus'],
             "type" => $hostel['hostel_type'],
             "building_code" => $hostel['building_code'],
-            "wings" => $finalFloors // We still call it "wings" for compatibility with existing provider logic
+            "wings" => $finalFloors
         ]
     ]);
 

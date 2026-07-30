@@ -38,14 +38,27 @@ $db = $db_class->getConnection();
 $url = EXTERNAL_EMP_API_URL;
 $key = EXTERNAL_EMP_API_KEY;
 
-// Default to fast database read to prevent Flutter UI timeout (30s)
 if (!isset($_GET['sync']) || $_GET['sync'] !== 'true') {
-    $stmt = $db->query("SELECT bio_id, name, email, phone, department, designation, role FROM staff_users WHERE is_active = 1");
-    $cached_staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $combined_staff = [];
+
+    // 1. Fetch Security Users (129)
+    $secStmt = $db->query("SELECT bio_id, employee_name as name, email, phone, department, department as designation, 'security' as role FROM security_users");
+    $secList = $secStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // 2. Fetch Maintenance Users (139)
+    $maintStmt = $db->query("SELECT bio_id, employee_name as name, email, phone, department, department as designation, 'maintenance' as role FROM maintenance_users");
+    $maintList = $maintStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // 3. Fetch Wardens from users / staff mapping
+    $wardenStmt = $db->query("SELECT username as bio_id, full_name as name, email, phone_number as phone, 'Warden' as department, 'Warden' as designation, 'warden' as role FROM users WHERE LOWER(role) = 'warden'");
+    $wardenList = $wardenStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $combined_staff = array_merge($secList, $maintList, $wardenList);
+
     echo json_encode([
         'success' => true, 
-        'source' => 'cache',
-        'data' => $cached_staff
+        'source' => 'local_tables',
+        'data' => $combined_staff
     ]);
     exit();
 }

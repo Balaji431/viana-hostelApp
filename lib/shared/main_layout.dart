@@ -22,6 +22,7 @@ import '../warden/screens/warden_reports_tab.dart';
 import '../warden/screens/warden_management_tab.dart';
 import '../admin/admin_screen.dart';
 import '../admin/screens/admin_activity_logs_screen.dart';
+import '../admin/screens/temporary_stay_admin_screen.dart';
 import '../student/screens/warden_chat_screen.dart';
 import '../student/screens/security_chat_screen.dart';
 import '../student/screens/maintenance_chat_screen.dart';
@@ -188,24 +189,20 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   }
 
   Future<void> _hydrateAfterFirstPaint(UserProvider initialUser) async {
-    await Future<void>.delayed(const Duration(milliseconds: 900));
+    // Single short settle — lets the first frame paint before kicking off I/O
+    await Future<void>.delayed(
+        kIsWeb ? const Duration(milliseconds: 150) : const Duration(milliseconds: 300));
     if (!mounted) return;
 
     final user = Provider.of<UserProvider>(context, listen: false);
     final catProvider = Provider.of<CategoryProvider>(context, listen: false);
 
+    // Launch all background data fetches concurrently — fire-and-forget
     unawaited(catProvider.loadCachedCounts());
-
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
     unawaited(catProvider.fetchCategories());
-
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
     _fetchUnreadCounts(user, catProvider);
 
     if (user.role == UserRole.student && user.dbId != null) {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
       if (mounted) {
         unawaited(
           Provider.of<RequestProvider>(context, listen: false)
@@ -215,15 +212,11 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     }
 
     if (initialUser.role == UserRole.admin || user.role == UserRole.admin) {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      if (!mounted) return;
-      unawaited(
-        Provider.of<HierarchicalHostelProvider>(context, listen: false)
-            .loadHostels(),
-      );
-
-      await Future<void>.delayed(const Duration(milliseconds: 500));
       if (mounted) {
+        unawaited(
+          Provider.of<HierarchicalHostelProvider>(context, listen: false)
+              .loadHostels(),
+        );
         unawaited(
           Provider.of<MappingProvider>(context, listen: false).loadMappings(),
         );
@@ -511,6 +504,10 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
       case UserRole.student:
         roleIcon = Icons.school_outlined;
         roleLabel = 'Student Portal';
+        break;
+      case UserRole.guest:
+        roleIcon = Icons.card_travel_outlined;
+        roleLabel = 'Temporary Stay';
         break;
       case UserRole.parent:
         roleIcon = Icons.family_restroom_outlined;
@@ -800,6 +797,19 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
               activeIcon: Icons.settings,
               page: SettingsPage()),
         ];
+      case UserRole.guest:
+        return [
+          const _TabItem(
+              label: 'Home',
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home,
+              page: StudentHomeScreen()),
+          const _TabItem(
+              label: 'Settings',
+              icon: Icons.settings_outlined,
+              activeIcon: Icons.settings,
+              page: SettingsPage()),
+        ];
       case UserRole.parent:
         return [
           const _TabItem(
@@ -863,6 +873,11 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
               icon: Icons.assignment_outlined,
               activeIcon: Icons.assignment,
               page: AdminActivityLogsScreen()),
+          const _TabItem(
+              label: 'Temp Stay',
+              icon: Icons.hotel_outlined,
+              activeIcon: Icons.hotel,
+              page: TemporaryStayAdminScreen()),
           const _TabItem(
               label: 'Management',
               icon: Icons.settings_outlined,

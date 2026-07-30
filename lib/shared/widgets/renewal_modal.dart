@@ -91,6 +91,8 @@ class _RenewalModalState extends State<RenewalModal> {
   bool _isProcessing = false;
   bool _isLoading = true;
   List<RoomType> _roomTypes = [];
+  int _selectedDays = 5;
+  bool _showPlanSelector = false;
 
   // ── number formatter ──────────────────────────────────────────────────────
   final _fmt = NumberFormat('#,##,##0', 'en_IN');
@@ -110,6 +112,12 @@ class _RenewalModalState extends State<RenewalModal> {
         widget.approvedRoomType ?? widget.currentRoomTypeId.trim();
     // Defer fetch so Provider can be accessed safely after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) => _fetchRoomTypes());
+
+    final user = Provider.of<UserProvider>(context, listen: false);
+    if (user.temporaryStayRequest != null) {
+      final req = user.temporaryStayRequest!;
+      _selectedDays = int.tryParse(req['duration_value']?.toString() ?? '5') ?? 5;
+    }
   }
 
   // ── fetch ─────────────────────────────────────────────────────────────────
@@ -215,8 +223,10 @@ class _RenewalModalState extends State<RenewalModal> {
   Widget build(BuildContext context) {
     if (!widget.isOpen) return const SizedBox.shrink();
     final String upgradeUsername = Provider.of<UserProvider>(context, listen: false).displayStudentId;
+    final user = Provider.of<UserProvider>(context);
+    final bool isTemporary = user.temporaryStayRequest != null;
 
-    if (_isLoading) {
+    if (_isLoading && !isTemporary) {
       return Container(
         height: 300,
         decoration: const BoxDecoration(
@@ -238,6 +248,163 @@ class _RenewalModalState extends State<RenewalModal> {
     }
 
     final currentDate = widget.currentRenewalDate;
+    
+    if (isTemporary) {
+      final newDate = currentDate.add(Duration(days: _selectedDays));
+      final req = user.temporaryStayRequest!;
+      final double originalAmount = (req['amount'] != null) ? double.tryParse(req['amount'].toString()) ?? 0.0 : 0.0;
+      final int durationVal = (req['duration_value'] != null) ? int.tryParse(req['duration_value'].toString()) ?? 1 : 1;
+      final double dailyRate = durationVal > 0 ? (originalAmount / durationVal) : 0.0;
+      final double totalToPay = dailyRate * _selectedDays;
+
+      final fees = FeeBreakdown(
+        hostelFee: totalToPay,
+        foodFee: 0,
+        total: totalToPay,
+        selectedRoomName: user.roomAllocation,
+      );
+
+      return Container(
+        width: double.infinity,
+        constraints: BoxConstraints(
+          maxWidth: 580,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        decoration: const BoxDecoration(
+          color: Color(0xFFF9F6F0),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black26, blurRadius: 30, offset: Offset(0, -8)),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildHeader(upgradeUsername),
+            Flexible(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildExpiryDates(currentDate, newDate),
+                    const SizedBox(height: 20),
+                    
+                    // Stay details card
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE8E0D5)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Stay Details',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: _navy),
+                          ),
+                          const SizedBox(height: 12),
+                          _detailRow('Hostel', user.hostelName),
+                          _detailRow('Room Allocated', user.roomAllocation),
+                          _detailRow('Room Type', user.roomTypeDisplay),
+                          _detailRow('Original Stay', '$durationVal Days'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Change Plan Button and Selector
+                    !_showPlanSelector
+                        ? Center(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _navy,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              ),
+                              icon: const Icon(Icons.edit_calendar, size: 18),
+                              label: const Text('Change Plan / Duration', style: TextStyle(fontWeight: FontWeight.bold)),
+                              onPressed: () {
+                                setState(() {
+                                  _showPlanSelector = true;
+                                });
+                              },
+                            ),
+                          )
+                        : Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: const Color(0xFFE8E0D5)),
+                            ),
+                            child: Column(
+                              children: [
+                                const Text(
+                                  'Select New Stay Duration',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _navy),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.remove_circle_outline, color: _gold, size: 30),
+                                      onPressed: () {
+                                        if (_selectedDays > 1) {
+                                          setState(() {
+                                            _selectedDays--;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.grey.shade300),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '$_selectedDays Days',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _navy),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    IconButton(
+                                      icon: const Icon(Icons.add_circle_outline, color: _gold, size: 30),
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedDays++;
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                    const SizedBox(height: 20),
+                    
+                    _buildFeeBreakdownTemp(fees, dailyRate, _selectedDays),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+            _buildFooter(fees.total, newDate, fees.selectedRoomName),
+          ],
+        ),
+      );
+    }
+
     final newDate =
         DateTime(currentDate.year, currentDate.month + 12, currentDate.day);
 
@@ -317,6 +484,9 @@ class _RenewalModalState extends State<RenewalModal> {
   // ── Header ────────────────────────────────────────────────────────────────
   Widget _buildHeader(String upgradeUsername) {
     final status = widget.requestStatus.toLowerCase();
+    final user = Provider.of<UserProvider>(context, listen: false);
+    final bool isTemporary = user.temporaryStayRequest != null;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 20, 20, 16),
       decoration: const BoxDecoration(
@@ -345,9 +515,9 @@ class _RenewalModalState extends State<RenewalModal> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Text(
-                'Renew',
-                style: TextStyle(
+              Text(
+                isTemporary ? 'Renew Temporary Stay' : 'Renew',
+                style: const TextStyle(
                   color: _navy,
                   fontFamily: 'Lato',
                   fontSize: 22,
@@ -357,31 +527,33 @@ class _RenewalModalState extends State<RenewalModal> {
               // action buttons
               Row(
                 children: [
-                  if (widget.onRoomChangeRequested != null)
+                  if (!isTemporary) ...[
+                    if (widget.onRoomChangeRequested != null)
+                      _headerBtn(
+                        label: 'Room Change',
+                        icon: Icons.swap_horiz,
+                        onTap: (status == 'approved' || status == 'pre_approved')
+                            ? null
+                            : widget.onRoomChangeRequested,
+                      ),
+                    const SizedBox(width: 8),
                     _headerBtn(
-                      label: 'Room Change',
-                      icon: Icons.swap_horiz,
-                      onTap: (status == 'approved' || status == 'pre_approved')
-                          ? null
-                          : widget.onRoomChangeRequested,
-                    ),
-                  const SizedBox(width: 8),
-                  _headerBtn(
-                    label: 'Upgrade',
-                    icon: Icons.auto_awesome, // Or a suitable icon
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => UpgradeRoomScreen(
-                            currentRoomTypeId: widget.currentRoomTypeId,
-                            username: upgradeUsername,
+                      label: 'Upgrade',
+                      icon: Icons.auto_awesome,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => UpgradeRoomScreen(
+                              currentRoomTypeId: widget.currentRoomTypeId,
+                              username: upgradeUsername,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 8),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   GestureDetector(
                     onTap: widget.onClose,
                     child: Container(
@@ -398,15 +570,17 @@ class _RenewalModalState extends State<RenewalModal> {
             ],
           ),
           const SizedBox(height: 8),
-          const Align(
+          Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Select your room type for renewal',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
+              isTemporary
+                  ? 'Renew your temporary stay at your current room'
+                  : 'Select your room type for renewal',
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
             ),
           ),
           // status banner
-          if (status == 'pending' || status == 'approved' || status == 'pre_approved')
+          if (!isTemporary && (status == 'pending' || status == 'approved' || status == 'pre_approved'))
             _buildStatusBanner(status),
         ],
       ),
@@ -835,9 +1009,127 @@ class _RenewalModalState extends State<RenewalModal> {
     );
   }
 
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12.5, color: Colors.grey)),
+          Text(value, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: _navy)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeeBreakdownTemp(FeeBreakdown fees, double dailyRate, int days) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE8E0D5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.receipt_long_outlined, size: 16, color: _navy),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Fee Breakdown',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _navy),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _feeRow('Daily Room Rate', dailyRate, sub: 'Calculated from original stay amount'),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Days of Stay', style: TextStyle(fontSize: 13, color: Colors.black87)),
+                  Text('Renewal stay duration', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                ],
+              ),
+              Text(
+                '$days Days',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87),
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(color: Color(0xFFE8E0D5), height: 1),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Total Amount to Pay', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: _navy)),
+              Text(
+                _rupees(fees.total),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: _gold),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Footer / Pay button ───────────────────────────────────────────────────
   Widget _buildFooter(
       double totalAmount, DateTime newDate, String selectedRoomName) {
+    final user = Provider.of<UserProvider>(context, listen: false);
+    final bool isTemporary = user.temporaryStayRequest != null;
+
+    if (isTemporary) {
+      return Container(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: Color(0xFFE8E0D5))),
+        ),
+        child: SafeArea(
+          top: false,
+          child: ElevatedButton(
+            onPressed: _isProcessing
+                ? null
+                : () => _handlePayment(totalAmount, newDate, selectedRoomName),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _gold,
+              foregroundColor: _navy,
+              disabledBackgroundColor: Colors.grey.shade200,
+              disabledForegroundColor: Colors.grey.shade500,
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              elevation: 2,
+            ),
+            child: _isProcessing
+                ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.5, color: _navy),
+                  )
+                : Text(
+                    'Pay ${_rupees(totalAmount)}',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+          ),
+        ),
+      );
+    }
+
     final status = widget.requestStatus.toLowerCase();
     final disabled = _isPaymentDisabled;
 
@@ -895,6 +1187,29 @@ class _RenewalModalState extends State<RenewalModal> {
 
   void _handlePayment(
       double totalAmount, DateTime newDate, String roomName) async {
+    final user = Provider.of<UserProvider>(context, listen: false);
+    final bool isTemporary = user.temporaryStayRequest != null;
+
+    if (isTemporary) {
+      final req = user.temporaryStayRequest!;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PaymentPage(
+            requestId: req['request_id'],
+            requestedRoom: req['room_code'] ?? req['room_no'] ?? roomName,
+            customAmount: totalAmount,
+            isTemporaryStay: true,
+            renewDays: _selectedDays,
+            renewAmount: totalAmount,
+          ),
+        ),
+      ).then((_) {
+        widget.onClose();
+      });
+      return;
+    }
+
     final status = widget.requestStatus.toLowerCase();
     if (status == 'pre_approved' || status == 'approved') {
       Navigator.push(

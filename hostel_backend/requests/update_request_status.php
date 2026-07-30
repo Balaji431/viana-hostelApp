@@ -24,8 +24,8 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
                         COALESCE(ms.role, u.role) as effective_role,
                         u.role as base_role
                         FROM users u
-                        LEFT JOIN mapping_staff ms ON u.username = ms.username
-                        WHERE u.id = :wid LIMIT 1";
+                        LEFT JOIN mapping_staff ms ON (TRIM(u.username) = TRIM(ms.username) OR TRIM(u.username) = TRIM(ms.staff_bio_id))
+                        WHERE u.id = :wid OR TRIM(u.username) = TRIM(:wid) LIMIT 1";
         $w_stmt = $db->prepare($staff_query);
         $w_stmt->bindParam(":wid", $data->warden_id);
         $w_stmt->execute();
@@ -64,19 +64,19 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
 
         // 3. Authorization Check
         $is_authorized = false;
-        if ($base_role === 'admin') {
+        if ($base_role === 'admin' || $staff_role === 'admin') {
             $is_authorized = true;
         } else {
             // Role matching logic
             if ($staff_role === $req_dept) {
                 $is_authorized = true;
-            } elseif ($staff_role === 'warden' && ($req_dept === 'warden' || $req_dept === 'parent_warden')) {
+            } elseif (strpos($staff_role, 'warden') !== false && (strpos($req_dept, 'warden') !== false || $req_dept === 'parent_warden')) {
                 $is_authorized = true;
-            } elseif ($staff_role === 'maintenance' && $req_dept === 'maintenance') {
+            } elseif (strpos($staff_role, 'maint') !== false && strpos($req_dept, 'maint') !== false) {
                 $is_authorized = true;
-            } elseif ($staff_role === 'security' && $req_dept === 'security') {
+            } elseif (strpos($staff_role, 'sec') !== false && strpos($req_dept, 'sec') !== false) {
                 $is_authorized = true;
-            } elseif ($is_rcr && ($staff_role === 'warden' || $base_role === 'warden')) {
+            } elseif ($is_rcr && (strpos($staff_role, 'warden') !== false || strpos($base_role, 'warden') !== false)) {
                 // Warden handles room change requests
                 $is_authorized = true;
             }
@@ -123,11 +123,19 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
                 $msg = "Request has been $display_status by $staff_role ($staff_name)";
             }
             
-            $chat_query = "INSERT INTO chat_messages (request_id, sender_id, message, message_type) 
-                           VALUES (:request_id, :sender_id, :msg, 'status')";
+            // Fetch student username for receiver_id
+            $stu_req = $db->prepare("SELECT u.username FROM request1 r JOIN users u ON (CONVERT(r.student_id USING utf8mb4) = CONVERT(u.username USING utf8mb4) OR CONVERT(r.student_id USING utf8mb4) = CONVERT(u.id USING utf8mb4)) WHERE r.request_id = :rid LIMIT 1");
+            $stu_req->bindParam(":rid", $data->request_id);
+            $stu_req->execute();
+            $stu_user = $stu_req->fetch(PDO::FETCH_ASSOC);
+            $target_receiver_id = $stu_user['username'] ?? $req['student_id'] ?? null;
+
+            $chat_query = "INSERT INTO chat_messages (request_id, sender_id, receiver_id, message, message_type, status) 
+                           VALUES (:request_id, :sender_id, :receiver_id, :msg, 'status', 'sent')";
             $c_stmt = $db->prepare($chat_query);
             $c_stmt->bindParam(":request_id", $data->request_id);
             $c_stmt->bindParam(":sender_id", $staff_username);
+            $c_stmt->bindParam(":receiver_id", $target_receiver_id);
             $c_stmt->bindParam(":msg", $msg);
             $c_stmt->execute();
             

@@ -464,3 +464,153 @@ class SkeuomorphicModal extends StatelessWidget {
   }
 }
 
+/// Tactile Skeuomorphic Pill List Tile (Soft-UI embossed button with leading icon & trailing chevron)
+class SkeuomorphicListTile extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool isSelected;
+  final String? subtitle;
+  final Widget? trailing;
+  final int? count;
+  final Color? activeColor;
+  final Color? iconColor;
+
+  const SkeuomorphicListTile({
+    super.key,
+    required this.title,
+    required this.icon,
+    this.onTap,
+    this.isSelected = false,
+    this.subtitle,
+    this.trailing,
+    this.count,
+    this.activeColor,
+    this.iconColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool active = isSelected;
+    final primaryActiveColor = activeColor ?? const Color(0xFF1976D2);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      decoration: BoxDecoration(
+        gradient: active
+            ? LinearGradient(
+                colors: [
+                  primaryActiveColor,
+                  Color.alphaBlend(Colors.black.withValues(alpha: 0.15), primaryActiveColor),
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              )
+            : const LinearGradient(
+                colors: [Color(0xFFFFFFFF), Color(0xFFF7F4EF)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: active
+              ? primaryActiveColor.withValues(alpha: 0.8)
+              : const Color(0xFFE2DACC),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: active
+                ? primaryActiveColor.withValues(alpha: 0.3)
+                : Colors.black.withValues(alpha: 0.07),
+            blurRadius: active ? 8 : 6,
+            offset: const Offset(0, 3),
+          ),
+          if (!active)
+            BoxShadow(
+              color: Colors.white.withValues(alpha: 0.9),
+              blurRadius: 2,
+              offset: const Offset(0, -1),
+              spreadRadius: 0,
+            ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 22,
+                  color: active
+                      ? Colors.white
+                      : (iconColor ?? const Color(0xFF1A2744)),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: GoogleFonts.lato(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: active ? Colors.white : const Color(0xFF1A2744),
+                        ),
+                      ),
+                      if (subtitle != null && subtitle!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: active ? Colors.white.withValues(alpha: 0.8) : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (count != null && count! > 0) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: active ? Colors.white : const Color(0xFFE53935),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: active ? primaryActiveColor : Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                trailing ??
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 20,
+                      color: active
+                          ? Colors.white.withValues(alpha: 0.9)
+                          : const Color(0xFF8C8477),
+                    ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+

@@ -73,6 +73,14 @@ class NotificationService {
 
     AppLogger.info("Notification Permission: ${settings.authorizationStatus}");
 
+    if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
+
     const androidChannel = AndroidNotificationChannel(
       'chat_channel',
       'Chat Notifications',
@@ -120,9 +128,9 @@ class NotificationService {
     );
 
     final initializationSettingsDarwin = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
       notificationCategories: [chatCategory],
     );
 
@@ -205,6 +213,16 @@ class NotificationService {
 
   static Future<String?> getToken() async {
     try {
+      if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
+        String? apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+        int attempts = 0;
+        while (apnsToken == null && attempts < 6) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+          attempts++;
+        }
+        AppLogger.info("APNs Token: $apnsToken");
+      }
       String? token = await FirebaseMessaging.instance.getToken();
       AppLogger.info("FCM Token: $token");
       return token;

@@ -59,7 +59,6 @@ services:
     environment:
       - PMA_HOST=db
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-      - PMA_ABSOLUTE_URI=https://vstay.saveetha.com/api/
       - UPLOAD_LIMIT=500M
       
 volumes:

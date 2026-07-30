@@ -91,11 +91,11 @@ try {
     $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType,
                      p.personal_phone as phone, p.room_allocation, p.institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic,
                      p.valid_from, p.valid_to, u.biometric_id,
-                     hr.room_no as hr_room_no, hr.building_code as block, hr.floor as floor_name, hr.wing_code as wing_name, hr.hostel_name as room_hostel, hr.room_type as room_type,
-                     hr.facility as room_facility, hr.bath_attached as room_bath_attached, hr.room_code as room_code
+                     rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel, rgd.room_type as room_type,
+                     '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code
               FROM users u
               LEFT JOIN profile p ON u.username = p.reg_no
-              LEFT JOIN hostel_rooms hr ON (hr.id = p.current_room_id OR (COALESCE(p.current_room_id, 0) = 0 AND hr.room_code = p.room_allocation))
+              LEFT JOIN rooms_groups_details rgd ON (rgd.room_number = p.room_allocation)
               WHERE u.email = :email LIMIT 0,1";
 
     $stmt = $db->prepare($query);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import '../../core/styles.dart';
 import '../../shared/widgets/skeuomorphic_widgets.dart';
 import 'package:provider/provider.dart';
@@ -12,8 +13,19 @@ class PaymentPage extends StatefulWidget {
   final String? requestId;
   final String? requestedRoom;
   final double? customAmount;
+  final bool isTemporaryStay;
+  final int renewDays;
+  final double renewAmount;
 
-  const PaymentPage({super.key, this.requestId, this.requestedRoom, this.customAmount});
+  const PaymentPage({
+    super.key,
+    this.requestId,
+    this.requestedRoom,
+    this.customAmount,
+    this.isTemporaryStay = false,
+    this.renewDays = 0,
+    this.renewAmount = 0.0,
+  });
 
   @override
   State<PaymentPage> createState() => _PaymentPageState();
@@ -82,6 +94,48 @@ class _PaymentPageState extends State<PaymentPage> {
       setState(() => _isProcessing = true);
       
       final user = context.read<UserProvider>();
+
+      if (widget.isTemporaryStay || (widget.requestId != null && widget.requestId!.startsWith('TEMP-'))) {
+        final response = await ApiService.payTemporaryStayRequest(
+          widget.requestId ?? '',
+          renewDays: widget.renewDays,
+          renewAmount: widget.renewAmount,
+        );
+        if (response['success'] == true) {
+          if (user.temporaryStayRequest != null) {
+            user.temporaryStayRequest!['status'] = 'allocated';
+            user.temporaryStayRequest!['payment_status'] = 'paid';
+            user.temporaryStayRequest!['payment_txn_id'] = response['payment_txn_id'] ?? 'TXN-CONFIRMED';
+            if (widget.renewDays > 0) {
+              final currentToDate = user.temporaryStayRequest!['to_date']?.toString() ?? '';
+              if (currentToDate.isNotEmpty) {
+                try {
+                  final parsedDate = DateTime.parse(currentToDate);
+                  final newToDate = parsedDate.add(Duration(days: widget.renewDays));
+                  user.temporaryStayRequest!['to_date'] = DateFormat('yyyy-MM-dd').format(newToDate);
+                  
+                  final currentVal = int.tryParse(user.temporaryStayRequest!['duration_value']?.toString() ?? '0') ?? 0;
+                  user.temporaryStayRequest!['duration_value'] = currentVal + widget.renewDays;
+                  
+                  final currentAmt = double.tryParse(user.temporaryStayRequest!['amount']?.toString() ?? '0') ?? 0.0;
+                  user.temporaryStayRequest!['amount'] = currentAmt + widget.renewAmount;
+                } catch (_) {}
+              }
+            }
+          }
+          user.setUserData(user.temporaryStayRequest != null ? {'temporary_stay_request': user.temporaryStayRequest} : {});
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (ctx) => const PaymentSuccessPage()),
+            );
+          }
+        } else {
+          _showError(response['message'] ?? "Payment failed");
+          setState(() => _isProcessing = false);
+        }
+        return;
+      }
+
       if (user.dbId == null) {
          _showError("User ID not found. Please log in again.");
          setState(() => _isProcessing = false);

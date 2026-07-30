@@ -89,15 +89,17 @@ function sendFCM($token, $title, $body, $requestId = '', $senderId = '', $sender
                 ],
                 'apns' => [
                     'headers' => [
-                        'apns-priority' => '10',
+                        'apns-priority'  => '10',
+                        'apns-push-type' => 'alert',
                     ],
                     'payload' => [
                         'aps' => [
                             'alert' => [
-                                'title' => $title,
-                                'body'  => $body,
+                                'title' => (string)$title,
+                                'body'  => (string)$body,
                             ],
-                            'content-available' => 1,  // Wakes iOS background fetch
+                            'content-available' => 1,
+                            'mutable-content'   => 1,
                             'sound'             => 'default',
                             'badge'             => 1,
                         ],

@@ -89,7 +89,8 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
 
   Future<void> _fetchSystemStats() async {
     try {
-      final response = await ApiService.getSystemStats();
+      final user = Provider.of<UserProvider>(context, listen: false);
+      final response = await ApiService.getSystemStats(wardenUsername: user.username);
       if (response['success'] == true && mounted) {
         setState(() {
           _systemStats = response['data'];
@@ -180,62 +181,6 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
     );
   }
 
-  Widget _buildAllocationQueueCard() {
-    return GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => const WardenAllocationScreen())),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: ds.RoyalTheme.navyGradient,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                gradient: ds.RoyalTheme.goldGradient,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.assignment_ind, color: Colors.white),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    "Room Allocation Requests",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontFamily: 'Lato',
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    "Manage student room preferences",
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.white70),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -263,10 +208,6 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
                 children: [
                   _buildHeaderSection(user),
                   const SizedBox(height: 15),
-                  if (user.role == UserRole.warden || user.role == UserRole.admin) ...[
-                    _buildAllocationQueueCard(),
-                    const SizedBox(height: 10),
-                  ],
                   _buildQuickActionsHeader(),
                   _buildQuickActions(context),
                   const SizedBox(height: 20),

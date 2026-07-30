@@ -40,7 +40,6 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     {'name': 'Porunai Hostel (4F - 8F )', 'code': 'T-19'},
     {'name': 'Stunners Den', 'code': 'P10'},
     {'name': 'Radiance Inn (P-05)', 'code': 'P-05'},
-    {'name': 'Max Fax', 'code': 'P05'},
   ];
 
   List<Map<String, dynamic>> _externalRoomTypes = [];

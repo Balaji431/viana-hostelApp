@@ -21,26 +21,19 @@ if (!$conn) {
 }
 
 try {
-    // 1. Authenticate via validated JWT if present
-    $auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (empty($auth_header)) {
-        if (function_exists('apache_request_headers')) {
+    $warden_username = isset($_GET['warden_username']) ? trim($_GET['warden_username']) : '';
+
+    if (empty($warden_username)) {
+        // Fallback to JWT payload if present
+        $auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (empty($auth_header) && function_exists('apache_request_headers')) {
             $headers = apache_request_headers();
             $auth_header = $headers['Authorization'] ?? $headers['authorization'] ?? '';
         }
-    }
-    
-    $token = null;
-    if (preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
-        $token = $matches[1];
-    }
-    
-    $payload = validateJWT($token);
-    if ($payload) {
-        $warden_username = $payload['username'];
-    } else {
-        // Fallback for simple tests
-        $warden_username = isset($_GET['warden_username']) ? $_GET['warden_username'] : null;
+        if (preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
+            $payload = validateJWT($matches[1]);
+            if ($payload) $warden_username = $payload['username'];
+        }
     }
 
     if (empty($warden_username)) {
@@ -48,119 +41,53 @@ try {
         exit();
     }
 
-    // 2. Resolve Warden role
-    $warden_role = 'staff';
-    $u_stmt = $conn->prepare("SELECT role FROM users WHERE username = ? LIMIT 1");
-    $u_stmt->bind_param("s", $warden_username);
-    $u_stmt->execute();
-    $u_res = $u_stmt->get_result()->fetch_assoc();
-    
-    if ($u_res) {
-        $warden_role = $u_res['role'];
+    $is_admin = (strtolower($warden_username) === 'admin');
+
+    if ($is_admin) {
+        $sql = "SELECT DISTINCT
+                    p.id as profile_id,
+                    p.full_name,
+                    p.reg_no as register_number,
+                    p.room_allocation as room_no,
+                    p.institution,
+                    u.id as user_id,
+                    u.conduct,
+                    u.Status,
+                    rgd.room_number as room_code,
+                    rgd.hostel_name,
+                    rgd.group_name as floor,
+                    'General' as wing_code
+                FROM profile p
+                LEFT JOIN users u ON (TRIM(p.reg_no) = TRIM(u.username))
+                LEFT JOIN rooms_groups_details rgd ON (TRIM(p.room_allocation) = TRIM(rgd.room_number))";
+        $stmt = $conn->prepare($sql);
     } else {
-        $s_stmt = $conn->prepare("SELECT role FROM staff_users WHERE bio_id = ? LIMIT 1");
-        $s_stmt->bind_param("s", $warden_username);
-        $s_stmt->execute();
-        $s_res = $s_stmt->get_result()->fetch_assoc();
-        if ($s_res) {
-            $warden_role = $s_res['role'];
-        } else {
-            echo json_encode(array("status" => "success", "data" => [], "success" => true));
-            exit();
-        }
-    }
-    
-    $is_main_warden = ($warden_role === 'admin');
-
-    $mapped_hostel = null;
-    $mapped_floor = null;
-    $mapped_wing = null;
-
-    if (!$is_main_warden) {
-        // 3. Fetch warden's mapping details (support both username and staff_bio_id)
-        $m_stmt = $conn->prepare("SELECT hostel_name, floor_name, wing_name FROM mapping_staff WHERE (username = ? OR staff_bio_id = ?) AND role = 'warden' LIMIT 1");
-        $m_stmt->bind_param("ss", $warden_username, $warden_username);
-        $m_stmt->execute();
-        $mapping = $m_stmt->get_result()->fetch_assoc();
-        
-        if ($mapping) {
-            $warden_role = 'warden'; // Allow them if they are mapped as warden
-            $mapped_hostel = $mapping['hostel_name'];
-            $mapped_floor = $mapping['floor_name'];
-            $mapped_wing = $mapping['wing_name'];
-        } else if ($warden_role !== 'warden') {
-            http_response_code(403);
-            echo json_encode(["status" => "error", "message" => "Access Denied. You do not have the warden role.", "success" => false]);
-            exit();
-        }
+        // Fetch all assigned locations for this warden from mapping_staff
+        $sql = "SELECT DISTINCT
+                    p.id as profile_id,
+                    p.full_name,
+                    p.reg_no as register_number,
+                    p.room_allocation as room_no,
+                    p.institution,
+                    u.id as user_id,
+                    u.conduct,
+                    u.Status,
+                    rgd.room_number as room_code,
+                    rgd.hostel_name,
+                    rgd.group_name as floor,
+                    'General' as wing_code
+                FROM profile p
+                LEFT JOIN users u ON (TRIM(p.reg_no) = TRIM(u.username))
+                JOIN rooms_groups_details rgd ON (TRIM(p.room_allocation) = TRIM(rgd.room_number))
+                JOIN mapping_staff ms ON (
+                    TRIM(rgd.hostel_name) LIKE CONCAT('%', TRIM(ms.hostel_name), '%') 
+                    AND LOWER(rgd.group_name) LIKE CONCAT('%', LOWER(ms.floor_name), '%')
+                )
+                WHERE (ms.username = ? OR ms.staff_bio_id = ?)";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ss", $warden_username, $warden_username);
     }
 
-    // 4. Query students from profile
-    $sql = "SELECT DISTINCT
-                p.id as profile_id,
-                p.full_name,
-                p.reg_no as register_number,
-                p.room_allocation as room_no,
-                p.institution,
-                u.id as user_id,
-                u.conduct,
-                u.Status,
-                hr.room_code,
-                hr.floor,
-                hr.wing_code
-            FROM profile p
-            LEFT JOIN users u ON (TRIM(p.reg_no) = TRIM(u.username))
-            LEFT JOIN hostel_rooms hr ON (p.current_room_id = hr.id OR TRIM(p.room_allocation) = TRIM(hr.room_code))";
-
-    $where_clauses = [];
-    $params = [];
-    $types = "";
-
-    if (!$is_main_warden) {
-        // Hostel filter
-        $where_clauses[] = "(hr.hostel_name = ? OR hr.hostel_name LIKE CONCAT('%', ?, '%') OR ? LIKE CONCAT('%', hr.hostel_name, '%'))";
-        $params[] = $mapped_hostel;
-        $params[] = $mapped_hostel;
-        $params[] = $mapped_hostel;
-        $types .= "sss";
-
-        // Floor filter (supports floor mapping Ground -> F00, Fourth -> F04, etc.)
-        if (!empty($mapped_floor) && strtolower($mapped_floor) !== 'all') {
-            $where_clauses[] = "(
-                TRIM(hr.floor) COLLATE utf8mb4_general_ci LIKE CONCAT('%', ? COLLATE utf8mb4_general_ci, '%')
-                OR (LOWER(TRIM(hr.floor)) IN ('f00', 'ground', 'ground floor') AND LOWER(?) IN ('f00', 'ground', 'ground floor'))
-                OR (LOWER(TRIM(hr.floor)) IN ('f01', '1st floor') AND LOWER(?) IN ('f01', '1st floor'))
-                OR (LOWER(TRIM(hr.floor)) IN ('f02', '2nd floor') AND LOWER(?) IN ('f02', '2nd floor'))
-                OR (LOWER(TRIM(hr.floor)) IN ('f03', '3rd floor') AND LOWER(?) IN ('f03', '3rd floor'))
-                OR (LOWER(TRIM(hr.floor)) IN ('f04', '4th floor') AND LOWER(?) IN ('f04', '4th floor'))
-            )";
-            $params[] = $mapped_floor;
-            $params[] = $mapped_floor;
-            $params[] = $mapped_floor;
-            $params[] = $mapped_floor;
-            $params[] = $mapped_floor;
-            $params[] = $mapped_floor;
-            $types .= "ssssss";
-        }
-
-        // Wing filter
-        if (!empty($mapped_wing) && strtolower($mapped_wing) !== 'all') {
-            $where_clauses[] = "(hr.wing_code = ? OR hr.wing_code LIKE CONCAT('%', ?, '%') OR ? LIKE CONCAT('%', hr.wing_code, '%'))";
-            $params[] = $mapped_wing;
-            $params[] = $mapped_wing;
-            $params[] = $mapped_wing;
-            $types .= "sss";
-        }
-    }
-
-    if (!empty($where_clauses)) {
-        $sql .= " WHERE " . implode(" AND ", $where_clauses);
-    }
-
-    $stmt = $conn->prepare($sql);
-    if (!empty($params)) {
-        $stmt->bind_param($types, ...$params);
-    }
     $stmt->execute();
     $result = $stmt->get_result();
     
@@ -174,7 +101,44 @@ try {
         }
     }
     
-    echo json_encode(array("status" => "success", "data" => $students, "success" => true));
+    // Fetch all locations (floors, wings, rooms) mapped to this warden
+    $locations = array();
+    if ($is_admin) {
+        $locSql = "SELECT DISTINCT 
+                       rgd.hostel_name, 
+                       rgd.group_name as floor_name, 
+                       'W0' as wing_name, 
+                       rgd.room_number 
+                   FROM rooms_groups_details rgd
+                   WHERE rgd.room_number IS NOT NULL AND rgd.room_number != ''";
+        $locStmt = $conn->prepare($locSql);
+    } else {
+        $locSql = "SELECT DISTINCT 
+                       ms.hostel_name, 
+                       ms.floor_name, 
+                       ms.wing_name, 
+                       rgd.room_number 
+                   FROM mapping_staff ms
+                   LEFT JOIN rooms_groups_details rgd ON (
+                       TRIM(rgd.hostel_name) LIKE CONCAT('%', TRIM(ms.hostel_name), '%')
+                       AND LOWER(rgd.group_name) LIKE CONCAT('%', LOWER(ms.floor_name), '%')
+                       AND (rgd.room_number LIKE CONCAT('%-', TRIM(ms.wing_name), '-%') OR ms.wing_name = 'W0' OR ms.wing_name = 'N/A')
+                   )
+                   WHERE (ms.username = ? OR ms.staff_bio_id = ?)";
+        $locStmt = $conn->prepare($locSql);
+        $locStmt->bind_param("ss", $warden_username, $warden_username);
+    }
+    $locStmt->execute();
+    $locRes = $locStmt->get_result();
+    if ($locRes && $locRes->num_rows > 0) {
+        while ($lRow = $locRes->fetch_assoc()) {
+            $locations[] = array_map(function($val) {
+                return is_string($val) ? mb_convert_encoding($val, 'UTF-8', 'UTF-8') : $val;
+            }, $lRow);
+        }
+    }
+
+    echo json_encode(array("status" => "success", "data" => $students, "locations" => $locations, "success" => true));
 
 } catch (Exception $e) {
     echo json_encode(array("status" => "error", "message" => $e->getMessage(), "success" => false));

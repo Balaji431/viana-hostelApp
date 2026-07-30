@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
@@ -464,6 +465,7 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
       requestType: category,
       purpose: details['purpose'] ?? "Requested $category",
       destination: details['destination'],
+      attachment: details['attachment'] ?? details['image_url'],
       fromDate: details['from_date'],
       toDate: details['to_date'],
       roomNumber: user.fullRoomDetails,
@@ -544,84 +546,79 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             ],
           ),
         ),
-        body: Center(
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Column(
-              children: [
-                if (!_isAssigned)
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.all(12),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF0F0),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFFFCCCC)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        )
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            '${widget.department} has not been assigned to your hostel block/wing yet. Please contact the administrator.',
-                            style: const TextStyle(
-                              color: Color(0xFFD32F2F),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                _buildSubHeader(),
-                _buildFilterChips(),
-                Expanded(
-                  child: ListView.builder(
-                    controller: _scrollController, 
-                    reverse: true, 
-                    padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
-                    itemCount: _filteredMessages.length + (_isMoreLoading ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index == _filteredMessages.length) {
-                        return const Center(child: Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator()));
-                      }
-  
-                      final msg = _filteredMessages[index];
-                      String? nextDate;
-                      if (index + 1 < _filteredMessages.length) {
-                        nextDate = _formatTimestampForDate(_filteredMessages[index + 1]['timestamp']);
-                      }
-                      final currDate = _formatTimestampForDate(msg['timestamp']);
-  
-                      List<Widget> children = [];
-                      if (nextDate == null || nextDate != currDate) {
-                        children.add(_buildDateSeparator(currDate));
-                      }
-  
-                      if (msg['type'] == 'text') {
-                        children.add(_buildTextMessage(msg));
-                      } else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
-                      else if (msg['type'] == 'admin_reply') children.add(_buildAdminActionCard(msg));
-                      else children.add(_buildRequestCard(msg));
-                      
-                      return Column(children: children);
-                    },
-                  ),
+        body: Column(
+          children: [
+            if (!_isAssigned)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF0F0),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFFCCCC)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    )
+                  ],
                 ),
-                _buildBottomInputDesign(),
-              ],
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '${widget.department} has not been assigned to your hostel block/wing yet. Please contact the administrator.',
+                        style: const TextStyle(
+                          color: Color(0xFFD32F2F),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            _buildSubHeader(),
+            _buildFilterChips(),
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController, 
+                reverse: true, 
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
+                itemCount: _filteredMessages.length + (_isMoreLoading ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == _filteredMessages.length) {
+                    return const Center(child: Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator()));
+                  }
+
+                  final msg = _filteredMessages[index];
+                  String? nextDate;
+                  if (index + 1 < _filteredMessages.length) {
+                    nextDate = _formatTimestampForDate(_filteredMessages[index + 1]['timestamp']);
+                  }
+                  final currDate = _formatTimestampForDate(msg['timestamp']);
+
+                  List<Widget> children = [];
+                  if (nextDate == null || nextDate != currDate) {
+                    children.add(_buildDateSeparator(currDate));
+                  }
+
+                  if (msg['type'] == 'text') {
+                    children.add(_buildTextMessage(msg));
+                  } else if (msg['type'] == 'call') children.add(_buildCallMessage(msg));
+                  else if (msg['type'] == 'admin_reply') children.add(_buildAdminActionCard(msg));
+                  else children.add(_buildRequestCard(msg));
+                  
+                  return Column(children: children);
+                },
+              ),
             ),
-          ),
+            _buildBottomInputDesign(),
+          ],
         ),
       ),
     );
@@ -660,13 +657,18 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
   }
 
   Widget _buildSubHeader() {
+    final user = context.read<UserProvider>();
+    final roomCode = user.isParent 
+        ? user.linkedStudentRoom 
+        : (user.roomNumber.isNotEmpty ? user.roomNumber : user.roomAllocation);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05)))),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(context.read<UserProvider>().fullRoomDetails.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato')),
+          Text(roomCode.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato')),
         ],
       ),
     );
@@ -1052,10 +1054,111 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
   DateTime? _toDate;
   bool _hasError = false;
   String _errorMessage = "";
+  XFile? _selectedImage;
+  bool _isUploading = false;
 
   bool get _isLeaveRequest {
     final cat = widget.category.toLowerCase();
     return cat.contains('leave') || cat.contains('pass') || cat.contains('home') || cat.contains('permission');
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: source, imageQuality: 70);
+      if (picked != null) {
+        setState(() {
+          _selectedImage = picked;
+          _hasError = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error picking image: $e");
+    }
+  }
+
+  void _showImageSourcePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: Color(0xFF1B2B48)),
+              title: const Text('Take Photo with Camera'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Color(0xFF1B2B48)),
+              title: const Text('Choose from Gallery'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleSubmit() async {
+    if (_purposeController.text.trim().isEmpty) {
+      setState(() { _hasError = true; _errorMessage = "Please enter a purpose"; });
+      return;
+    }
+    if (_isLeaveRequest && (_fromDate == null || _toDate == null)) {
+      setState(() { _hasError = true; _errorMessage = "Please select both departure and return dates"; });
+      return;
+    }
+
+    // MANDATORY DOCUMENT / PHOTO CHECK FOR ALL CATEGORIES
+    if (_selectedImage == null) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = "Document / Photo attachment is mandatory to submit this request";
+      });
+      return;
+    }
+
+    setState(() => _isUploading = true);
+
+    String? imageUrl;
+    final uploadRes = await ApiService.uploadRequestImage(file: _selectedImage);
+    if (uploadRes['success'] == true && uploadRes['image_url'] != null) {
+      imageUrl = uploadRes['image_url'].toString();
+    } else {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _hasError = true;
+          _errorMessage = "Failed to upload document photo: ${uploadRes['message']}";
+        });
+      }
+      return;
+    }
+
+    final data = <String, String>{
+      'purpose': _purposeController.text.trim(),
+      'destination': _destinationController.text.trim(),
+      'from_date': _fromDate != null ? DateFormat('yyyy-MM-dd').format(_fromDate!) : '',
+      'to_date': _toDate != null ? DateFormat('yyyy-MM-dd').format(_toDate!) : '',
+    };
+    if (imageUrl != null) {
+      data['attachment'] = imageUrl;
+      data['image_url'] = imageUrl;
+    }
+
+    if (mounted) {
+      setState(() => _isUploading = false);
+      widget.onSubmit(data);
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -1070,9 +1173,21 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'New ${widget.category}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontFamily: 'Lato'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    'New ${widget.category}',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontFamily: 'Lato'),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1B2B48), size: 24),
+                  onPressed: _showImageSourcePicker,
+                  tooltip: 'Attach mandatory document/photo',
+                ),
+              ],
             ),
             const SizedBox(height: 15),
             _buildTextField(_purposeController, "Purpose of Leave / Request...", maxLines: 3),
@@ -1092,40 +1207,93 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
                 ],
               ),
             ],
+            const SizedBox(height: 10),
+            // Mandatory Attachment Indicator & Preview
+            if (_selectedImage != null)
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _selectedImage!.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.green),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                      onPressed: () => setState(() => _selectedImage = null),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.camera_alt, color: Colors.amber.shade800, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Document/Photo is Mandatory *',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _showImageSourcePicker,
+                      child: const Text('Attach', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
             if (_hasError) ...[
-              const SizedBox(height: 15),
-              Text(_errorMessage, style: const TextStyle(color: Colors.red, fontSize: 12)),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Text(_errorMessage, style: const TextStyle(color: Colors.red, fontSize: 12)),
+              ),
             ],
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                TextButton(
+                  onPressed: _isUploading ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
                 const SizedBox(width: 10),
                 ElevatedButton(
-                  onPressed: () {
-                    if (_purposeController.text.trim().isEmpty) {
-                      setState(() { _hasError = true; _errorMessage = "Please enter a purpose"; });
-                      return;
-                    }
-                    if (_isLeaveRequest && (_fromDate == null || _toDate == null)) {
-                      setState(() { _hasError = true; _errorMessage = "Please select both dates"; });
-                      return;
-                    }
-                    widget.onSubmit({
-                      'purpose': _purposeController.text.trim(),
-                      'destination': _destinationController.text.trim(),
-                      'from_date': _fromDate != null ? DateFormat('yyyy-MM-dd').format(_fromDate!) : '',
-                      'to_date': _toDate != null ? DateFormat('yyyy-MM-dd').format(_toDate!) : '',
-                    });
-                    Navigator.pop(context);
-                  },
+                  onPressed: _isUploading ? null : _handleSubmit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1B2B48),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  child: const Text('Submit'),
+                  child: _isUploading
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Submit'),
                 ),
               ],
             ),

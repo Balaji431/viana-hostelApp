@@ -48,6 +48,16 @@ class HierarchicalHostel {
   int get totalRooms => zones.isNotEmpty 
     ? zones.fold(0, (sum, zone) => zone.subZones.fold(0, (sum, subZone) => sum + subZone.rooms.length))
     : summaryRoomCount;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is HierarchicalHostel && 
+      (other.id?.toString() == id?.toString() || other.name.toLowerCase() == name.toLowerCase());
+  }
+
+  @override
+  int get hashCode => name.toLowerCase().hashCode;
 }
 
 class Zone {
@@ -91,6 +101,17 @@ class Zone {
       'subZones': subZones.map((sz) => sz.toJson()).toList(),
     };
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is Zone && 
+      (other.name.trim().toLowerCase() == name.trim().toLowerCase() ||
+       (other.id != null && id != null && other.id.toString() == id.toString()));
+  }
+
+  @override
+  int get hashCode => name.trim().toLowerCase().hashCode;
 }
 
 class SubZone {
@@ -134,7 +155,18 @@ class SubZone {
       'rooms': rooms.map((r) => r.toJson()).toList(),
     };
   }
-  
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is SubZone && 
+      (other.name.trim().toLowerCase() == name.trim().toLowerCase() ||
+       (other.id != null && id != null && other.id.toString() == id.toString()));
+  }
+
+  @override
+  int get hashCode => name.trim().toLowerCase().hashCode;
+
   int get totalRooms => rooms.length;
 }
 

@@ -28,31 +28,14 @@ try {
             h.hostel_name,
             h.hostel_type,
             h.building_code,
-            COUNT(DISTINCT r.wing_code) as zone_count,
-            COUNT(r.id) as room_count,
-            SUM(r.total_capacity) as total_capacity,
-            (SUM(r.available_rooms) - COALESCE(res.total_res, 0)) as available_rooms
+            COUNT(DISTINCT r.group_name) as zone_count,
+            COUNT(r.s_no) as room_count,
+            COALESCE(SUM(r.total_beds), 0) as total_capacity,
+            COALESCE(SUM(r.available_beds), 0) as available_rooms
         FROM hostel_type h
-        LEFT JOIN hostel_rooms r ON h.id = r.hostel_id
-        LEFT JOIN (
-            SELECT h2.id as hostel_id, COUNT(*) as total_res
-            FROM room_change_requests rcr
-            JOIN hostel_rooms hr2 ON TRIM(rcr.requested_room) = TRIM(hr2.room_code)
-            JOIN hostel_type h2 ON hr2.hostel_id = h2.id
-            WHERE rcr.status IN ('pre_approved', 'approved') 
-              AND rcr.payment_status = 'unpaid'
-              AND rcr.reserved_until > NOW()
-              AND rcr.requested_room IS NOT NULL AND rcr.requested_room != ''
-            GROUP BY h2.id
-        ) res ON h.id = res.hostel_id
+        LEFT JOIN rooms_groups_details r ON (TRIM(h.hostel_name) = TRIM(r.hostel_name))
         GROUP BY h.id, h.campus, h.hostel_name, h.hostel_type, h.building_code
-        ORDER BY 
-            CASE h.campus
-                WHEN 'City Campus' THEN 1
-                WHEN 'Thandalam Campus' THEN 2
-                ELSE 3
-            END,
-            h.hostel_name ASC
+        ORDER BY h.id ASC
     ";
     
     $result = $conn->query($query);
@@ -64,6 +47,7 @@ try {
     $hostels = [];
     $cityCampus = [];
     $thandalamCampus = [];
+    $poonamalleeCampus = [];
     
     while ($row = $result->fetch_assoc()) {
         $hostel = [
@@ -81,7 +65,11 @@ try {
         // Group by campus
         if ($row['campus'] === 'City Campus') {
             $cityCampus[] = $hostel;
-        } else if ($row['campus'] === 'Thandalam Campus') {
+        } else if ($row['campus'] === 'Poonamallee Campus') {
+            $poonamalleeCampus[] = $hostel;
+            // Also include in thandalamCampus list if UI displays thandalamCampus as primary
+            $thandalamCampus[] = $hostel;
+        } else {
             $thandalamCampus[] = $hostel;
         }
         
@@ -95,7 +83,8 @@ try {
             'all_hostels' => $hostels,
             'by_campus' => [
                 'city_campus' => $cityCampus,
-                'thandalam_campus' => $thandalamCampus
+                'thandalam_campus' => $thandalamCampus,
+                'poonamallee_campus' => $poonamalleeCampus
             ],
             'total_count' => count($hostels)
         ]

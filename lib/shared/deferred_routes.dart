@@ -5,6 +5,7 @@ import '../admin/screens/admin_hostel_manager_screen.dart';
 import '../admin/screens/category_manager_screen.dart';
 import '../admin/screens/hostel_detail_screen.dart';
 import '../admin/screens/room_master_screen.dart';
+import '../admin/screens/temporary_stay_admin_screen.dart';
 import '../admin/staff_mapping_manager_screen.dart';
 import '../core/models/hierarchical_hostel_model.dart';
 import '../core/styles.dart';
@@ -26,6 +27,11 @@ Widget buildDeferredRoutePage(BuildContext context, RouteSettings settings) {
       return _buildSecurityChatRoute(settings.arguments);
     case '/announcements':
       return const MainResponsiveLayout(showAnnouncements: true);
+    case '/temporary_stay_admin':
+      return const RoleGuard(
+        allowedRoles: [UserRole.admin, UserRole.warden, UserRole.staff],
+        child: TemporaryStayAdminScreen(),
+      );
     case '/category_manager':
       return _buildAdminAdaptiveRoute(
         context,

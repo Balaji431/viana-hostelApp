@@ -61,32 +61,33 @@ if ($method === 'GET') {
  */
 function getAvailableRoomsByHostel($conn, $hostelId) {
     try {
-        $sql = "SELECT hr.*, 
-                       (hr.available_rooms - COALESCE(res.res_count, 0)) as available_beds_calc
-                FROM hostel_rooms hr
-                LEFT JOIN (
-                    SELECT TRIM(requested_room) as requested_room, COUNT(*) as res_count 
-                    FROM room_change_requests 
-                    WHERE status IN ('pre_approved', 'approved') 
-                    AND payment_status = 'unpaid'
-                    AND reserved_until > NOW()
-                    AND requested_room IS NOT NULL AND requested_room != ''
-                    GROUP BY TRIM(requested_room)
-                ) res ON TRIM(hr.room_code) = res.requested_room
-                WHERE hr.hostel_id = ? 
-                ORDER BY hr.floor_code, hr.room_no";
+        $stmtH = $conn->prepare("SELECT hostel_name FROM hostel_type WHERE id = ?");
+        $stmtH->bind_param("i", $hostelId);
+        $stmtH->execute();
+        $resH = $stmtH->get_result()->fetch_assoc();
+        $hName = $resH['hostel_name'] ?? '';
+
+        $sql = "SELECT rgd.s_no as id,
+                       rgd.room_number as room_no,
+                       rgd.room_number as room_code,
+                       rgd.group_name as floor,
+                       rgd.group_name as floor_code,
+                       'General' as wing_code,
+                       rgd.total_beds as total_capacity,
+                       rgd.occupied_beds as occupied_rooms,
+                       rgd.available_beds as available_rooms,
+                       rgd.room_type,
+                       rgd.amount,
+                       rgd.hostel_name
+                FROM rooms_groups_details rgd
+                WHERE TRIM(rgd.hostel_name) = TRIM(?) OR TRIM(rgd.hostel_name) LIKE CONCAT('%', TRIM(?), '%')
+                ORDER BY rgd.group_name, rgd.room_number";
         
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $hostelId);
+        $stmt->bind_param("ss", $hName, $hName);
         $stmt->execute();
         $result = $stmt->get_result();
-        $rooms_raw = $result->fetch_all(MYSQLI_ASSOC);
-        
-        // Map calculated beds back to available_rooms for UI compatibility
-        $rooms = array_map(function($r) {
-            $r['available_rooms'] = max(0, (int)$r['available_beds_calc']);
-            return $r;
-        }, $rooms_raw);
+        $rooms = $result->fetch_all(MYSQLI_ASSOC);
 
         // Group by floor
         $floors = [];
@@ -129,34 +130,21 @@ function getAvailableRoomsByHostel($conn, $hostelId) {
  */
 function getRoomsByType($conn, $roomType) {
     try {
-        $sql = "SELECT hr.*, ht.campus, ht.hostel_name as hostel,
-                       (hr.available_rooms - COALESCE(res.res_count, 0)) as available_beds_calc
-                FROM hostel_rooms hr
-                JOIN hostel_type ht ON hr.hostel_id = ht.id
-                LEFT JOIN (
-                    SELECT TRIM(requested_room) as requested_room, COUNT(*) as res_count 
-                    FROM room_change_requests 
-                    WHERE status IN ('pre_approved', 'approved') 
-                    AND payment_status = 'unpaid'
-                    AND reserved_until > NOW()
-                    AND requested_room IS NOT NULL AND requested_room != ''
-                    GROUP BY TRIM(requested_room)
-                ) res ON TRIM(hr.room_code) = res.requested_room
-                WHERE hr.room_type LIKE ?
-                HAVING available_beds_calc > 0
-                ORDER BY hr.amount ASC";
+        $sql = "SELECT rgd.s_no as id, rgd.room_number as room_no, rgd.room_number as room_code,
+                       rgd.group_name as floor, rgd.group_name as floor_code, 'General' as wing_code,
+                       rgd.total_beds as total_capacity, rgd.occupied_beds as occupied_rooms,
+                       rgd.available_beds as available_rooms, rgd.room_type, rgd.amount,
+                       rgd.hostel_name as hostel, 'Thandalam Campus' as campus
+                FROM rooms_groups_details rgd
+                WHERE rgd.room_type LIKE ?
+                ORDER BY rgd.amount ASC";
         
         $stmt = $conn->prepare($sql);
         $search = "%$roomType%";
         $stmt->bind_param("s", $search);
         $stmt->execute();
         $result = $stmt->get_result();
-        $rooms_raw = $result->fetch_all(MYSQLI_ASSOC);
-        
-        $rooms = array_map(function($r) {
-            $r['available_rooms'] = max(0, (int)$r['available_beds_calc']);
-            return $r;
-        }, $rooms_raw);
+        $rooms = $result->fetch_all(MYSQLI_ASSOC);
 
         echo json_encode([
             'status' => 'success',
@@ -174,105 +162,33 @@ function getRoomsByType($conn, $roomType) {
  */
 function getVacantRooms($conn) {
     try {
-        $student_hostel_type = null;
-        if (!empty($_GET['register_no'])) {
-            $stmt_std = $conn->prepare("SELECT u.HostelType, u.Gender, p.hostel_name 
-                                        FROM users u 
-                                        LEFT JOIN profile p ON u.username = p.reg_no 
-                                        WHERE u.username = ? LIMIT 1");
-            $stmt_std->bind_param("s", $_GET['register_no']);
-            $stmt_std->execute();
-            $res_std = $stmt_std->get_result()->fetch_assoc();
-            if ($res_std) {
-                $student_hostel_type = !empty(trim($res_std['HostelType'] ?? '')) ? $res_std['HostelType'] : null;
-                if ($student_hostel_type === null) {
-                    $student_hostel_type = !empty(trim($res_std['Gender'] ?? '')) ? $res_std['Gender'] : null;
-                }
-                if ($student_hostel_type === null && !empty($res_std['hostel_name'])) {
-                    $hn = strtolower($res_std['hostel_name']);
-                    if (strpos($hn, 'noyal') !== false || strpos($hn, 'vaigai') !== false || strpos($hn, 'girl') !== false) {
-                        $student_hostel_type = 'Girls';
-                    }
-                }
-            }
-        } elseif (!empty($_GET['student_id'])) {
-            $stmt_std = $conn->prepare("SELECT u.HostelType, u.Gender, p.hostel_name 
-                                        FROM users u 
-                                        LEFT JOIN profile p ON u.id = p.user_id 
-                                        WHERE u.id = ? LIMIT 1");
-            $stmt_std->bind_param("i", $_GET['student_id']);
-            $stmt_std->execute();
-            $res_std = $stmt_std->get_result()->fetch_assoc();
-            if ($res_std) {
-                $student_hostel_type = !empty(trim($res_std['HostelType'] ?? '')) ? $res_std['HostelType'] : null;
-                if ($student_hostel_type === null) {
-                    $student_hostel_type = !empty(trim($res_std['Gender'] ?? '')) ? $res_std['Gender'] : null;
-                }
-                if ($student_hostel_type === null && !empty($res_std['hostel_name'])) {
-                    $hn = strtolower($res_std['hostel_name']);
-                    if (strpos($hn, 'noyal') !== false || strpos($hn, 'vaigai') !== false || strpos($hn, 'girl') !== false) {
-                        $student_hostel_type = 'Girls';
-                    }
-                }
-            }
-        }
-
-        // Final fallback if still null: default to 'Boys'
-        if ($student_hostel_type === null) {
-            $student_hostel_type = 'Boys';
-        }
-
-        $student_gender = getNormalizedGender($student_hostel_type);
-
-        $sql = "SELECT hr.*, ht.campus, ht.hostel_name as hostel_name, ht.hostel_type as hostel_type,
-                       (hr.available_rooms - COALESCE(res.res_count, 0)) as available_beds_calc
-                FROM hostel_rooms hr
-                JOIN hostel_type ht ON hr.hostel_id = ht.id
-                LEFT JOIN (
-                    SELECT TRIM(requested_room) as requested_room, COUNT(*) as res_count 
-                    FROM room_change_requests 
-                    WHERE status IN ('pre_approved', 'approved') 
-                    AND payment_status = 'unpaid'
-                    AND reserved_until > NOW()
-                    AND requested_room IS NOT NULL AND requested_room != ''
-                    GROUP BY TRIM(requested_room)
-                ) res ON TRIM(hr.room_code) = res.requested_room";
+        $sql = "SELECT rgd.s_no as id, rgd.room_number as room_no, rgd.room_number as room_code,
+                       rgd.group_name as floor, rgd.group_name as floor_code, 'General' as wing_code,
+                       rgd.total_beds as total_capacity, rgd.occupied_beds as occupied_rooms,
+                       rgd.available_beds as available_rooms, rgd.room_type, rgd.amount,
+                       rgd.hostel_name, 'Thandalam Campus' as campus, rgd.gender as hostel_type
+                FROM rooms_groups_details rgd
+                ORDER BY rgd.hostel_name, rgd.group_name, rgd.room_number";
                 
-        if ($student_gender !== null) {
-            $sql .= " WHERE (hr.available_rooms - COALESCE(res.res_count, 0)) > 0 AND (CASE WHEN LOWER(TRIM(ht.hostel_type)) LIKE '%girl%' OR LOWER(TRIM(ht.hostel_type)) LIKE '%female%' OR LOWER(TRIM(ht.hostel_type)) LIKE '%women%' THEN 'girls' ELSE 'boys' END) = ?";
-        } else {
-            $sql .= " WHERE (hr.available_rooms - COALESCE(res.res_count, 0)) > 0";
-        }
-        
-        $sql .= " ORDER BY ht.campus, hr.hostel_id, hr.floor_code, hr.room_no";
-        
         $stmt = $conn->prepare($sql);
-        if ($student_gender !== null) {
-            $stmt->bind_param("s", $student_gender);
-        }
         $stmt->execute();
         $result = $stmt->get_result();
-        $rooms_raw = $result->fetch_all(MYSQLI_ASSOC);
-        
-        $rooms = array_map(function($r) {
-            $r['available_rooms'] = max(0, (int)$r['available_beds_calc']);
-            return $r;
-        }, $rooms_raw);
+        $rooms = $result->fetch_all(MYSQLI_ASSOC);
 
         // Group by hostel
         $hostels = [];
         foreach ($rooms as $room) {
-            $hostelId = $room['hostel_id'];
-            if (!isset($hostels[$hostelId])) {
-                $hostels[$hostelId] = [
-                    'hostel_id' => $hostelId,
+            $hName = $room['hostel_name'];
+            if (!isset($hostels[$hName])) {
+                $hostels[$hName] = [
+                    'hostel_id' => $hName,
                     'hostel_name' => $room['hostel_name'],
                     'hostel_type' => $room['hostel_type'],
                     'campus' => $room['campus'],
                     'rooms' => []
                 ];
             }
-            $hostels[$hostelId]['rooms'][] = $room;
+            $hostels[$hName]['rooms'][] = $room;
         }
 
         echo json_encode([

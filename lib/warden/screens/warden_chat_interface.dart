@@ -15,6 +15,7 @@ import '../../shared/ui_provider.dart';
 import '../../shared/chat/call_log_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../widgets/warden_modals.dart';
 
 class WardenChatInterface extends StatefulWidget {
   final String channel;
@@ -102,7 +103,18 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
       if (response['success'] == true && response['data'] is List) {
         if (mounted) {
           setState(() {
-            _conversations = List<Map<String, dynamic>>.from(response['data']);
+            final List<Map<String, dynamic>> rawList = List<Map<String, dynamic>>.from(response['data']);
+            rawList.sort((a, b) {
+              final int unreadA = int.tryParse(a['unread_count']?.toString() ?? "0") ?? 0;
+              final int unreadB = int.tryParse(b['unread_count']?.toString() ?? "0") ?? 0;
+              if (unreadA > 0 && unreadB == 0) return -1;
+              if (unreadB > 0 && unreadA == 0) return 1;
+              if (unreadA != unreadB) return unreadB.compareTo(unreadA);
+              final t1 = _parseTimestamp(a['last_time']);
+              final t2 = _parseTimestamp(b['last_time']);
+              return t2.compareTo(t1);
+            });
+            _conversations = rawList;
             _isLoading = false;
 
             // AUTOMATICALLY SELECT INITIAL REQUEST IF PROVIDED
@@ -325,17 +337,38 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
             : SkeuomorphicNavBar(
                 title: _activeConversation!['name']?.toString() ?? "Chat",
                 onBack: () => setState(() => _activeConversation = null),
-                rightAction: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.phone_outlined, color: Colors.white, size: 22),
-                      onPressed: _launchStudentDialer,
-                      constraints: const BoxConstraints(),
-                      padding: EdgeInsets.zero,
-                    ),
-                  ],
-                ),
+                onTitleLongPress: () {
+                  if (_activeConversation != null) {
+                    final studentIdStr = _activeConversation!['student_id']?.toString() ?? "";
+                    final studentId = int.tryParse(studentIdStr);
+                    final String name = _activeConversation!['name']?.toString() ?? "Student";
+                    final String regNo = (_activeConversation!['student_username'] ?? 'N/A').toString();
+                    final String room = (_activeConversation!['room_allocation'] ?? 'N/A').toString();
+
+                    showDialog(
+                      context: context,
+                      builder: (context) => StudentDetailsDialog(
+                        studentId: studentId,
+                        fallbackName: name,
+                        fallbackRegNo: regNo,
+                        fallbackRoom: room,
+                      ),
+                    );
+                  }
+                },
+                rightAction: _activeConversation == null
+                    ? const SizedBox.shrink()
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.phone_outlined, color: Colors.white, size: 22),
+                            onPressed: _launchStudentDialer,
+                            constraints: const BoxConstraints(),
+                            padding: EdgeInsets.zero,
+                          ),
+                        ],
+                      ),
               ),
           body: _activeConversation == null ? _buildConversationListBody() : _buildIndividualChatBody(),
         ),
@@ -468,6 +501,23 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
             }
             _fetchMessages();
           },
+          onLongPress: () {
+            final studentIdStr = conv['student_id']?.toString() ?? "";
+            final studentId = int.tryParse(studentIdStr);
+            final String name = conv['name']?.toString() ?? "Student";
+            final String regNo = (conv['student_username'] ?? 'N/A').toString();
+            final String room = (conv['room_allocation'] ?? 'N/A').toString();
+
+            showDialog(
+              context: context,
+              builder: (context) => StudentDetailsDialog(
+                studentId: studentId,
+                fallbackName: name,
+                fallbackRegNo: regNo,
+                fallbackRoom: room,
+              ),
+            );
+          },
           leading: Container(
             width: 50, height: 50,
             decoration: BoxDecoration(
@@ -574,11 +624,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     final filters = ['All'];
     final categoryData = catProvider.getCategoryByName(deptName);
     if (categoryData != null && categoryData['codes'] != null) {
-      final codes = (categoryData['codes'] as List).map((code) => code.toString()).toList();
+      final codes = (categoryData['codes'] as List).map((code) => code.toString()).where((c) => c != 'Calls').toList();
       filters.addAll(codes);
     }
-    
-    filters.add('Calls');
 
     return Container(
       height: 50,

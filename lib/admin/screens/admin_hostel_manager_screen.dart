@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/providers/hierarchical_hostel_provider.dart';
@@ -323,7 +324,7 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
             itemCount: _hostels.length + 1,
             itemBuilder: (context, index) {
               if (index < _hostels.length) {
-                return _buildHostelCard(_hostels[index]);
+                return _buildHostelCard(_hostels[index], index);
               }
               return _buildAddNewHostelButton();
             },
@@ -332,6 +333,16 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
       ],
     );
   }
+
+  static const List<IconData> _hostelIcons = [
+    Icons.apartment,
+    Icons.villa,
+    Icons.home_work,
+    Icons.domain,
+    Icons.location_city,
+    Icons.business,
+    Icons.maps_home_work,
+  ];
 
   Widget _buildAddNewHostelButton() {
     return GestureDetector(
@@ -381,216 +392,126 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
     );
   }
 
-  Widget _buildHostelCard(HierarchicalHostel hostel) {
-    final type = 'Mixed';
-    final typeColor = type.toLowerCase() == 'girls' ? const Color(0xFFE91E63) : const Color(0xFF2196F3);
+  Widget _buildHostelCard(HierarchicalHostel hostel, int index) {
+    final icon = _hostelIcons[index % _hostelIcons.length];
+    final displayName = hostel.name.toLowerCase().contains('hostel')
+        ? hostel.name
+        : '${hostel.name} Hostel';
+    final campus = hostel.campus.isNotEmpty ? hostel.campus : 'Main Campus';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))],
+        border: Border.all(color: Colors.black.withOpacity(0.08), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.07),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+          BoxShadow(
+            color: Colors.white.withOpacity(0.8),
+            blurRadius: 1,
+            offset: const Offset(0, -1),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
         child: Column(
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(color: typeColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-                  child: Icon(Icons.apartment, color: typeColor, size: 28),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(hostel.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text('ID: ${hostel.id}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                        ],
-                      ),
-                    ],
+            // ── Navy & Gold Gradient Header Banner ──────────────────
+            GestureDetector(
+              onTap: () => _navigateToDetail(hostel),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF1A2744), Color(0xFF2D4A7A)],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-                  onPressed: () async {
-                    if (_isNavigating) return;
-                    _isNavigating = true;
-                    final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
-                    await provider.loadHostelHierarchy(hostel);
-                    if (!mounted) return;
-                    if (widget.onHostelSelected != null) {
-                      widget.onHostelSelected!(hostel);
-                      _isNavigating = false;
-                    } else {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          settings: const RouteSettings(name: '/hostel_detail'),
-                          builder: (context) => HostelDetailScreen(hostel: hostel),
-                        ),
-                      ).then((_) {
-                        _isNavigating = false;
-                      });
-                    }
-                  },
+                child: Row(
+                  children: [
+                    // Cycling Icon Avatar
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.25)),
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName,
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Campus: $campus • ID: ${hostel.id}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.white.withOpacity(0.78),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Navigation Arrow
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_forward_ios,
+                          size: 14, color: Colors.white),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-            const Divider(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildCompactAction(Icons.edit, 'Edit', const Color(0xFF2D4A7A), () async {
-                  final nameController = TextEditingController(text: hostel.name);
-                  final buildingController = TextEditingController(text: hostel.buildingCode);
-                  String selectedType = hostel.type;
-
-                  final updated = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => StatefulBuilder(
-                      builder: (context, setDialogState) {
-                        return AlertDialog(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          title: const Text('Edit Hostel', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2D4A7A))),
-                          content: SingleChildScrollView(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8.0),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  TextField(
-                                    controller: nameController,
-                                    onChanged: (value) => setDialogState(() {}),
-                                    decoration: InputDecoration(
-                                      labelText: 'Hostel Name',
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                      prefixIcon: const Icon(Icons.apartment),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextField(
-                                    controller: buildingController,
-                                    decoration: InputDecoration(
-                                      labelText: 'Building Code',
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                      prefixIcon: const Icon(Icons.code),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  DropdownButtonFormField<String>(
-                                    initialValue: selectedType,
-                                    items: ['Girls', 'Boys'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                                    onChanged: (val) => setDialogState(() => selectedType = val!),
-                                    decoration: InputDecoration(
-                                      labelText: 'Type',
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                      prefixIcon: const Icon(Icons.people),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-                            ),
-                            ElevatedButton(
-                              onPressed: nameController.text.trim().isEmpty ? null : () => Navigator.pop(context, true),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2D4A7A),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                              ),
-                              child: const Text('Update', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        );
-                      }
+            // ── Footer with Type Badge and Actions ──────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD4AF37).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4)),
                     ),
-                  );
-
-                  if (updated == true) {
-                    if (!mounted) return;
-                    final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
-                    final success = await provider.updateHostel(
-                      hostel.id, 
-                      nameController.text, 
-                      selectedType, 
-                      buildingController.text
-                    );
-                    
-                    if (!mounted) return;
-                    if (success) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Hostel updated successfully')),
-                      );
-                      _loadHostels();
-                    }
-                  }
-                }),
-                _buildCompactAction(Icons.delete, 'Delete', Colors.red, () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('Delete Hostel'),
-                      content: const Text('Are you sure you want to delete this hostel? All associated rooms will also be deleted.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, true), 
-                          style: TextButton.styleFrom(foregroundColor: Colors.red),
-                          child: const Text('Delete')
-                        ),
-                      ],
+                    child: Text(
+                      'Type: ${hostel.type.isNotEmpty ? hostel.type : 'Mixed'}',
+                      style: GoogleFonts.outfit(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1A2744),
+                      ),
                     ),
-                  );
-
-                  if (confirm == true) {
-                    if (!mounted) return;
-                    setState(() {
-                      _isDeleting = true;
-                    });
-
-                    final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
-                    final success = await provider.deleteHostel(hostel.id);
-                    
-                    if (mounted) {
-                      setState(() {
-                        _isDeleting = false;
-                      });
-                    }
-                    
-                    if (success) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Hostel deleted successfully'), backgroundColor: Colors.green),
-                        );
-                      }
-                      _loadHostels();
-                    } else {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(provider.error ?? 'Failed to delete hostel'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                  }
-                }),
-              ],
+                  ),
+                  const Spacer(),
+                  _buildCompactAction(Icons.edit_outlined, 'Edit', const Color(0xFF2D4A7A), () => _editHostel(hostel)),
+                  const SizedBox(width: 16),
+                  _buildCompactAction(Icons.delete_outline, 'Delete', Colors.red, () => _deleteHostel(hostel)),
+                ],
+              ),
             ),
           ],
         ),
@@ -598,15 +519,183 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
     );
   }
 
+  Future<void> _navigateToDetail(HierarchicalHostel hostel) async {
+    if (_isNavigating) return;
+    _isNavigating = true;
+    final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
+    await provider.loadHostelHierarchy(hostel);
+    if (!mounted) return;
+    if (widget.onHostelSelected != null) {
+      widget.onHostelSelected!(hostel);
+      _isNavigating = false;
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          settings: const RouteSettings(name: '/hostel_detail'),
+          builder: (context) => HostelDetailScreen(hostel: hostel),
+        ),
+      ).then((_) {
+        _isNavigating = false;
+      });
+    }
+  }
+
+  Future<void> _editHostel(HierarchicalHostel hostel) async {
+    final nameController = TextEditingController(text: hostel.name);
+    final buildingController = TextEditingController(text: hostel.buildingCode);
+    String selectedType = hostel.type;
+
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Edit Hostel', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2D4A7A))),
+            content: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      onChanged: (value) => setDialogState(() {}),
+                      decoration: InputDecoration(
+                        labelText: 'Hostel Name',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        prefixIcon: const Icon(Icons.apartment),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: buildingController,
+                      decoration: InputDecoration(
+                        labelText: 'Building Code',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        prefixIcon: const Icon(Icons.code),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedType,
+                      items: ['Girls', 'Boys'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                      onChanged: (val) => setDialogState(() => selectedType = val!),
+                      decoration: InputDecoration(
+                        labelText: 'Type',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        prefixIcon: const Icon(Icons.people),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                onPressed: nameController.text.trim().isEmpty ? null : () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2D4A7A),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('Update', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        }
+      ),
+    );
+
+    if (updated == true) {
+      if (!mounted) return;
+      final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
+      final success = await provider.updateHostel(
+        hostel.id, 
+        nameController.text, 
+        selectedType, 
+        buildingController.text
+      );
+      
+      if (!mounted) return;
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Hostel updated successfully')),
+        );
+        _loadHostels();
+      }
+    }
+  }
+
+  Future<void> _deleteHostel(HierarchicalHostel hostel) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Hostel'),
+        content: const Text('Are you sure you want to delete this hostel? All associated rooms will also be deleted.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), 
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete')
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      if (!mounted) return;
+      setState(() {
+        _isDeleting = true;
+      });
+
+      final provider = Provider.of<HierarchicalHostelProvider>(context, listen: false);
+      final success = await provider.deleteHostel(hostel.id);
+      
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
+      
+      if (success) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Hostel deleted successfully'), backgroundColor: Colors.green),
+          );
+        }
+        _loadHostels();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(provider.error ?? 'Failed to delete hostel'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   Widget _buildCompactAction(IconData icon, String label, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+          ],
+        ),
       ),
     );
   }

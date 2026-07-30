@@ -30,10 +30,31 @@ $biometric_logs = [];
 
 if ($biometric_id) {
     $api_url = "https://stay.saveetha.com/attendance/vaigai_attendance.php?UserId=" . urlencode($biometric_id);
-    
-    // Attempt fetch with User-Agent
-    $ctx = stream_context_create(['http' => ['timeout' => 15, 'header' => "User-Agent: BiometricBridge/1.0\r\n"]]);
-    $raw = @file_get_contents($api_url, false, $ctx);
+    $raw = false;
+
+    // PRIMARY: cURL (works even when allow_url_fopen is disabled)
+    if (function_exists('curl_init')) {
+        $ch = curl_init($api_url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 7,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER     => [
+                "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ]
+        ]);
+        $raw = curl_exec($ch);
+        if (curl_errno($ch)) $raw = false;
+        curl_close($ch);
+    }
+
+    // FALLBACK: file_get_contents (if cURL unavailable)
+    if ($raw === false && ini_get('allow_url_fopen')) {
+        $ctx = stream_context_create(['http' => ['timeout' => 15, 'header' => "User-Agent: BiometricBridge/1.0\r\n"]]);
+        $raw = @file_get_contents($api_url, false, $ctx);
+    }
+
     if ($raw) {
         $api_data = json_decode($raw, true);
         $attendance_logs = null;
@@ -49,7 +70,7 @@ if ($biometric_id) {
                     $datetime_str = $log['LogDate']['date'];
                     $parts = explode('.', $datetime_str); // Strip microseconds
                     $biometric_logs[] = [
-                        "status" => "Biometric",
+                        "status"   => "Biometric",
                         "log_time" => $parts[0]
                     ];
                 }
@@ -58,14 +79,8 @@ if ($biometric_id) {
     }
 }
 
-// 🔥 STEP 2: Fetch Local Records
-$query = "SELECT 'Manual' as status, log_time FROM attendance WHERE (student_id = (SELECT id FROM users WHERE id = :id OR username = :id) OR student_id = (SELECT username FROM users WHERE id = :id OR username = :id)) ORDER BY log_time DESC";
-$stmt = $db->prepare($query);
-$stmt->execute([':id' => $student_id]);
-$manual_results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// 🔥 STEP 3: Merge and Sort
-$results = array_merge($biometric_logs, $manual_results);
+// Return strictly biometric machine API logs only
+$results = $biometric_logs;
 usort($results, function($a, $b) {
     return strtotime($b['log_time']) - strtotime($a['log_time']);
 });

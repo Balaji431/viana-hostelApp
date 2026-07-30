@@ -6,6 +6,7 @@ import '../shared/category_provider.dart';
 import '../core/models/mapping_model.dart';
 import 'package:vianasoft_stay/core/models/hierarchical_hostel_model.dart';
 import '../core/api_service.dart';
+import '../core/styles.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 
 class StaffMappingManagerScreen extends StatefulWidget {
@@ -22,6 +23,15 @@ class StaffMappingManagerScreen extends StatefulWidget {
 }
 
 class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -33,6 +43,117 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
         _loadAvailableStaff();
       }
     });
+  }
+
+  int _getHostelPriority(String? name) {
+    if (name == null) return 99;
+    final h = name.toLowerCase();
+    if (h.contains('kaveri')) return 0;
+    return 1;
+  }
+
+  int _getFloorOrderIndex(String? zoneName) {
+    if (zoneName == null || zoneName.trim().isEmpty) return -1;
+    final z = zoneName.trim().toLowerCase();
+    if (z.contains('ground') || z.contains('g0') || z.contains('f00')) return 0;
+    if (z.contains('first') || z.contains('1st') || z.contains('f01')) return 1;
+    if (z.contains('second') || z.contains('2nd') || z.contains('f02')) return 2;
+    if (z.contains('third') || z.contains('3rd') || z.contains('f03')) return 3;
+    if (z.contains('fourth') || z.contains('4th') || z.contains('f04')) return 4;
+    if (z.contains('fifth') || z.contains('5th') || z.contains('f05')) return 5;
+    if (z.contains('sixth') || z.contains('6th') || z.contains('f06')) return 6;
+    if (z.contains('seventh') || z.contains('7th') || z.contains('f07')) return 7;
+    if (z.contains('eighth') || z.contains('8th') || z.contains('f08')) return 8;
+    if (z.contains('ninth') || z.contains('9th') || z.contains('f09')) return 9;
+    if (z.contains('tenth') || z.contains('10th') || z.contains('f10')) return 10;
+    return 99;
+  }
+
+  void _sortMappingsList(List<LocationMapping> list) {
+    list.sort((a, b) {
+      final pA = _getHostelPriority(a.hostelName);
+      final pB = _getHostelPriority(b.hostelName);
+      final compPriority = pA.compareTo(pB);
+      if (compPriority != 0) return compPriority;
+
+      final hA = (a.hostelName ?? '').toLowerCase();
+      final hB = (b.hostelName ?? '').toLowerCase();
+      final compHostel = hA.compareTo(hB);
+      if (compHostel != 0) return compHostel;
+
+      final fA = _getFloorOrderIndex(a.zoneName ?? a.zoneId);
+      final fB = _getFloorOrderIndex(b.zoneName ?? b.zoneId);
+      final compFloor = fA.compareTo(fB);
+      if (compFloor != 0) return compFloor;
+
+      final wA = (a.subZoneName ?? a.subZoneId ?? '').toLowerCase();
+      final wB = (b.subZoneName ?? b.subZoneId ?? '').toLowerCase();
+      return wA.compareTo(wB);
+    });
+  }
+
+  List<LocationMapping> _getFilteredMappings(List<LocationMapping> allMappings, MappingProvider mappingProvider) {
+    List<LocationMapping> result;
+    if (_searchQuery.trim().isEmpty) {
+      result = List.from(allMappings);
+    } else {
+      final query = _searchQuery.trim().toLowerCase();
+      result = allMappings.where((mapping) {
+        final hostelName = (mapping.hostelName ?? '').toLowerCase();
+        final zoneName = (mapping.zoneName ?? '').toLowerCase();
+        final subZoneName = (mapping.subZoneName ?? '').toLowerCase();
+        final pathLabel = mappingProvider.getLocationLabel(mapping).toLowerCase();
+
+        if (hostelName.contains(query) ||
+            zoneName.contains(query) ||
+            subZoneName.contains(query) ||
+            pathLabel.contains(query)) {
+          return true;
+        }
+
+        for (var s in mapping.assignedStaff) {
+          final sName = s.name.toLowerCase();
+          final sUsername = s.username.toLowerCase();
+          final sRole = s.role.toLowerCase();
+
+          if (sName.contains(query) ||
+              sUsername.contains(query) ||
+              sRole.contains(query)) {
+            return true;
+          }
+        }
+
+        return false;
+      }).toList();
+    }
+
+    _sortMappingsList(result);
+    return result;
+  }
+
+  Widget _buildNoSearchResultsState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.search_off_outlined, size: 64, color: Colors.grey.withOpacity(0.4)),
+          const SizedBox(height: 16),
+          Text(
+            'No Mappings Found',
+            style: TextStyle(fontSize: 18, color: Colors.grey.shade700, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              'No hostel, floor, wing, or warden matched "$_searchQuery"',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   final Map<String, List<Map<String, dynamic>>> _availableStaffByRole = {};
@@ -47,7 +168,10 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
         _availableStaffByRole['warden'] = [];
         
         for (var emp in staffList) {
-          final role = (emp['role']?.toString().toLowerCase()) ?? 'staff'; 
+          String role = (emp['role']?.toString().toLowerCase()) ?? 'staff'; 
+          if (role.contains('maint')) {
+            role = 'maintenance';
+          }
           
           if (!_availableStaffByRole.containsKey(role)) {
             _availableStaffByRole[role] = [];
@@ -65,10 +189,10 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           
           // Only security and maintenance go to their respective lists
           if (role == 'security' || role == 'maintenance') {
-            if (!_availableStaffByRole.containsKey(role)) {
-              _availableStaffByRole[role] = [];
-            }
             _availableStaffByRole[role]!.add(formattedEmp);
+            if (role == 'maintenance') {
+              _availableStaffByRole.putIfAbsent('maintenannce', () => []).add(formattedEmp);
+            }
           } else {
             // Everyone else (staff, etc.) can be mapped as a warden
             _availableStaffByRole['warden']!.add(formattedEmp);
@@ -93,6 +217,8 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     switch (role.toLowerCase()) {
       case 'warden': return const Color(0xFF4CAF50);
       case 'security': return const Color(0xFF2196F3);
+      case 'maintenance':
+      case 'maintenannce': return const Color(0xFFFF9800);
       default: return Colors.grey;
     }
   }
@@ -106,50 +232,100 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
   Widget build(BuildContext context) {
     final mappingProvider = context.watch<MappingProvider>();
     final hostelProvider = context.watch<HierarchicalHostelProvider>();
+    final filteredMappings = _getFilteredMappings(mappingProvider.mappings, mappingProvider);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: widget.showAppBar 
-        ? SkeuomorphicNavBar(
-            title: 'Staff Mapping',
-            onBack: Navigator.of(context).canPop() 
-              ? () {
-                  debugPrint("BACK BUTTON CLICKED in StaffMappingManagerScreen");
-                  Navigator.of(context).pop();
-                }
-              : null,
-            rightAction: IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-              onPressed: () => mappingProvider.loadMappings(),
-              constraints: const BoxConstraints(),
-              padding: EdgeInsets.zero,
-            ),
-          )
-        : null,
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: widget.showAppBar 
+          ? SkeuomorphicNavBar(
+              title: 'Staff Mapping',
+              onBack: Navigator.of(context).canPop() 
+                ? () {
+                    debugPrint("BACK BUTTON CLICKED in StaffMappingManagerScreen");
+                    Navigator.of(context).pop();
+                  }
+                : null,
+              rightAction: IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                onPressed: () => mappingProvider.loadMappings(),
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
+              ),
+            )
+          : null,
 
-      body: mappingProvider.isLoading || hostelProvider.isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
-          : Column(
-              children: [
-                Expanded(
-                  child: mappingProvider.mappings.isEmpty
-                      ? _buildEmptyState()
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120), 
-                          itemCount: mappingProvider.mappings.length + 1,
-                          itemBuilder: (context, index) {
-                            if (index < mappingProvider.mappings.length) {
-                              return _buildEnhancedMappingCard(mappingProvider.mappings[index]);
-                            } else {
-                              return _buildAddNewMappingCard();
-                            }
-                          },
+        body: mappingProvider.isLoading || hostelProvider.isLoading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
+            : Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.black.withOpacity(0.12), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (val) {
+                          setState(() {
+                            _searchQuery = val.trim();
+                          });
+                        },
+                        style: const TextStyle(fontSize: 14, color: Color(0xFF1A2744)),
+                        decoration: InputDecoration(
+                          hintText: 'Search hostel, floor, wing, or warden name...',
+                          hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                          prefixIcon: const Icon(Icons.search, color: Color(0xFF1A2744), size: 20),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 18),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() {
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                )
+                              : null,
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                         ),
-                ),
-              ],
-            ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: mappingProvider.mappings.isEmpty
+                        ? _buildEmptyState()
+                        : filteredMappings.isEmpty
+                            ? _buildNoSearchResultsState()
+                            : ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(16, 8, 16, 120), 
+                                itemCount: filteredMappings.length + 1,
+                                itemBuilder: (context, index) {
+                                  if (index < filteredMappings.length) {
+                                    return _buildEnhancedMappingCard(filteredMappings[index]);
+                                  } else {
+                                    return _buildAddNewMappingCard();
+                                  }
+                                },
+                              ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
+
 
   Widget _buildEmptyState() {
     return Center(
@@ -199,13 +375,23 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.black.withOpacity(0.12), width: 1.5),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 15, offset: const Offset(0, 5)),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Colors.white.withOpacity(0.8),
+            blurRadius: 1,
+            offset: const Offset(0, -1),
+          ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -213,7 +399,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: const Color(0xFF1A2744).withValues(alpha: 0.03),
-                border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+                border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.08), width: 1)),
               ),
               child: Row(
                 children: [
@@ -297,7 +483,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.grey.shade50)),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 0.8)),
       ),
       child: Row(
         children: [
@@ -364,11 +550,18 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
           color: const Color(0xFFF5EEFF), 
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: const Color(0xFF7B3FC4).withValues(alpha: 0.5),
-            width: 1.5,
+            color: const Color(0xFF7B3FC4),
+            width: 2.0,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF7B3FC4).withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -435,28 +628,62 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     if (existingMapping != null) {
       initFuture = () async {
         try {
-          selectedHostel = hostelProvider.hostels.firstWhere((h) => h.id.toString() == existingMapping.hostelId);
+          selectedHostel = hostelProvider.hostels.firstWhere(
+            (h) => h.id.toString() == existingMapping.hostelId ||
+                   h.name.toLowerCase() == (existingMapping.hostelName ?? '').toLowerCase(),
+            orElse: () => hostelProvider.hostels.first,
+          );
+          
           await hostelProvider.loadHostelHierarchy(selectedHostel);
           
-          final zId = existingMapping.zoneName ?? existingMapping.zoneId ?? '';
-          if (zId.isNotEmpty && selectedHostel!.zones.isNotEmpty) {
+          final zName = (existingMapping.zoneName ?? existingMapping.zoneId ?? '').trim();
+          if (zName.isNotEmpty && selectedHostel != null && selectedHostel!.zones.isNotEmpty) {
             try {
               selectedZone = selectedHostel!.zones.firstWhere(
-                (z) => z.name == zId || z.id.toString() == zId,
+                (z) => z.name.trim().toLowerCase() == zName.toLowerCase() ||
+                       z.id.toString().trim().toLowerCase() == zName.toLowerCase() ||
+                       z.code.trim().toLowerCase() == zName.toLowerCase(),
               );
             } catch (_) {
-              // zone not found — leave unselected
+              try {
+                selectedZone = selectedHostel!.zones.firstWhere(
+                  (z) => z.name.toLowerCase().contains(zName.toLowerCase()) ||
+                         zName.toLowerCase().contains(z.name.toLowerCase()),
+                );
+              } catch (_) {}
             }
           }
           
-          final szId = existingMapping.subZoneName ?? existingMapping.subZoneId ?? '';
-          if (szId.isNotEmpty && selectedZone != null && selectedZone!.subZones.isNotEmpty) {
-            try {
-              selectedSubZone = selectedZone!.subZones.firstWhere(
-                (sz) => sz.name == szId || sz.id.toString() == szId,
+          final szName = (existingMapping.subZoneName ?? existingMapping.subZoneId ?? '').trim();
+          if (szName.isNotEmpty && selectedZone != null) {
+            if (selectedZone!.subZones.isNotEmpty) {
+              try {
+                selectedSubZone = selectedZone!.subZones.firstWhere(
+                  (sz) => sz.name.trim().toLowerCase() == szName.toLowerCase() ||
+                         sz.id.toString().trim().toLowerCase() == szName.toLowerCase() ||
+                         sz.code.trim().toLowerCase() == szName.toLowerCase(),
+                );
+              } catch (_) {
+                selectedSubZone = SubZone(
+                  id: szName,
+                  zoneId: selectedZone!.id,
+                  name: szName,
+                  code: szName,
+                  rooms: [],
+                  createdAt: '',
+                );
+                selectedZone!.subZones.insert(0, selectedSubZone!);
+              }
+            } else {
+              selectedSubZone = SubZone(
+                id: szName,
+                zoneId: selectedZone!.id,
+                name: szName,
+                code: szName,
+                rooms: [],
+                createdAt: '',
               );
-            } catch (_) {
-              // sub-zone not found — leave unselected
+              selectedZone!.subZones.add(selectedSubZone!);
             }
           }
           currentStaff = List.from(existingMapping.assignedStaff);
@@ -508,7 +735,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                       onChanged: (val) {
                         setDialogState(() {
                           selectedZone = val;
-                          selectedSubZone = null;
+                          selectedSubZone = (val != null && val.subZones.isNotEmpty) ? val.subZones.first : null;
                         });
                       },
                     ),
@@ -516,8 +743,8 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                   _buildDropdown<SubZone>(
                     label: 'Select Wing (Optional)',
                     value: selectedSubZone,
-                    enabled: selectedZone != null && selectedZone!.subZones.isNotEmpty,
-                    items: selectedZone?.subZones.map((sz) => DropdownMenuItem(value: sz, child: Text(sz.name))).toList() ?? [],
+                    enabled: selectedZone != null,
+                    items: _getWingDropdownItems(selectedZone, selectedSubZone),
                     onChanged: (val) => setDialogState(() => selectedSubZone = val),
                   ),
                   
@@ -686,6 +913,49 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     );
   }
 
+  List<DropdownMenuItem<SubZone>> _getWingDropdownItems(Zone? zone, SubZone? currentSelection) {
+    if (zone == null) return [];
+
+    final List<SubZone> options = [];
+    final Set<String> addedNames = {};
+
+    if (currentSelection != null) {
+      final name = currentSelection.name.trim();
+      if (name.isNotEmpty) {
+        options.add(currentSelection);
+        addedNames.add(name.toLowerCase());
+      }
+    }
+
+    for (var sz in zone.subZones) {
+      final name = sz.name.trim();
+      if (name.isNotEmpty && !addedNames.contains(name.toLowerCase())) {
+        options.add(sz);
+        addedNames.add(name.toLowerCase());
+      }
+    }
+
+    final standardWings = ['W0', 'WC1', 'WD1', 'WE1', 'WA0', 'WB0', 'Wing A', 'Wing B', 'Wing C', 'Wing D', 'Wing E', 'General', 'N/A'];
+    for (var wName in standardWings) {
+      if (!addedNames.contains(wName.toLowerCase())) {
+        options.add(SubZone(
+          id: wName,
+          zoneId: zone.id,
+          name: wName,
+          code: wName,
+          rooms: [],
+          createdAt: '',
+        ));
+        addedNames.add(wName.toLowerCase());
+      }
+    }
+
+    return options.map((sz) => DropdownMenuItem<SubZone>(
+      value: sz,
+      child: Text(sz.name),
+    )).toList();
+  }
+
   Widget _buildDropdown<T>({required String label, required T? value, required List<DropdownMenuItem<T>> items, required Function(T?) onChanged, bool enabled = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -768,7 +1038,11 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final availableStaff = _availableStaffByRole[selectedRole.toLowerCase()] ?? [];
+          String roleKey = selectedRole.toLowerCase();
+          if (roleKey.contains('maint')) {
+            roleKey = 'maintenance';
+          }
+          final availableStaff = _availableStaffByRole[roleKey] ?? _availableStaffByRole['maintenance'] ?? _availableStaffByRole['maintenannce'] ?? [];
           
           if (existing != null && selectedStaffUser == null && availableStaff.isNotEmpty) {
             try {
@@ -779,35 +1053,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             } catch (_) {}
           }
 
-          // 1. Check if another warden is already in currentStaff list
-          final hasWardenInCurrent = currentStaff.any((s) {
-            if (existing != null && s.username.toLowerCase() == existing.username.toLowerCase()) return false;
-            return s.role.toLowerCase() == 'warden';
-          });
-
-          // 2. Check if selected staff user is already assigned elsewhere
-          String? assignedElsewhereLocation;
-          if (selectedStaffUser != null && selectedRole.toLowerCase() == 'warden') {
-            final username = selectedStaffUser!['username']?.toString() ?? '';
-            final mappingProvider = context.read<MappingProvider>();
-            for (var m in mappingProvider.mappings) {
-              if (m.id == existingMapping?.id) continue;
-              final isAssigned = m.assignedStaff.any((s) => s.username.toLowerCase() == username.toLowerCase() && s.role.toLowerCase() == 'warden');
-              if (isAssigned) {
-                assignedElsewhereLocation = mappingProvider.getLocationLabel(m);
-                break;
-              }
-            }
-          }
-
-          final bool isWardenConflictInCurrent = (selectedRole.toLowerCase() == 'warden' && hasWardenInCurrent);
-          final bool isWardenConflictElsewhere = (selectedRole.toLowerCase() == 'warden' && assignedElsewhereLocation != null);
-          
-          final String? errorText = isWardenConflictInCurrent 
-              ? "A warden is already assigned to this location mapping."
-              : isWardenConflictElsewhere 
-                  ? "Warden is already assigned to $assignedElsewhereLocation."
-                  : null;
+          final String? errorText = null;
           
           return AlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),

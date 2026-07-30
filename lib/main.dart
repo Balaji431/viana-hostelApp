@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,7 +62,10 @@ void main() async {
 void _scheduleAppServicesInitialization() {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(() async {
-      await Future<void>.delayed(const Duration(seconds: 3));
+      // Web loads faster; mobile needs slightly more time for the framework to settle
+      await Future<void>.delayed(kIsWeb
+          ? const Duration(milliseconds: 500)
+          : const Duration(milliseconds: 800));
       await ApiService.init();
       await app_services.loadLibrary();
       await app_services.initializeDeferredAppServices(navigatorKey);

@@ -8,6 +8,7 @@ import 'package:vianasoft_stay/core/providers/allocation_provider.dart';
 import 'package:vianasoft_stay/core/styles.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_widgets.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_navbar.dart';
+import 'package:vianasoft_stay/core/design_system.dart' as ds;
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -221,34 +222,36 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text('Room Allocation', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            user.fullRoomDetails,
-                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontSize: 16),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFD4AF37).withOpacity(0.2),
-                                            borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(color: const Color(0xFFD4AF37), width: 1),
-                                          ),
-                                          child: Text(
-                                            user.roomTypeDisplay,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: Color(0xFFB8860B),
+                                    if (user.roomAllocation.isNotEmpty || user.roomNumber.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              user.fullRoomDetails,
+                                              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontSize: 16),
                                             ),
                                           ),
-                                        ),
-                                      ],
-                                    ),
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFD4AF37).withOpacity(0.2),
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(color: const Color(0xFFD4AF37), width: 1),
+                                            ),
+                                            child: Text(
+                                              user.roomTypeDisplay,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFFB8860B),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -384,38 +387,40 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                               },
                             )),
                     ),
-                    const SizedBox(height: 25),
-                    Row(
-                      children: const [
-                        Icon(Icons.history_outlined, size: 18, color: Colors.grey),
-                        SizedBox(width: 8),
-                        Text(
-                          'Renewal Timeline',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 15),
-                    EmbossedCard(
-                      padding: const EdgeInsets.all(25),
-                      child: Column(
-                        children: [
-                          _buildTimelineNode(
-                            'Initial Renew',
-                            _getInitialPaymentDate() != null
-                                ? DateFormat('d MMM yyyy').format(_getInitialPaymentDate()!)
-                                : 'N/A',
-                            isCompleted: true,
+                    if (!user.isGuest) ...[
+                      const SizedBox(height: 25),
+                      Row(
+                        children: const [
+                          Icon(Icons.history_outlined, size: 18, color: Colors.grey),
+                          SizedBox(width: 8),
+                          Text(
+                            'Renewal Timeline',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D)),
                           ),
-                          ..._payments.where((p) => (p['payment_type'] ?? '').toString().toLowerCase().contains('renewal')).map((p) {
-                            final dateStr = p['booking_date'] ?? DateTime.now().toString();
-                            final date = DateTime.tryParse(dateStr) ?? DateTime.now();
-                            return _buildTimelineNode('Renewed (${p['payment_type']})', DateFormat('d MMM yyyy').format(date), isCompleted: true);
-                          }),
-                          _buildTimelineNode('Current Period Ends', DateFormat('d MMM yyyy').format(user.renewalDate), isCurrent: true, isLast: true),
                         ],
                       ),
-                    ),
+                      const SizedBox(height: 15),
+                      EmbossedCard(
+                        padding: const EdgeInsets.all(25),
+                        child: Column(
+                          children: [
+                            _buildTimelineNode(
+                              'Initial Renew',
+                              _getInitialPaymentDate() != null
+                                  ? DateFormat('d MMM yyyy').format(_getInitialPaymentDate()!)
+                                  : 'N/A',
+                              isCompleted: true,
+                            ),
+                            ..._payments.where((p) => (p['payment_type'] ?? '').toString().toLowerCase().contains('renewal')).map((p) {
+                              final dateStr = p['booking_date'] ?? DateTime.now().toString();
+                              final date = DateTime.tryParse(dateStr) ?? DateTime.now();
+                              return _buildTimelineNode('Renewed (${p['payment_type']})', DateFormat('d MMM yyyy').format(date), isCompleted: true);
+                            }),
+                            _buildTimelineNode('Current Period Ends', DateFormat('d MMM yyyy').format(user.renewalDate), isCurrent: true, isLast: true),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                   const SizedBox(height: 15),
                   _buildWallpaperSection(context),
@@ -463,38 +468,13 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   }
 
   Widget _buildSettingsActionRow(IconData icon, String title, String subtitle, {required VoidCallback onTap, bool isDanger = false}) {
-    return InkWell(
+    return ds.SkeuomorphicListTile(
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
       onTap: onTap,
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: (isDanger ? Colors.red : const Color(0xFF1B2B48)).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: isDanger ? Colors.red : const Color(0xFF1B2B48), size: 22),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold, 
-                    color: isDanger ? Colors.red : const Color(0xFF1B2B48), 
-                    fontSize: 15
-                  ),
-                ),
-                Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right, color: Colors.grey.shade400, size: 20),
-        ],
-      ),
+      iconColor: isDanger ? Colors.red : const Color(0xFF1B2B48),
+      activeColor: isDanger ? const Color(0xFFE53935) : const Color(0xFF1976D2),
     );
   }
 

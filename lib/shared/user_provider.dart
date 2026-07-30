@@ -7,7 +7,7 @@ import '../core/api_session.dart';
 import '../core/notification_service.dart';
 import '../core/app_logger.dart';
 
-enum UserRole { student, warden, admin, parent, maintenance, security, staff }
+enum UserRole { student, warden, admin, parent, maintenance, security, staff, guest }
 
 class UserProvider with ChangeNotifier {
   final SharedPreferences? _prefs;
@@ -73,6 +73,10 @@ class UserProvider with ChangeNotifier {
   String _conduct = 'Good';
   String _conductRemarks = '';
 
+  // 🔥 TEMPORARY STAY GUEST PROPERTIES
+  Map<String, dynamic>? _temporaryStayRequest;
+  Map<String, dynamic>? get temporaryStayRequest => _temporaryStayRequest;
+
   // 🔥 PARENT PROPERTIES
   bool _isParent = false;
   int? _linkedStudentId;
@@ -92,6 +96,7 @@ class UserProvider with ChangeNotifier {
   String? get token => _token;
   int get dashboardRefreshTick => _dashboardRefreshTick;
   UserRole get role => _role;
+  bool get isGuest => _role == UserRole.guest;
   String get roleName => _roleName; // NEW: Accessor for dynamic role name
   bool get isLoggedIn => _isLoggedIn;
   String get userName => _userName;
@@ -302,6 +307,9 @@ class UserProvider with ChangeNotifier {
     } else if (roleStr == 'security') {
       _role = UserRole.security;
       _isParent = false;
+    } else if (roleStr == 'guest' || roleStr == 'temp_student') {
+      _role = UserRole.guest;
+      _isParent = false;
     } else if (roleStr == 'student') {
       _role = UserRole.student;
       _isParent = false;
@@ -346,6 +354,40 @@ class UserProvider with ChangeNotifier {
     _conductRemarks = userData['conduct_remarks']?.toString() ?? "";
     _checkInDate = _parseDate(userData['valid_from']);
     _renewalDate = _parseDate(userData['valid_to']);
+
+    if (userData['temporary_stay_request'] != null) {
+      _temporaryStayRequest = Map<String, dynamic>.from(userData['temporary_stay_request']);
+      if (_temporaryStayRequest!['from_date'] != null) {
+        _checkInDate = _parseDate(_temporaryStayRequest!['from_date']);
+      }
+      if (_temporaryStayRequest!['to_date'] != null) {
+        _renewalDate = _parseDate(_temporaryStayRequest!['to_date']);
+      }
+      _hostelName = _temporaryStayRequest!['hostel_name']?.toString() ?? _hostelName;
+      _roomNumber = _temporaryStayRequest!['room_no']?.toString() ?? _roomNumber;
+      _roomCode = _temporaryStayRequest!['room_code']?.toString() ?? _temporaryStayRequest!['room_no']?.toString() ?? _roomCode;
+      
+      if (_roomCode.contains('-')) {
+        final parts = _roomCode.split('-');
+        if (parts.length >= 4) {
+          _block = parts[0];
+          _wing = "${parts[1]} - ${parts[2]}";
+          _roomNumber = parts[3];
+        } else if (parts.length == 3) {
+          _block = parts[0];
+          _wing = parts[1];
+          _roomNumber = parts[2];
+        }
+      }
+
+      if (_roomCode.isNotEmpty) {
+        _roomAllocation = _roomCode;
+      } else if (_roomNumber.isNotEmpty) {
+        _roomAllocation = _roomNumber;
+      }
+    } else {
+      _temporaryStayRequest = null;
+    }
 
     // 🔥 PARENT ROLE: Handle linked student data
     if (_isParent) {
@@ -474,6 +516,38 @@ class UserProvider with ChangeNotifier {
   }
 
   void setUserData(Map<String, dynamic> userData) {
+    if (userData['temporary_stay_request'] != null) {
+      _temporaryStayRequest = Map<String, dynamic>.from(userData['temporary_stay_request']);
+      if (_temporaryStayRequest!['from_date'] != null) {
+        _checkInDate = _parseDate(_temporaryStayRequest!['from_date']);
+      }
+      if (_temporaryStayRequest!['to_date'] != null) {
+        _renewalDate = _parseDate(_temporaryStayRequest!['to_date']);
+      }
+      _hostelName = _temporaryStayRequest!['hostel_name']?.toString() ?? _hostelName;
+      _roomNumber = _temporaryStayRequest!['room_no']?.toString() ?? _roomNumber;
+      _roomCode = _temporaryStayRequest!['room_code']?.toString() ?? _temporaryStayRequest!['room_no']?.toString() ?? _roomCode;
+      
+      if (_roomCode.contains('-')) {
+        final parts = _roomCode.split('-');
+        if (parts.length >= 4) {
+          _block = parts[0];
+          _wing = "${parts[1]} - ${parts[2]}";
+          _roomNumber = parts[3];
+        } else if (parts.length == 3) {
+          _block = parts[0];
+          _wing = parts[1];
+          _roomNumber = parts[2];
+        }
+      }
+
+      if (_roomCode.isNotEmpty) {
+        _roomAllocation = _roomCode;
+      } else if (_roomNumber.isNotEmpty) {
+        _roomAllocation = _roomNumber;
+      }
+    }
+
     if (userData.containsKey('full_name')) {
       _userName = userData['full_name']?.toString() ?? _userName;
     }

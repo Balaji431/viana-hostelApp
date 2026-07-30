@@ -56,121 +56,28 @@ try {
         }
     }
 
-    // 1. Verify no multiple wardens for the same area in the payload itself
-    $seen_areas = [];
+    // Bypass strict single-warden assignment restrictions as requested
     foreach ($data['staff'] as $staff) {
         $username = $staff['username'] ?? '';
-        $role = $staff['role'] ?? '';
         $hostel_name = $staff['hostel_name'] ?? '';
-        $floor_name = $staff['floor_name'] ?? '';
-        $wing_name = $staff['wing_name'] ?? '';
         
-        if (strtolower($role) === 'warden') {
-            $key = strtolower(trim($hostel_name)) . '|' . strtolower(trim($floor_name)) . '|' . strtolower(trim($wing_name));
-            if (isset($seen_areas[$key])) {
-                if ($seen_areas[$key] !== $username) {
-                    $first_warden_name = "";
-                    foreach ($data['staff'] as $s2) {
-                        if (($s2['username'] ?? '') === $seen_areas[$key]) {
-                            $first_warden_name = $s2['name'] ?? '';
-                            break;
-                        }
+        if (!empty($username)) {
+            // Validate hostel is one of the hostels registered in hostel_type table
+            if (!empty($hostel_name)) {
+                $hostel_stmt = $pdo->query("SELECT DISTINCT hostel_name FROM hostel_type");
+                $valid_hostels = $hostel_stmt->fetchAll(PDO::FETCH_COLUMN);
+                $is_valid_hostel = false;
+                foreach ($valid_hostels as $vh) {
+                    if (isHostelNameMatch($vh, $hostel_name)) {
+                        $is_valid_hostel = true;
+                        break;
                     }
-                    http_response_code(409);
-                    echo json_encode([
-                        "success" => false,
-                        "message" => "This area already has a warden assigned: $first_warden_name (@{$seen_areas[$key]}). Please edit or remove the existing mapping before assigning another warden."
-                    ]);
+                }
+                if (!$is_valid_hostel) {
+                    $allowed_hostels = implode(', ', $valid_hostels);
+                    echo json_encode(["success" => false, "message" => "Selected hostel '$hostel_name' is invalid. Valid hostels: $allowed_hostels."]);
                     if ($pdo->inTransaction()) $pdo->rollBack();
                     return;
-                }
-            } else {
-                $seen_areas[$key] = $username;
-            }
-        }
-    }
-
-    // 2. Backend Validation Checks prior to staff mapping updates
-    foreach ($data['staff'] as $staff) {
-        $username = $staff['username'] ?? '';
-        $role = $staff['role'] ?? '';
-        $hostel_name = $staff['hostel_name'] ?? '';
-        $floor_name = $staff['floor_name'] ?? '';
-        $wing_name = $staff['wing_name'] ?? '';
-        
-        if (strtolower($role) === 'warden') {
-            // A. Verify user exists in users table OR staff_users table
-            $user_chk = $pdo->prepare("SELECT role FROM users WHERE username = ? LIMIT 1");
-            $user_chk->execute([$username]);
-            $u_row = $user_chk->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$u_row) {
-                $staff_chk = $pdo->prepare("SELECT role FROM staff_users WHERE bio_id = ? LIMIT 1");
-                $staff_chk->execute([$username]);
-                $s_row = $staff_chk->fetch(PDO::FETCH_ASSOC);
-                if (!$s_row) {
-                    echo json_encode(["success" => false, "message" => "Warden '$username' does not exist in users or staff_users table."]);
-                    if ($pdo->inTransaction()) $pdo->rollBack();
-                    return;
-                }
-                // We don't enforce role='warden' strictly on external staff here because their external role might be 'staff' or similar
-            }
-            
-            // B. Validate hostel is one of the hostels registered in hostel_type table
-            $hostel_stmt = $pdo->query("SELECT DISTINCT hostel_name FROM hostel_type");
-            $valid_hostels = $hostel_stmt->fetchAll(PDO::FETCH_COLUMN);
-            $is_valid_hostel = false;
-            foreach ($valid_hostels as $vh) {
-                if (isHostelNameMatch($vh, $hostel_name)) {
-                    $is_valid_hostel = true;
-                    break;
-                }
-            }
-            if (!$is_valid_hostel) {
-                $allowed_hostels = implode(', ', $valid_hostels);
-                echo json_encode(["success" => false, "message" => "Selected hostel '$hostel_name' is invalid. Valid hostels: $allowed_hostels."]);
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                return;
-            }
-            
-            // C. Block duplicate mapping for username + hostel_name + floor_name + wing_name (same warden, same area)
-            $dup_chk = $pdo->prepare("
-                SELECT id FROM mapping_staff 
-                WHERE username = ? AND hostel_name = ? AND floor_name = ? AND wing_name = ? AND mapping_id != ?
-            ");
-            $dup_chk->execute([$username, $hostel_name, $floor_name, $wing_name, $mappingId]);
-            if ($dup_chk->fetch()) {
-                echo json_encode(["success" => false, "message" => "A mapping already exists for '$username' in '$hostel_name' floor '$floor_name' wing '$wing_name'."]);
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                return;
-            }
-
-            // D. Area assignment validation: only ONE active warden allowed per hostel_name + floor_name + wing_name
-            $area_stmt = $pdo->prepare("
-                SELECT username, name, hostel_name, floor_name, wing_name FROM mapping_staff 
-                WHERE (LOWER(role) = 'warden') AND mapping_id != ?
-            ");
-            $area_stmt->execute([$mappingId]);
-            
-            $n_hostel_in = strtolower(trim($hostel_name));
-            $n_floor_in = strtolower(trim($floor_name));
-            $n_wing_in = strtolower(trim($wing_name));
-            
-            while ($row = $area_stmt->fetch(PDO::FETCH_ASSOC)) {
-                $n_hostel_db = strtolower(trim($row['hostel_name']));
-                $n_floor_db = strtolower(trim($row['floor_name']));
-                $n_wing_db = strtolower(trim($row['wing_name']));
-                
-                if ($n_hostel_db === $n_hostel_in && $n_floor_db === $n_floor_in && $n_wing_db === $n_wing_in) {
-                    if ($row['username'] !== $username) {
-                        http_response_code(409); // Conflict
-                        echo json_encode([
-                            "success" => false,
-                            "message" => "This area already has a warden assigned: {$row['name']} (@{$row['username']}). Please edit or remove the existing mapping before assigning another warden."
-                        ]);
-                        if ($pdo->inTransaction()) $pdo->rollBack();
-                        return;
-                    }
                 }
             }
         }
@@ -178,18 +85,70 @@ try {
 
     // Insert new staff members with location details
     $stmt = $pdo->prepare("INSERT INTO mapping_staff (mapping_id, name, role, phone, username, staff_bio_id, hostel_name, floor_name, wing_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    
+    $userUpsert = $pdo->prepare("
+        INSERT INTO users (username, full_name, phone_number, role, password, HostelName, Status, is_active, Institution)
+        VALUES (:username, :name, :phone, :role, :pw, :hostel, '1', 1, 'SIMATS')
+        ON DUPLICATE KEY UPDATE
+            full_name = VALUES(full_name),
+            phone_number = VALUES(phone_number),
+            role = VALUES(role),
+            HostelName = VALUES(HostelName),
+            Status = '1',
+            is_active = 1
+    ");
+
+    $staffUserUpsert = $pdo->prepare("
+        INSERT INTO staff_users (bio_id, password, name, phone, role)
+        VALUES (:bio_id, :pw, :name, :phone, :role)
+        ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            phone = VALUES(phone),
+            role = VALUES(role)
+    ");
+
+    $pwHash = password_hash('welcome123', PASSWORD_BCRYPT);
+
     foreach ($data['staff'] as $staff) {
+        $uBioId = trim($staff['username'] ?? '');
         $stmt->execute([
             $mappingId, 
             $staff['name'], 
             $staff['role'], 
             $staff['phone'], 
-            $staff['username'] ?? '',
-            $staff['username'] ?? '', // save bio_id into staff_bio_id as well
+            $uBioId,
+            $uBioId, // save bio_id into staff_bio_id as well
             $staff['hostel_name'] ?? '',
             $staff['floor_name'] ?? '',
             $staff['wing_name'] ?? ''
         ]);
+
+        if (!empty($uBioId)) {
+            $sRole = strtolower(trim($staff['role'] ?? 'staff'));
+            if (strpos($sRole, 'maint') !== false) {
+                $sRole = 'maintenance';
+            }
+            $sName = trim($staff['name'] ?? 'Staff');
+            $sPhone = trim($staff['phone'] ?? '');
+            $sHostel = trim($staff['hostel_name'] ?? '');
+
+            $userUpsert->execute([
+                ':username' => $uBioId,
+                ':name'     => $sName,
+                ':phone'    => $sPhone,
+                ':role'     => $sRole,
+                ':pw'       => $pwHash,
+                ':hostel'   => $sHostel
+            ]);
+
+            $staffUserUpsert->execute([
+                ':bio_id' => $uBioId,
+                ':pw'     => $pwHash,
+                ':name'   => $sName,
+                ':phone'  => $sPhone,
+                ':role'   => $sRole
+            ]);
+        }
     }
     
     $actionType = isset($data['id']) && $data['id'] ? "UPDATE_STAFF_MAPPING" : "CREATE_STAFF_MAPPING";

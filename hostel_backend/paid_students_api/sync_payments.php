@@ -292,6 +292,7 @@ try {
                 ':phone_number' => $phone_number
             ]);
 
+            /*
             // Log AUTO_CREATE_STUDENT in audit_logs
             logAudit(
                 $new_user_id,
@@ -342,6 +343,7 @@ try {
                     ]
                 );
             }
+            */
 
             $created_count++;
             $sync_logs[] = "Onboarded student: $student_name ($roll_number)";
@@ -380,6 +382,7 @@ try {
                 ]);
             }
 
+            /*
             // Log PAYMENT_STATUS_UPDATE / PAYMENT_SYNC in audit_logs
             logAudit(
                 $user_id,
@@ -413,6 +416,7 @@ try {
                     ]
                 );
             }
+            */
 
             $updated_count++;
             $sync_logs[] = "Updated student: $student_name ($roll_number)";
