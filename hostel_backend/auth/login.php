@@ -22,10 +22,27 @@ $database = new Database();
 $db = $database->getConnection();
 
 $raw_input = file_get_contents("php://input");
-$data = json_decode($raw_input);
+$data = !empty($raw_input) ? json_decode($raw_input) : null;
 
-$username = $data->username ?? $_POST['username'] ?? $_GET['username'] ?? null;
-$password = $data->password ?? $_POST['password'] ?? $_GET['password'] ?? null;
+$username = null;
+$password = null;
+
+if (is_object($data)) {
+    $username = $data->username ?? null;
+    $password = $data->password ?? null;
+}
+
+if (!$username || !$password) {
+    foreach (array_merge($_GET, $_POST, $_REQUEST) as $key => $value) {
+        $clean_key = trim(strtolower(str_replace(['_', ' '], '', urldecode($key))));
+        if ($clean_key === 'username' && empty($username)) {
+            $username = trim($value);
+        }
+        if ($clean_key === 'password' && empty($password)) {
+            $password = trim($value);
+        }
+    }
+}
 
 if ($username && $password) {
     try {
