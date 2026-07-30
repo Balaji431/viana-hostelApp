@@ -25,10 +25,7 @@ class Database {
         }
 
         $this->host = getenv('DB_HOST') ?: ($secrets['DB_HOST'] ?? "db");
-        $this->db_name = getenv('DB_NAME') ?: ($secrets['DB_NAME'] ?? "stay_simtas");
-        if ($this->db_name === 'stay_simats') {
-            $this->db_name = 'stay_simtas';
-        }
+        $this->db_name = getenv('DB_NAME') ?: ($secrets['DB_NAME'] ?? "stay_simats");
         $this->username = getenv('DB_USER') ?: ($secrets['DB_USER'] ?? "root");
         $this->password = getenv('DB_PASS') ?: ($secrets['DB_PASS'] ?? "vstay2026");
         $this->port = (int)(getenv('DB_PORT') ?: ($secrets['DB_PORT'] ?? 3306));
@@ -53,7 +50,7 @@ class Database {
 
         $passwords = array_values(array_unique([$this->password, 'vstay2026', '']));
         $users = array_values(array_unique([$this->username, 'root']));
-        $db_names = array_values(array_unique([$this->db_name, 'stay_simtas', 'stay_simats']));
+        $db_names = array_values(array_unique([$this->db_name, 'stay_simats', 'stay_simtas']));
 
         $tried = [];
         foreach ($hosts_and_ports as $hp) {
