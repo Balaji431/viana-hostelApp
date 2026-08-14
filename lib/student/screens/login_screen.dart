@@ -162,6 +162,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     clientId: kIsWeb ? '907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com' : null,
+    serverClientId: '907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com',
     scopes: ['email', 'profile'],
   );
 
@@ -502,67 +503,28 @@ class _LoginScreenState extends State<LoginScreen> {
       final String googleEmail = googleUser.email;
       final String googleName = googleUser.displayName ?? 'Applicant';
 
-      // Check if email already registered in system database
-      Map<String, dynamic> checkRes = {};
-      try {
-        checkRes = await ApiService.checkTemporaryStayEmail(googleEmail);
-      } catch (_) {}
+      // Direct Google Login for registered VStay users
+      final response = await ApiService.googleLogin(
+        googleEmail,
+        idToken: idToken,
+        accessToken: accessToken,
+      );
 
-      // Case 1: Already has active temporary stay request
-      if (checkRes['has_request'] == true && checkRes['request_details'] != null) {
-        final req = Map<String, dynamic>.from(checkRes['request_details']);
-        final userData = {
-          'id': req['id'] ?? 0,
-          'username': req['email'] ?? googleEmail,
-          'full_name': req['full_name'] ?? googleName,
-          'email': googleEmail,
-          'role': 'guest',
-          'hostel_name': req['hostel_name'] ?? '',
-          'room_no': req['room_no'] ?? '',
-          'room_code': req['room_code'] ?? req['room_no'] ?? '',
-          'temporary_stay_request': req,
-        };
-
+      if (response['success'] == true) {
+        final userData = response['data'];
         if (mounted) {
-          final userProvider = Provider.of<UserProvider>(context, listen: false);
-          await userProvider.login(userData);
-          setState(() => _isLoading = false);
+          final provider = Provider.of<UserProvider>(context, listen: false);
+          provider.login(userData);
         }
-        return;
-      }
-
-      // Case 2: Registered user (student, admin, staff) in DB but no active temporary stay request
-      if (checkRes['registered'] == true) {
-        final response = await ApiService.googleLogin(
-          googleEmail,
-          idToken: idToken,
-          accessToken: accessToken,
-        );
-
-        if (response['success'] == true) {
-          final userData = response['data'];
-          if (mounted) {
-            final provider = Provider.of<UserProvider>(context, listen: false);
-            provider.login(userData);
-          }
-        } else {
-          if (mounted) {
-            setState(() {
-              _isLoading = false;
-              _errorMessage = response['message'] ?? 'No VStay account was found for this email. Use email which u have used to pay the hostel fee.';
-            });
-          }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = response['message'] ?? 'No VStay account was found for this email. Use email which u have used to pay the hostel fee.';
+          });
         }
-        return;
       }
-
-      // Case 3: Unregistered email — temporary stay booking disabled for now
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'No VStay account was found for this email. Use email which u have used to pay the hostel fee.';
-        });
-      }
+      return;
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -572,6 +534,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
   }
+
 
   Widget _buildGoogleSignInButton() {
     return MouseRegion(
@@ -805,7 +768,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                                 child: Padding(
                                                   padding: EdgeInsets.only(top: 4),
                                                   child: Text(
-                                                    'Admin / Staff Login Only',
+                                                    'Admin / Staff / Parent Login',
                                                     style: TextStyle(
                                                       color: Colors.black,
                                                       fontSize: 14,
@@ -834,9 +797,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                             _buildErrorBanner(),
                                             if (_showCredentials) ...[
                                               _buildInputField(
-                                                label: 'Bio ID',
+                                                label: 'Bio ID / Username',
                                                 controller: _userController,
-                                                hint: 'Enter Bio ID',
+                                                hint: 'Enter Bio ID or Parent Username (e.g. p-2414260003)',
                                                 errorText: _usernameError,
                                               ),
                                               const SizedBox(height: 20),

@@ -259,6 +259,25 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     return 99;
   }
 
+  bool _isSameFloor(String f1, String f2) {
+    if (f1 == f2) return true;
+    final a = f1.toLowerCase().trim();
+    final b = f2.toLowerCase().trim();
+    if (a == b) return true;
+
+    // Prevent matching different hostels (e.g. Krishna Hostel vs Krishna Hostel(New))
+    if (a.contains('(new)') != b.contains('(new)')) return false;
+    const hostels = ['krishna', 'kaveri', 'noyyal', 'palar', 'ponni', 'porunai', 'radiance', 'siruvani', 'stunners', 'vaigai'];
+    for (final h in hostels) {
+      if (a.contains(h) != b.contains(h)) return false;
+    }
+
+    if (a.contains(b) || b.contains(a)) return true;
+    final o1 = _floorOrder(a);
+    final o2 = _floorOrder(b);
+    return o1 != 99 && o1 == o2;
+  }
+
   @override
   Widget build(BuildContext context) {
     // 1. Extract available floors (from students & locations)
@@ -279,13 +298,13 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     final rawWings = <String>{};
     for (var s in _students) {
       final f = (s['floor'] ?? s['floor_name'] ?? '').toString().trim();
-      if (_selectedFloor != 'All Floors' && f.toLowerCase() != _selectedFloor.toLowerCase()) continue;
+      if (_selectedFloor != 'All Floors' && !_isSameFloor(f, _selectedFloor)) continue;
       final w = _extractWing(s);
       if (w.isNotEmpty) rawWings.add(w);
     }
     for (var l in _locations) {
       final f = (l['floor_name'] ?? l['floor'] ?? '').toString().trim();
-      if (_selectedFloor != 'All Floors' && f.toLowerCase() != _selectedFloor.toLowerCase()) continue;
+      if (_selectedFloor != 'All Floors' && !_isSameFloor(f, _selectedFloor)) continue;
       final w = _extractWing(l);
       if (w.isNotEmpty) rawWings.add(w);
     }
@@ -298,14 +317,14 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     for (var s in _students) {
       final f = (s['floor'] ?? s['floor_name'] ?? '').toString().trim();
       final r = (s['room_no'] ?? s['room_code'] ?? '').toString().trim();
-      if (_selectedFloor != 'All Floors' && f.toLowerCase() != _selectedFloor.toLowerCase()) continue;
+      if (_selectedFloor != 'All Floors' && !_isSameFloor(f, _selectedFloor)) continue;
       if (_selectedWing != 'All Wings' && _extractWing(s).toLowerCase() != _selectedWing.toLowerCase()) continue;
       if (r.isNotEmpty && r.toLowerCase() != 'unallocated') rawRooms.add(r);
     }
     for (var l in _locations) {
       final f = (l['floor_name'] ?? l['floor'] ?? '').toString().trim();
       final r = (l['room_number'] ?? l['room_no'] ?? '').toString().trim();
-      if (_selectedFloor != 'All Floors' && f.toLowerCase() != _selectedFloor.toLowerCase()) continue;
+      if (_selectedFloor != 'All Floors' && !_isSameFloor(f, _selectedFloor)) continue;
       if (_selectedWing != 'All Wings' && _extractWing(l).toLowerCase() != _selectedWing.toLowerCase()) continue;
       if (r.isNotEmpty && r.toLowerCase() != 'unallocated') rawRooms.add(r);
     }
@@ -322,7 +341,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
 
       // Floor Filter
       if (_selectedFloor != 'All Floors') {
-        if (floor.toLowerCase() != _selectedFloor.toLowerCase()) {
+        if (!_isSameFloor(floor, _selectedFloor)) {
           return false;
         }
       }
@@ -1589,38 +1608,36 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
           Row(
             children: [
               Expanded(
-                child: _actionButton(
-                  'Reject', 
-                  Colors.red, 
-                  () => _handleAction(renewal, 'reject')
+                child: OutlinedButton(
+                  onPressed: () => _handleAction(renewal, 'reject'),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF1E293B),
+                    side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _actionButton(
-                  'Approve', 
-                  Colors.green, 
-                  () => _handleAction(renewal, 'approve')
+                child: ElevatedButton(
+                  onPressed: () => _handleAction(renewal, 'approve'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    elevation: 2,
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Approve', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
               ),
             ],
           ),
         ],
       ),
-    );
-  }
-
-  Widget _actionButton(String label, Color color, VoidCallback onPressed) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color.withOpacity(0.1),
-        foregroundColor: color,
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-      ),
-      child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
     );
   }
 

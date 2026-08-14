@@ -28,6 +28,20 @@ try {
         $user = $data->user ?? 'Guest';
         $device = $data->device ?? 'Unknown';
 
+        // Deduplication guard: skip if the same error from the same user
+        // was already recorded within the last 60 seconds.
+        $checkQuery = "SELECT id FROM app_errors
+                       WHERE error_message = ? AND user = ?
+                         AND created_at >= NOW() - INTERVAL 60 SECOND
+                       LIMIT 1";
+        $checkStmt = $db->prepare($checkQuery);
+        $checkStmt->execute([$errorMessage, $user]);
+
+        if ($checkStmt->fetch()) {
+            echo json_encode(["success" => true, "message" => "Duplicate suppressed"]);
+            exit();
+        }
+
         $query = "INSERT INTO app_errors (error_message, stack_trace, user, device) VALUES (?, ?, ?, ?)";
         $stmt = $db->prepare($query);
 

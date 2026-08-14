@@ -91,19 +91,25 @@ class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget 
               ),
             ),
             Center(
-              child: Text(
-                title,
-                style: GoogleFonts.playfairDisplay(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                  shadows: [
-                    const Shadow(
-                      offset: Offset(0, 1),
-                      blurRadius: 2,
-                      color: Colors.black45,
-                    )
-                  ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 48.0),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    title,
+                    style: GoogleFonts.playfairDisplay(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                      shadows: [
+                        const Shadow(
+                          offset: Offset(0, 1),
+                          blurRadius: 2,
+                          color: Colors.black45,
+                        )
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),

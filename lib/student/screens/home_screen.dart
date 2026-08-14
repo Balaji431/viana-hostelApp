@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
-import '../../shared/widgets/renewal_modal.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import 'payment_screens.dart';
 import '../../shared/user_provider.dart';
@@ -22,6 +21,9 @@ import '../../shared/ui_provider.dart';
 import 'security_chat_screen.dart';
 import '../../shared/main_layout.dart';
 import '../widgets/temporary_stay_dialog.dart';
+import '../widgets/room_transfer_modal.dart';
+import 'student_wallet_screen.dart';
+import 'no_due_page.dart';
 import 'package:flutter/foundation.dart';
 
 class StudentHomeScreen extends StatefulWidget {
@@ -42,24 +44,25 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   
   bool _showRoomOptionsModal = false;
   bool _showVacancyBrowser = false;
-  bool _showRenewalModal = false;
   bool _isCheckingWarden = false; // Stack-level overlay — avoids Navigator.pop issues
   String _roomChangeStatus = 'none';
   Map<String, dynamic>? _latestRoomRequest;
   bool _showRoomHistory = false;
+  bool _showRenewTransferNotice = false;
 
   void _updateOverlayState({
     bool? showRoomOptionsModal,
     bool? showVacancyBrowser,
-    bool? showRenewalModal,
   }) {
     setState(() {
-      if (showRoomOptionsModal != null) _showRoomOptionsModal = showRoomOptionsModal;
+      if (showRoomOptionsModal != null) {
+        _showRoomOptionsModal = showRoomOptionsModal;
+        if (!showRoomOptionsModal) _showRenewTransferNotice = false;
+      }
       if (showVacancyBrowser != null) _showVacancyBrowser = showVacancyBrowser;
-      if (showRenewalModal != null) _showRenewalModal = showRenewalModal;
     });
 
-    final showBar = !_showRoomOptionsModal && !_showVacancyBrowser && !_showRenewalModal;
+    final showBar = !_showRoomOptionsModal && !_showVacancyBrowser;
     context.read<UIProvider>().setShowBottomNavBar(showBar);
   }
 
@@ -289,9 +292,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   children: [
                     _buildProfileHeader(user),
                     const SizedBox(height: 10),
-                    if (user.temporaryStayRequest != null && !isTempStayPaid) ...[
-                      _buildTemporaryStayCard(context, user),
-                    ] else if (user.isRoomAllocated || isTempStayPaid) ...[
+                    if (user.isRoomAllocated || isTempStayPaid) ...[
                       // Student has a room — show ONLY the room allocation card
                       _buildAllocationCard(context, user),
                     ] else if (!user.isParent) ...[
@@ -342,47 +343,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               ),
             ),
 
-          if (_showRenewalModal)
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: () => _updateOverlayState(showRenewalModal: false),
-                child: Container(
-                  color: Colors.black.withOpacity(0.5),
-                  child: GestureDetector(
-                    onTap: () {}, 
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        RenewalModal(
-                          isOpen: _showRenewalModal,
-                          onClose: () => _updateOverlayState(showRenewalModal: false),
-                          currentRenewalDate: user.renewalDate,
-                          currentRoomTypeId: user.roomType,
-                          currentRoomFacility: user.roomFacility,
-                          currentRoomBathAttached: user.roomBathAttached,
-                          requestStatus: _roomChangeStatus,
-                          approvedRoomType: _latestRoomRequest?['requested_room_type'],
-                          requestId: _latestRoomRequest?['request_id'],
-                          onRoomChangeRequested: () {
-                            _handleRoomChangePressed(context, user);
-                          },
-                          onRenewalSuccess: (newDate, receiptNumber, amount, newRoomType) {
-                            user.approveRenewal();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Renewal successful! New room: $newRoomType'),
-                                backgroundColor: const Color(0xFF43A047),
-                              ),
-                            );
-                            Navigator.push(context, MaterialPageRoute(builder: (ctx) => const PaymentPage()));
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+
 
           // Warden-check loading overlay — sits on top of the renewal modal
           // Uses Stack (not Navigator) so nothing gets accidentally popped
@@ -420,6 +381,16 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildRoomOptionsModal(BuildContext context, UserProvider user) {
+    final statusLower = _roomChangeStatus.toLowerCase();
+    final hasActiveOrPendingRequest = _roomChangeStatus.isNotEmpty &&
+        statusLower != 'none' &&
+        statusLower != 'completed' &&
+        statusLower != 'rejected';
+    final roomType = user.roomType.isNotEmpty ? user.roomType : (user.roomTypeDisplay.isNotEmpty ? user.roomTypeDisplay : "Standard Room");
+    final hostel = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
+    final roomNo = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
+    final renewalDateStr = DateFormat('dd MMM yyyy').format(user.renewalDate);
+
     return Container(
       color: Colors.black.withOpacity(0.5),
       child: Column(
@@ -436,6 +407,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Header Bar
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: const BoxDecoration(
@@ -483,47 +455,259 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   ),
                 ),
                 
+                // Content Body
                 Container(
                   color: const Color(0xFFF9F6F0),
-                  padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: kIsWeb ? 20 : 90),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      if (!user.isGuest) ...[
-                        InkWell(
-                          onTap: null,
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade400,
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.05),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 2),
+                      // Image 1 Layout: Existing Room Allotted Card
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.king_bed_outlined, color: Color(0xFF1A2744), size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  roomType,
+                                  style: GoogleFonts.lato(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF1A2744),
+                                  ),
+                                ),
+                                const Spacer(),
+                                // Light Green Paid Badge (Image 1)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF059669),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: const Text(
+                                      'Active',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 4),
+
+                            Row(
+                              children: [
+                                const Icon(Icons.location_on_outlined, color: Colors.grey, size: 14),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '$hostel · Thandalam Campus',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ],
                             ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+
+                            const SizedBox(height: 6),
+
+                            Row(
                               children: [
-                                Icon(Icons.lock_outline, 
-                                         color: Colors.grey.shade800, size: 22),
-                                const SizedBox(width: 10),
-                                Text(
-                                  'Contact the VStudy Portal for Renewal',
+                                const Text(
+                                  'Room No: ',
                                   style: TextStyle(
-                                    fontSize: 14,
+                                    fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.grey.shade900,
+                                    color: Color(0xFF1A2744),
+                                  ),
+                                ),
+                                Text(
+                                  roomNo,
+                                  style: GoogleFonts.lato(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF10B981),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Total Fee', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    const SizedBox(height: 2),
+                                    Text('₹${NumberFormat('#,##,###').format(user.totalFee.toInt())}', style: GoogleFonts.lato(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Additional EB Charges', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    const SizedBox(height: 2),
+                                    Text('Yes', style: GoogleFonts.lato(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+                                  ],
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Renewal Date', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                const SizedBox(height: 2),
+                                Text(renewalDateStr, style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+                              ],
+                            ),
+
+                            const SizedBox(height: 14),
+
+                            Row(
+                              children: [
+                                Expanded(child: _buildModalInfoBox('Amount', '₹${NumberFormat('#,##,###').format(user.roomAmount.toInt())}')),
+                                const SizedBox(width: 8),
+                                Expanded(child: _buildModalInfoBox('Food', '₹${NumberFormat('#,##,###').format(user.roomFood.toInt())}')),
+                                const SizedBox(width: 8),
+                                Expanded(child: _buildModalInfoBox('Caution', '₹${NumberFormat('#,##,###').format(user.roomCaution.toInt())}')),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      if (!user.isGuest) ...[
+                        if (_showRenewTransferNotice) ...[
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF2F2),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.4)),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 18),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '⚠️ Please complete the Transfer request first.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF991B1B),
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ),
+                        ],
+                        if (statusLower == 'pending') ...[
+                          // Pending Transfer Request Card
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFD97706).withOpacity(0.4)),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.hourglass_top_rounded, color: Color(0xFFD97706), size: 22),
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'TRANSFER REQUEST PENDING',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFB45309),
+                                        ),
+                                      ),
+                                      SizedBox(height: 2),
+                                      Text(
+                                        'Your transfer request is under review by Warden Manoj A. Only 1 request allowed at a time.',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Color(0xFF92400E),
+                                          height: 1.3,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ] else if (statusLower == 'approved' || statusLower == 'pre_approved') ...[
+                          // Approved State: Full-width Pay Now button (Renew button temporarily hidden for production release)
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                _updateOverlayState(showRoomOptionsModal: false);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => NoDuePage()),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                elevation: 2,
+                                shadowColor: const Color(0xFF1D4ED8).withOpacity(0.4),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: Text(
+                                'Pay Now',
+                                style: GoogleFonts.lato(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          // Renew and Transfer buttons temporarily hidden for current release
+                        ],
                       ] else ...[
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -538,7 +722,6 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           ),
                         ),
                       ],
-                      const SizedBox(height: 20),
                     ],
                   ),
                 ),
@@ -547,6 +730,59 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildModalInfoBox(String label, String amount) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 2),
+          Text(amount, style: GoogleFonts.lato(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+        ],
+      ),
+    );
+  }
+
+  void _showRenewBookingModal(BuildContext context, UserProvider user) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PaymentPage(
+          renewAmount: user.renewAmount,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRenewDetailRow(String label, String value, {bool isBold = false, bool isGrey = false, bool isTotal = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: isTotal ? 14 : 13,
+            fontWeight: isTotal ? FontWeight.bold : FontWeight.w500,
+            color: isTotal ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isTotal ? 16 : 13,
+            fontWeight: isBold || isTotal ? FontWeight.bold : FontWeight.w600,
+            color: isGrey ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+          ),
+        ),
+      ],
     );
   }
 
@@ -662,7 +898,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       return;
     }
     await _fetchRoomChangeStatus();
-    _updateOverlayState(showRenewalModal: true);
+    _updateOverlayState(showRoomOptionsModal: true);
   }
 
   Future<void> _handleRoomChangePressed(BuildContext context, UserProvider user) async {
@@ -735,8 +971,8 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         throw Exception('Failed to verify warden assignment.');
       }
 
-      // Warden is assigned — close the renewal modal and open the vacancy browser
-      _updateOverlayState(showRenewalModal: false, showVacancyBrowser: true);
+      // Warden is assigned — close the modal and open the vacancy browser
+      _updateOverlayState(showRoomOptionsModal: false, showVacancyBrowser: true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isCheckingWarden = false);
@@ -860,21 +1096,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             ),
           ),
         ] else if (!user.isGuest) ...[
-          ds.SkeuomorphicButton(
-            text: 'Renew / Room Options',
-            onPressed: () {
-              Navigator.pop(context);
-              if (_roomChangeStatus.toLowerCase() == 'pre_approved') {
-                _updateOverlayState(showRenewalModal: true);
-              } else if (_roomChangeStatus.toLowerCase() == 'pending') {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Room change/renewal request is pending approval.')),
-                );
-              } else {
-                _updateOverlayState(showRoomOptionsModal: true);
-              }
-            },
-          ),
+          // Renew / Room Options button temporarily hidden for production release
         ],
         const SizedBox(height: 8),
         ds.SkeuomorphicButton(
@@ -903,22 +1125,37 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
   Widget _buildStatusPill(int days, {bool isTemporary = false}) {
     if (isTemporary) {
-      return const ds.GlossyBadge(
-        label: "TEMP",
-        isActive: true,
-        colorOverride: Color(0xFF1E88E5), // Blue card/badge according to application theme
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE3F2FD),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Text(
+          "TEMP",
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E88E5),
+          ),
+        ),
       );
     }
-    String label = "Active";
-    Color color = ds.RoyalTheme.successMid;
-    if (days <= 0) {
-      label = "Expired";
-      color = ds.RoyalTheme.dangerMid;
-    } else if (days <= 30) {
-      label = "Expiring Soon";
-      color = ds.RoyalTheme.warningMid;
-    }
-    return ds.GlossyBadge(label: label, isActive: days > 0, colorOverride: color);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF059669),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Text(
+        "Active",
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ),
+    );
   }
 
   Widget _buildAllocationEntryCard(BuildContext context, UserProvider user) {
@@ -1052,25 +1289,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
              return;
           }
 
-          if (allocProvider.allocation != null) {
-            _showRoomDetails(allocProvider.allocation);
-            return;
-          }
-          
-          // Construct fallbacks from user details
-          final dynamicAllocation = {
-            'room_no': user.roomNumber,
-            'room_allocation': user.roomAllocation,
-            'building_code': user.block,
-            'block': user.block,
-            'floor': user.wing,
-            'floor_name': user.wing,
-            'room_type': user.roomTypeDisplay,
-            'facility': 'Wi-Fi, AC, Attached Bath',
-            'allocation_status': 'approved',
-            'paid_at': DateFormat('yyyy-MM-dd').format(user.checkInDate),
-          };
-          _showRoomDetails(dynamicAllocation);
+          _updateOverlayState(showRoomOptionsModal: true);
         },
         borderRadius: BorderRadius.circular(25),
         child: Container(
@@ -1119,7 +1338,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            user.isParent ? user.linkedStudentRoom : user.roomNumber,
+                            (user.isParent ? user.linkedStudentRoom : user.roomNumber)
+                                .replaceAll(' - ', '-')
+                                .replaceAll('- ', '-')
+                                .replaceAll(' ', '')
+                                .replaceAll('T-32', 'T32')
+                                .trim(),
                             style: TextStyle(
                               fontSize: 13, 
                               color: Colors.grey.shade600, 
@@ -1175,36 +1399,25 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     ),
                   ),
                   const Spacer(),
-                  if (!user.isParent) ...[
+                  if (!user.isParent && 
+                      _roomChangeStatus.toLowerCase() != 'none' && 
+                      _roomChangeStatus.isNotEmpty) ...[
                     Flexible(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: (_roomChangeStatus.toLowerCase() == 'completed' || 
-                                _roomChangeStatus.toLowerCase() == 'none' ||
-                                _roomChangeStatus.toLowerCase() == 'pre_approved')
-                            ? () {
-                                // Open renewal modal
-                                _updateOverlayState(showRenewalModal: true);
-                              }
-                            : null,
+                        onTap: () {
+                          _updateOverlayState(showRoomOptionsModal: true);
+                        },
                         child: Container(
-                          padding: _roomChangeStatus.toLowerCase() == 'completed'
-                              ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
-                              : EdgeInsets.zero,
-                          decoration: _roomChangeStatus.toLowerCase() == 'completed'
-                              ? BoxDecoration(
-                                  color: const Color(0xFF43A047).withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: const Color(0xFF43A047).withOpacity(0.4), width: 1),
-                                )
-                              : null,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF43A047).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFF43A047).withOpacity(0.4), width: 1),
+                          ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (_roomChangeStatus.toLowerCase() == 'completed') ...[
-                                const Icon(Icons.payment_outlined, size: 14, color: Color(0xFF43A047)),
-                                const SizedBox(width: 4),
-                              ],
                               Flexible(
                                 child: Text(
                                   _roomChangeStatus.toLowerCase() == 'pending' 
@@ -1215,38 +1428,16 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                               ? 'Request Approved' 
                                               : (_roomChangeStatus.toLowerCase() == 'rejected' 
                                                   ? 'Request Rejected' 
-                                                  : (_roomChangeStatus.toLowerCase() == 'completed' 
-                                                      ? 'Proceed to Payment'
-                                                      : 'Tap to Renew')))),
+                                                  : 'Proceed to Payment'))),
                                   textAlign: TextAlign.right,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w900,
-                                    color: _roomChangeStatus.toLowerCase() == 'pre_approved' 
-                                        ? const Color(0xFFC5A358) 
-                                        : (_roomChangeStatus.toLowerCase() == 'completed'
-                                            ? const Color(0xFF2E7D32)
-                                            : ((_roomChangeStatus.toLowerCase() == 'pending' || _roomChangeStatus.toLowerCase() == 'rejected') 
-                                                ? Colors.orange 
-                                                : const Color(0xFF43A047))),
+                                    color: Color(0xFF2E7D32),
                                     fontFamily: 'Lato',
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 4),
-                              Icon(
-                                _roomChangeStatus.toLowerCase() == 'pending' 
-                                    ? Icons.hourglass_empty 
-                                    : (_roomChangeStatus.toLowerCase() == 'completed'
-                                        ? Icons.arrow_forward_ios
-                                        : Icons.chevron_right), 
-                                size: _roomChangeStatus.toLowerCase() == 'completed' ? 13 : 18, 
-                                color: _roomChangeStatus.toLowerCase() == 'pending' 
-                                    ? Colors.orange 
-                                    : (_roomChangeStatus.toLowerCase() == 'completed'
-                                        ? const Color(0xFF2E7D32)
-                                        : const Color(0xFFC5A358))
                               ),
                             ],
                           ),
@@ -1531,52 +1722,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 }
 
   Widget _buildProceedPaymentButton() {
-    final user = context.read<UserProvider>();
-    if (user.isGuest || _roomChangeStatus.toLowerCase() != 'approved') return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: GestureDetector(
-        onTap: () {
-          final user = context.read<UserProvider>();
-          _showRenewalDialog(context, user);
-        },
-        child: Container(
-          width: double.infinity,
-          height: 50,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: const LinearGradient(
-              colors: [Color(0xFFEBC15B), Color(0xFFB88E2F)],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.payment, color: Color(0xFF291E1A), size: 20),
-                SizedBox(width: 10),
-                Text(
-                  'Proceed Payment',
-                  style: TextStyle(
-                    color: Color(0xFF291E1A),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   Widget _buildAnnouncementsHeader() {

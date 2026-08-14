@@ -23,6 +23,7 @@ class RequestDetailsScreen extends StatefulWidget {
 class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   late String _status;
   bool _isLoading = false;
+  String? _acknowledgingAction;
 
   @override
   void initState() {
@@ -104,7 +105,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   }
 
   Future<void> _acknowledgeRequest(bool isWorking) async {
-    setState(() => _isLoading = true);
+    setState(() => _acknowledgingAction = isWorking ? 'yes' : 'no');
     final userProvider = context.read<UserProvider>();
     final studentId = userProvider.dbId ?? 0;
     
@@ -113,23 +114,21 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
       studentId,
       isWorking,
     );
-    setState(() => _isLoading = false);
+    setState(() => _acknowledgingAction = null);
 
     if (response['success'] == true) {
       if (!mounted) return;
-      setState(() => _status = response['status'] ?? (isWorking ? 'completed' : 'approved'));
+      setState(() => _status = response['status'] ?? (isWorking ? 'completed' : 'reopened'));
       
-      String displayMsg = isWorking ? 'Thank you for your feedback!' : 'Request reopened for maintenance.';
+      String displayMsg = isWorking ? 'Thank you! Issue marked as resolved.' : 'Issue reported as not working. Request reopened.';
       
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(displayMsg), backgroundColor: isWorking ? Colors.green : Colors.orange),
+        SnackBar(content: Text(displayMsg), backgroundColor: isWorking ? Colors.green : const Color(0xFF1E88E5)),
       );
       
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted && Navigator.canPop(context)) {
-          Navigator.pop(context, true);
-        }
-      });
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context, true);
+      }
     } else {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -277,15 +276,29 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
     } else if (s == 'rejected') {
       startColor = const Color(0xFFEF5350);
       endColor = const Color(0xFFD32F2F);
+    } else if (s == 'fixed' || s == 'verification' || s == 'resolved') {
+      // Blue for Verification / Marked Fixed by maintenance
+      startColor = const Color(0xFF1E88E5);
+      endColor = const Color(0xFF1565C0);
+    } else if (s == 'reopened') {
+      // Deep Blue for Reopened / Not Fixed
+      startColor = const Color(0xFF0288D1);
+      endColor = const Color(0xFF01579B);
     } else {
-      // Orange for Pending/Fixed/etc
+      // Orange for Pending / In Progress
       startColor = const Color(0xFFFF9800);
       endColor = const Color(0xFFFF8000);
     }
 
-    String displayText = s;
-    if (s == 'approved' || s == 'fixed' || s == 'reopened' || s == 'pending') {
-      displayText = dept == 'maintenance' ? 'PENDING' : s.toUpperCase();
+    String displayText;
+    if (s == 'fixed' || s == 'verification' || s == 'resolved') {
+      displayText = 'VERIFICATION';
+    } else if (s == 'reopened') {
+      displayText = 'NOT FIXED';
+    } else if (s == 'completed') {
+      displayText = 'COMPLETED';
+    } else if (s == 'approved' && dept == 'maintenance') {
+      displayText = 'PENDING';
     } else {
       displayText = s.toUpperCase();
     }
@@ -657,15 +670,24 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
           ),
           const SizedBox(height: 20),
           _timelineItem('Submitted', DateFormat('M/d/yyyy').format(widget.request.createdAt), true, isLast: false),
-          _timelineItem('In Progress', (_status == 'pending') ? 'Waiting for staff' : 'Staff is working', true, isLast: false),
-          _timelineItem('Verification', (_status == 'fixed' || _status == 'completed') ? 'Staff marked as fixed' : 'Waiting for resolution', _status == 'fixed' || _status == 'completed', isLast: false),
+          _timelineItem('In Progress', (_status == 'pending') ? 'Waiting for staff' : 'Staff is working', _status != 'pending', isLast: false),
+          _timelineItem(
+            'Verification', 
+            (_status == 'fixed' || _status == 'verification')
+                ? 'Staff marked as fixed'
+                : (_status == 'reopened' ? 'Reopened (Student reported not fixed)' : (_status == 'completed' ? 'Verified & resolved' : 'Waiting for resolution')), 
+            _status == 'fixed' || _status == 'verification' || _status == 'reopened' || _status == 'completed', 
+            isLast: false,
+            isBlue: _status == 'fixed' || _status == 'verification' || _status == 'reopened',
+          ),
           _timelineItem('Completed', _status == 'completed' ? 'Request finalized' : 'Waiting for student confirmation', _status == 'completed', isLast: true),
         ],
       ),
     );
   }
 
-  Widget _timelineItem(String title, String sub, bool isDone, {required bool isLast}) {
+  Widget _timelineItem(String title, String sub, bool isDone, {required bool isLast, bool isBlue = false}) {
+    final Color activeColor = isBlue ? const Color(0xFF1E88E5) : const Color(0xFF4CAF50);
     return IntrinsicHeight(
       child: Row(
         children: [
@@ -675,13 +697,13 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                 width: 22,
                 height: 22,
                 decoration: BoxDecoration(
-                  color: isDone ? const Color(0xFF4CAF50) : Colors.white,
+                  color: isDone ? activeColor : Colors.white,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isDone ? const Color(0xFF4CAF50) : const Color(0xFFDED9CD),
+                    color: isDone ? activeColor : const Color(0xFFDED9CD),
                     width: 2,
                   ),
-                  boxShadow: isDone ? [BoxShadow(color: Colors.green.withOpacity(0.2), blurRadius: 4, spreadRadius: 1)] : null,
+                  boxShadow: isDone ? [BoxShadow(color: activeColor.withOpacity(0.25), blurRadius: 4, spreadRadius: 1)] : null,
                 ),
                 child: isDone ? const Icon(Icons.check, color: Colors.white, size: 12) : null,
               ),
@@ -690,7 +712,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                   child: Container(
                     width: 2,
                     margin: const EdgeInsets.symmetric(vertical: 4),
-                    color: isDone ? const Color(0xFF4CAF50).withOpacity(0.3) : const Color(0xFFDED9CD),
+                    color: isDone ? activeColor.withOpacity(0.3) : const Color(0xFFDED9CD),
                   ),
                 ),
             ],
@@ -843,7 +865,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                   // Left Button: No, it's not working (Yellow/Amber Card)
                   Expanded(
                     child: GestureDetector(
-                      onTap: _isLoading ? null : () => _acknowledgeRequest(false),
+                      onTap: (_isLoading || _acknowledgingAction != null) ? null : () => _acknowledgeRequest(false),
                       child: Container(
                         height: 50,
                         decoration: BoxDecoration(
@@ -854,7 +876,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                           ],
                         ),
                         child: Center(
-                          child: _isLoading
+                          child: _acknowledgingAction == 'no'
                               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
                               : const Text(
                                   "No, it's not working",
@@ -869,7 +891,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                   // Right Button: Yes, it was fixed (Green Card)
                   Expanded(
                     child: GestureDetector(
-                      onTap: _isLoading ? null : () => _acknowledgeRequest(true),
+                      onTap: (_isLoading || _acknowledgingAction != null) ? null : () => _acknowledgeRequest(true),
                       child: Container(
                         height: 50,
                         decoration: BoxDecoration(
@@ -880,7 +902,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                           ],
                         ),
                         child: Center(
-                          child: _isLoading
+                          child: _acknowledgingAction == 'yes'
                               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                               : const Text(
                                   "Yes, it was fixed",

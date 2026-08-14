@@ -51,18 +51,35 @@ try {
         $staffStmt->execute([$m['id']]);
         $m['staff'] = $staffStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Calculate room count for this mapping
-        $h_id = $m['hostel_id'];
-        $z_id = $m['zone_id'];
-        $sz_id = $m['sub_zone_id'];
+        // Calculate room count for this mapping dynamically from live rooms_groups_details
+        $sz = trim($m['sub_zone_id'] ?? '');
+        $sz_lower = strtolower($sz);
 
-        $roomCountStmt = $pdo->prepare("
-            SELECT COUNT(*) FROM rooms_groups_details 
-            WHERE (TRIM(hostel_name) LIKE CONCAT('%', TRIM(?), '%')) 
-              AND (TRIM(group_name) LIKE CONCAT('%', TRIM(?), '%'))
-              AND (room_number LIKE CONCAT('%-', TRIM(?), '-%') OR ? = 'W0' OR ? = 'N/A' OR group_name LIKE CONCAT('%', TRIM(?), '%'))
-        ");
-        $roomCountStmt->execute([$m['hostel_name'], $m['zone_id'], $m['sub_zone_id'], $m['sub_zone_id'], $m['sub_zone_id'], $m['sub_zone_id']]);
+        if (empty($sz) || $sz_lower === 'all' || $sz_lower === 'w0' || $sz_lower === 'n/a') {
+            $roomCountStmt = $pdo->prepare("
+                SELECT COUNT(DISTINCT room_number) FROM rooms_groups_details 
+                WHERE (
+                    LOWER(TRIM(group_name)) = LOWER(TRIM(:zone))
+                    OR LOWER(TRIM(group_name)) LIKE CONCAT('%', LOWER(TRIM(:zone)), '%')
+                    OR LOWER(TRIM(:zone)) LIKE CONCAT('%', LOWER(TRIM(group_name)), '%')
+                )
+            ");
+            $roomCountStmt->execute([':zone' => $m['zone_id']]);
+        } else {
+            $roomCountStmt = $pdo->prepare("
+                SELECT COUNT(DISTINCT room_number) FROM rooms_groups_details 
+                WHERE (
+                    LOWER(TRIM(group_name)) = LOWER(TRIM(:zone))
+                    OR LOWER(TRIM(group_name)) LIKE CONCAT('%', LOWER(TRIM(:zone)), '%')
+                    OR LOWER(TRIM(:zone)) LIKE CONCAT('%', LOWER(TRIM(group_name)), '%')
+                )
+                AND (
+                    room_number LIKE CONCAT('%-', :sz, '-%')
+                    OR room_number LIKE CONCAT('%', :sz, '%')
+                )
+            ");
+            $roomCountStmt->execute([':zone' => $m['zone_id'], ':sz' => $sz]);
+        }
         $m['room_count'] = (int)$roomCountStmt->fetchColumn();
     }
 
@@ -77,4 +94,3 @@ try {
         "message" => "Error: " . $e->getMessage()
     ]);
 }
-?>

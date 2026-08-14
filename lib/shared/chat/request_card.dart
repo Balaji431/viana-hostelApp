@@ -27,7 +27,7 @@ class RequestCard extends StatelessWidget {
             crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
               Container(
-                width: MediaQuery.of(context).size.width * 0.75,
+                constraints: BoxConstraints(maxWidth: (MediaQuery.of(context).size.width * 0.75).clamp(240.0, 320.0)),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: _getCardBgColor(request.status.toLowerCase()),
@@ -129,13 +129,32 @@ class RequestCard extends StatelessWidget {
     } else if (s == 'rejected') {
       startColor = const Color(0xFFEF5350);
       endColor = const Color(0xFFD32F2F);
+    } else if (s == 'fixed' || s == 'verification' || s == 'resolved') {
+      startColor = const Color(0xFF1E88E5);
+      endColor = const Color(0xFF1565C0);
+    } else if (s == 'reopened') {
+      startColor = const Color(0xFF0288D1);
+      endColor = const Color(0xFF01579B);
     } else {
       startColor = Colors.orange.shade400;
       endColor = Colors.orange.shade700;
     }
 
+    String displayText;
+    if (s == 'fixed' || s == 'verification' || s == 'resolved') {
+      displayText = 'VERIFICATION';
+    } else if (s == 'reopened') {
+      displayText = 'NOT FIXED';
+    } else if (s == 'completed') {
+      displayText = 'COMPLETED';
+    } else if (s == 'approved' && dept == 'maintenance') {
+      displayText = 'PENDING';
+    } else {
+      displayText = status.length > 1 ? status[0].toUpperCase() + status.substring(1) : status.toUpperCase();
+    }
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [startColor, endColor],
@@ -146,10 +165,8 @@ class RequestCard extends StatelessWidget {
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
       ),
       child: Text(
-        (s == 'approved' || s == 'fixed' || s == 'reopened' || s == 'pending')
-          ? (dept == 'maintenance' ? 'PENDING' : (status.length > 1 ? status[0].toUpperCase() + status.substring(1) : status.toUpperCase()))
-          : (status.length > 1 ? status[0].toUpperCase() + status.substring(1) : status.toUpperCase()),
-        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+        displayText,
+        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -162,6 +179,8 @@ class RequestCard extends StatelessWidget {
       return const Color(0xFFC8E6C9);
     } else if (s == 'rejected') {
       return const Color(0xFFFFCDD2);
+    } else if (s == 'fixed' || s == 'verification' || s == 'resolved' || s == 'reopened') {
+      return const Color(0xFFE3F2FD);
     } else {
       return const Color(0xFFFFE0B2);
     }

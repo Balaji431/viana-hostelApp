@@ -40,6 +40,12 @@ if (!empty($data->request_id) && !empty($data->user_id)) {
         $thread_query->execute([$request_id]);
         $thread = $thread_query->fetch(PDO::FETCH_ASSOC);
 
+        $dept_clean = $thread ? strtolower($thread['department']) : '';
+        $dept_pat = '%' . $dept_clean . '%';
+        if (strpos($dept_clean, 'maint') !== false) $dept_pat = '%maint%';
+        if (strpos($dept_clean, 'sec') !== false) $dept_pat = '%sec%';
+        if (strpos($dept_clean, 'warden') !== false) $dept_pat = '%warden%';
+
         if ($thread) {
             $student_id = $thread['student_id'];
             $department = $thread['department'];
@@ -48,28 +54,40 @@ if (!empty($data->request_id) && !empty($data->user_id)) {
             $query = "UPDATE chat_messages m
                      JOIN request1 r ON (CONVERT(m.request_id USING utf8mb4) = CONVERT(r.request_id USING utf8mb4))
                      SET m.status = 'seen' 
-                     WHERE r.student_id = :student_id 
-                     AND CONVERT(r.department USING utf8mb4) = CONVERT(:dept USING utf8mb4)
+                     WHERE (
+                         CONVERT(m.request_id USING utf8mb4) = CONVERT(:req_id USING utf8mb4)
+                         OR (
+                             r.student_id = :student_id 
+                             AND (LOWER(r.department) = LOWER(:dept) OR LOWER(r.department) LIKE :dept_pat)
+                         )
+                     )
                      AND CONVERT(m.sender_id USING utf8mb4) != CONVERT(:user USING utf8mb4)
                      AND m.status IN ('sent', 'delivered')";
 
             $stmt = $db->prepare($query);
+            $stmt->bindParam(':req_id', $request_id);
             $stmt->bindParam(':student_id', $student_id);
             $stmt->bindParam(':dept', $department);
+            $stmt->bindParam(':dept_pat', $dept_pat);
             $stmt->bindParam(':user', $username);
+            $stmt->execute();
+            $affected = $stmt->rowCount();
 
-            if($stmt->execute()) {
-                echo json_encode([
-                    "success" => true,
-                    "message" => "Conversation marked as seen",
-                    "affected_rows" => $stmt->rowCount()
-                ]);
-            } else {
-                echo json_encode(["success" => false, "message" => "Database update failed"]);
+            // Fallback: If joined update affected 0 rows, update directly by request_id
+            if ($affected === 0) {
+                $f_stmt = $db->prepare("UPDATE chat_messages SET status = 'seen' WHERE CONVERT(request_id USING utf8mb4) = CONVERT(? USING utf8mb4) AND CONVERT(sender_id USING utf8mb4) != CONVERT(? USING utf8mb4) AND status IN ('sent', 'delivered')");
+                $f_stmt->execute([$request_id, $username]);
+                $affected = $f_stmt->rowCount();
             }
+
+            echo json_encode([
+                "success" => true,
+                "message" => "Conversation marked as seen",
+                "affected_rows" => $affected
+            ]);
         } else {
             // Fallback: If request1 record doesn't exist yet, just mark by request_id directly
-            $query = "UPDATE chat_messages SET status = 'seen' WHERE CONVERT(request_id USING utf8mb4) = CONVERT(? USING utf8mb4) AND CONVERT(receiver_id USING utf8mb4) = CONVERT(? USING utf8mb4) AND status IN ('sent', 'delivered')";
+            $query = "UPDATE chat_messages SET status = 'seen' WHERE CONVERT(request_id USING utf8mb4) = CONVERT(? USING utf8mb4) AND CONVERT(sender_id USING utf8mb4) != CONVERT(? USING utf8mb4) AND status IN ('sent', 'delivered')";
             $stmt = $db->prepare($query);
             $stmt->execute([$request_id, $username]);
             echo json_encode(["success" => true, "message" => "Individual request marked (fallback)", "affected_rows" => $stmt->rowCount()]);

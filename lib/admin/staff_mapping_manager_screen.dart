@@ -136,7 +136,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.search_off_outlined, size: 64, color: Colors.grey.withOpacity(0.4)),
+          Icon(Icons.search_off_outlined, size: 64, color: Colors.grey.withValues(alpha: 0.4)),
           const SizedBox(height: 16),
           Text(
             'No Mappings Found',
@@ -161,43 +161,57 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
   Future<void> _loadAvailableStaff() async {
     try {
       final res = await ApiService.getExternalStaff();
+      if (!mounted) return; // Guard: widget may have been disposed while awaiting
       if (res['success'] == true) {
         final List<dynamic> staffList = res['data'] ?? [];
-        
-        _availableStaffByRole.clear();
-        _availableStaffByRole['warden'] = [];
-        
+
+        // FIX 4: Pre-initialise all role buckets so lookups never return null
+        final newMap = <String, List<Map<String, dynamic>>>{
+          'warden': [],
+          'security': [],
+          'maintenance': [],
+        };
+
         for (var emp in staffList) {
-          String role = (emp['role']?.toString().toLowerCase()) ?? 'staff'; 
+          String role = (emp['role']?.toString().toLowerCase().trim()) ?? 'staff';
           if (role.contains('maint')) {
             role = 'maintenance';
+          } else if (role.contains('secur')) {
+            role = 'security';
           }
-          
-          if (!_availableStaffByRole.containsKey(role)) {
-            _availableStaffByRole[role] = [];
-          }
-          
-          final formattedEmp = {
-            'username': emp['bio_id'], 
-            'full_name': emp['name'],
-            'phone': emp['phone'],
-            'department': emp['department'],
-            'designation': emp['designation'],
+
+          newMap.putIfAbsent(role, () => []);
+
+          final formattedEmp = <String, dynamic>{
+            'id': emp['bio_id']?.toString() ?? '',
+            'bio_id': emp['bio_id']?.toString() ?? '',
+            'username': emp['bio_id']?.toString() ?? '',
+            'full_name': emp['name']?.toString() ?? '',
+            'name': emp['name']?.toString() ?? '',
+            'phone': emp['phone']?.toString() ?? '',
+            'department': emp['department']?.toString() ?? '',
+            'designation': emp['designation']?.toString() ?? '',
             'role': role,
-            'search_key': '${emp['bio_id']} ${emp['name']} ${emp['department']} ${emp['designation']}'.toLowerCase()
+            'search_key':
+                '${emp['bio_id']} ${emp['name']} ${emp['department']} ${emp['designation']} (${emp['department']})'
+                    .toLowerCase(),
           };
-          
-          // Only security and maintenance go to their respective lists
+
           if (role == 'security' || role == 'maintenance') {
-            _availableStaffByRole[role]!.add(formattedEmp);
-            if (role == 'maintenance') {
-              _availableStaffByRole.putIfAbsent('maintenannce', () => []).add(formattedEmp);
-            }
+            // FIX 1: Add to the role bucket exactly ONCE (removed the duplicate putIfAbsent add)
+            newMap[role]!.add(formattedEmp);
           } else {
-            // Everyone else (staff, etc.) can be mapped as a warden
-            _availableStaffByRole['warden']!.add(formattedEmp);
+            // Wardens and any unrecognised roles go into the warden list
+            newMap['warden']!.add(formattedEmp);
           }
         }
+
+        // FIX 2: Assign result and call setState so any open page can read fresh data
+        setState(() {
+          _availableStaffByRole
+            ..clear()
+            ..addAll(newMap);
+        });
       }
     } catch (e) {
       debugPrint('Error loading staff: $e');
@@ -265,10 +279,10 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.black.withOpacity(0.12), width: 1.5),
+                        border: Border.all(color: Colors.black.withValues(alpha: 0.12), width: 1.5),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.06),
+                            color: Colors.black.withValues(alpha: 0.06),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
@@ -351,7 +365,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           ElevatedButton.icon(
             onPressed: () {
               debugPrint("ADD NEW MAPPING CLICKED from EmptyState");
-              _showEditMappingDialog(context, null);
+              _navigateToEditMapping(context, null);
             },
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('Add New Mapping'),
@@ -376,15 +390,15 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black.withOpacity(0.12), width: 1.5),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.12), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
           BoxShadow(
-            color: Colors.white.withOpacity(0.8),
+            color: Colors.white.withValues(alpha: 0.8),
             blurRadius: 1,
             offset: const Offset(0, -1),
           ),
@@ -399,7 +413,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: const Color(0xFF1A2744).withValues(alpha: 0.03),
-                border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.08), width: 1)),
+                border: Border(bottom: BorderSide(color: Colors.black.withValues(alpha: 0.08), width: 1)),
               ),
               child: Row(
                 children: [
@@ -450,7 +464,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit_outlined, color: Color(0xFF2D4A7A), size: 20),
-                        onPressed: () => _showEditMappingDialog(context, mapping),
+                        onPressed: () => _navigateToEditMapping(context, mapping),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
@@ -543,7 +557,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     return GestureDetector(
       onTap: () {
         debugPrint("ADD NEW MAPPING CLICKED in StaffMappingManagerScreen");
-        _showEditMappingDialog(context, null);
+        _navigateToEditMapping(context, null);
       },
       child: Container(
         margin: const EdgeInsets.only(top: 8, bottom: 20),
@@ -557,7 +571,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF7B3FC4).withOpacity(0.08),
+              color: const Color(0xFF7B3FC4).withValues(alpha: 0.08),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -615,66 +629,93 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     }
   }
 
-  void _showEditMappingDialog(BuildContext context, LocationMapping? existingMapping) {
-    final hostelProvider = context.read<HierarchicalHostelProvider>();
-    final mappingProvider = context.read<MappingProvider>();
-    
-    HierarchicalHostel? selectedHostel;
-    Zone? selectedZone;
-    SubZone? selectedSubZone;
-    List<Staff> currentStaff = [];
+  /// Navigate to the full-screen Edit Mapping page instead of opening a dialog.
+  void _navigateToEditMapping(BuildContext context, LocationMapping? existingMapping) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditMappingPage(
+          existingMapping: existingMapping,
+          availableStaffByRole: _availableStaffByRole,
+        ),
+      ),
+    );
+  }
+}
 
-    Future<void>? initFuture;
-    if (existingMapping != null) {
-      initFuture = () async {
-        try {
-          selectedHostel = hostelProvider.hostels.firstWhere(
-            (h) => h.id.toString() == existingMapping.hostelId ||
-                   h.name.toLowerCase() == (existingMapping.hostelName ?? '').toLowerCase(),
-            orElse: () => hostelProvider.hostels.first,
-          );
-          
-          await hostelProvider.loadHostelHierarchy(selectedHostel);
-          
-          final zName = (existingMapping.zoneName ?? existingMapping.zoneId ?? '').trim();
-          if (zName.isNotEmpty && selectedHostel != null && selectedHostel!.zones.isNotEmpty) {
+// ═══════════════════════════════════════════════════════════════════════════════
+// EditMappingPage — Full-screen page (replaces the old showDialog approach)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class EditMappingPage extends StatefulWidget {
+  final LocationMapping? existingMapping;
+  final Map<String, List<Map<String, dynamic>>> availableStaffByRole;
+
+  const EditMappingPage({
+    super.key,
+    this.existingMapping,
+    required this.availableStaffByRole,
+  });
+
+  @override
+  State<EditMappingPage> createState() => _EditMappingPageState();
+}
+
+class _EditMappingPageState extends State<EditMappingPage> {
+  HierarchicalHostel? selectedHostel;
+  Zone? selectedZone;
+  SubZone? selectedSubZone;
+  List<Staff> currentStaff = [];
+  bool _isInitializing = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeData();
+    });
+  }
+
+  Future<void> _initializeData() async {
+    if (widget.existingMapping != null) {
+      final hostelProvider = context.read<HierarchicalHostelProvider>();
+      final existingMapping = widget.existingMapping!;
+      try {
+        selectedHostel = hostelProvider.hostels.firstWhere(
+          (h) => h.id.toString() == existingMapping.hostelId ||
+                 h.name.toLowerCase() == (existingMapping.hostelName ?? '').toLowerCase(),
+          orElse: () => hostelProvider.hostels.first,
+        );
+
+        await hostelProvider.loadHostelHierarchy(selectedHostel);
+
+        final zName = (existingMapping.zoneName ?? existingMapping.zoneId ?? '').trim();
+        if (zName.isNotEmpty && selectedHostel != null && selectedHostel!.zones.isNotEmpty) {
+          try {
+            selectedZone = selectedHostel!.zones.firstWhere(
+              (z) => z.name.trim().toLowerCase() == zName.toLowerCase() ||
+                     z.id.toString().trim().toLowerCase() == zName.toLowerCase() ||
+                     z.code.trim().toLowerCase() == zName.toLowerCase(),
+            );
+          } catch (_) {
             try {
               selectedZone = selectedHostel!.zones.firstWhere(
-                (z) => z.name.trim().toLowerCase() == zName.toLowerCase() ||
-                       z.id.toString().trim().toLowerCase() == zName.toLowerCase() ||
-                       z.code.trim().toLowerCase() == zName.toLowerCase(),
+                (z) => z.name.toLowerCase().contains(zName.toLowerCase()) ||
+                       zName.toLowerCase().contains(z.name.toLowerCase()),
+              );
+            } catch (_) {}
+          }
+        }
+
+        final szName = (existingMapping.subZoneName ?? existingMapping.subZoneId ?? '').trim();
+        if (szName.isNotEmpty && selectedZone != null) {
+          if (selectedZone!.subZones.isNotEmpty) {
+            try {
+              selectedSubZone = selectedZone!.subZones.firstWhere(
+                (sz) => sz.name.trim().toLowerCase() == szName.toLowerCase() ||
+                       sz.id.toString().trim().toLowerCase() == szName.toLowerCase() ||
+                       sz.code.trim().toLowerCase() == szName.toLowerCase(),
               );
             } catch (_) {
-              try {
-                selectedZone = selectedHostel!.zones.firstWhere(
-                  (z) => z.name.toLowerCase().contains(zName.toLowerCase()) ||
-                         zName.toLowerCase().contains(z.name.toLowerCase()),
-                );
-              } catch (_) {}
-            }
-          }
-          
-          final szName = (existingMapping.subZoneName ?? existingMapping.subZoneId ?? '').trim();
-          if (szName.isNotEmpty && selectedZone != null) {
-            if (selectedZone!.subZones.isNotEmpty) {
-              try {
-                selectedSubZone = selectedZone!.subZones.firstWhere(
-                  (sz) => sz.name.trim().toLowerCase() == szName.toLowerCase() ||
-                         sz.id.toString().trim().toLowerCase() == szName.toLowerCase() ||
-                         sz.code.trim().toLowerCase() == szName.toLowerCase(),
-                );
-              } catch (_) {
-                selectedSubZone = SubZone(
-                  id: szName,
-                  zoneId: selectedZone!.id,
-                  name: szName,
-                  code: szName,
-                  rooms: [],
-                  createdAt: '',
-                );
-                selectedZone!.subZones.insert(0, selectedSubZone!);
-              }
-            } else {
               selectedSubZone = SubZone(
                 id: szName,
                 zoneId: selectedZone!.id,
@@ -683,234 +724,47 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                 rooms: [],
                 createdAt: '',
               );
-              selectedZone!.subZones.add(selectedSubZone!);
+              selectedZone!.subZones.insert(0, selectedSubZone!);
             }
-          }
-          currentStaff = List.from(existingMapping.assignedStaff);
-        } catch (e) {
-          debugPrint("Error pre-populating edit dialog: $e");
-        }
-      }();
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          Widget buildFormFields() {
-            String previewPath = selectedHostel?.name ?? 'Select Location';
-            if (selectedZone != null) previewPath += ' › ${selectedZone!.name}';
-            if (selectedSubZone != null) previewPath += ' › ${selectedSubZone!.name}';
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildDropdown<HierarchicalHostel>(
-                    label: 'Select Hostel *',
-                    value: selectedHostel,
-                    items: hostelProvider.hostels.map((h) => DropdownMenuItem(value: h, child: Text(h.name))).toList(),
-                    onChanged: (val) async {
-                      if (val != null) {
-                        setDialogState(() {
-                          selectedHostel = val;
-                          selectedZone = null;
-                          selectedSubZone = null;
-                        });
-                        await hostelProvider.loadHostelHierarchy(val);
-                        setDialogState(() {}); 
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  if (selectedHostel != null && selectedHostel!.zones.isEmpty && hostelProvider.isLoading)
-                    const Center(child: LinearProgressIndicator())
-                  else
-                    _buildDropdown<Zone>(
-                      label: 'Select Floor (Optional)',
-                      value: selectedZone,
-                      enabled: selectedHostel != null && selectedHostel!.zones.isNotEmpty,
-                      items: selectedHostel?.zones.map((z) => DropdownMenuItem(value: z, child: Text(z.name))).toList() ?? [],
-                      onChanged: (val) {
-                        setDialogState(() {
-                          selectedZone = val;
-                          selectedSubZone = (val != null && val.subZones.isNotEmpty) ? val.subZones.first : null;
-                        });
-                      },
-                    ),
-                  const SizedBox(height: 16),
-                  _buildDropdown<SubZone>(
-                    label: 'Select Wing (Optional)',
-                    value: selectedSubZone,
-                    enabled: selectedZone != null,
-                    items: _getWingDropdownItems(selectedZone, selectedSubZone),
-                    onChanged: (val) => setDialogState(() => selectedSubZone = val),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD4AF37).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.location_on, color: Color(0xFFD4AF37), size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(previewPath, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A2744)))),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 32),
-                  const Text('Assigned Staff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 12),
-                  ...currentStaff.asMap().entries.map((entry) => _buildEditableStaffItem(
-                    entry.value, 
-                    () {
-                      setDialogState(() => currentStaff.removeAt(entry.key));
-                    }, 
-                    (updated) {
-                      setDialogState(() => currentStaff[entry.key] = updated);
-                    },
-                    currentStaff,
-                    existingMapping,
-                  )),
-                  
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: () => _showAddStaffDialog(
-                      context, 
-                      (newStaff) {
-                        setDialogState(() => currentStaff.add(newStaff));
-                      },
-                      currentStaff,
-                      existingMapping,
-                    ),
-                    icon: const Icon(Icons.add_circle_outline),
-                    label: const Text('Add Staff Member'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF1A2744),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      minimumSize: const Size(double.infinity, 48),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ],
-              ),
+          } else {
+            selectedSubZone = SubZone(
+              id: szName,
+              zoneId: selectedZone!.id,
+              name: szName,
+              code: szName,
+              rooms: [],
+              createdAt: '',
             );
+            selectedZone!.subZones.add(selectedSubZone!);
           }
+        }
+        currentStaff = List.from(existingMapping.assignedStaff);
+      } catch (e) {
+        debugPrint("Error pre-populating edit page: $e");
+      }
+    }
+    if (mounted) {
+      setState(() => _isInitializing = false);
+    }
+  }
 
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 500),
-              width: MediaQuery.of(context).size.width * 0.95,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1A2744),
-                      borderRadius: BorderRadius.only(topLeft: Radius.circular(28), topRight: Radius.circular(28)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Text('Edit Mapping', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                        const Spacer(),
-                        IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)),
-                      ],
-                    ),
-                  ),
-                  
-                  Flexible(
-                    child: initFuture != null
-                        ? FutureBuilder<void>(
-                            future: initFuture,
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState != ConnectionState.done) {
-                                return const SizedBox(
-                                  height: 250,
-                                  child: Center(
-                                    child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
-                                  ),
-                                );
-                              }
-                              return buildFormFields();
-                            },
-                          )
-                        : buildFormFields(),
-                  ),
-                  
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: (selectedHostel != null && currentStaff.isNotEmpty) ? () async {
-                              final updatedMapping = LocationMapping(
-                                id: existingMapping?.id ?? '',
-                                hostelId: selectedHostel!.id.toString(),
-                                hostelName: selectedHostel!.name,
-                                zoneId: selectedZone?.id.toString(),
-                                zoneName: selectedZone?.name,
-                                subZoneId: selectedSubZone?.id.toString(),
-                                subZoneName: selectedSubZone?.name,
-                                assignedStaff: currentStaff.map((s) {
-                                  return Staff(
-                                    id: s.id,
-                                    name: s.name,
-                                    role: s.role,
-                                    phone: s.phone,
-                                    username: s.username,
-                                    hostelName: selectedHostel!.name,
-                                    floorName: selectedZone?.name,
-                                    wingName: selectedSubZone?.name,
-                                  );
-                                }).toList(),
-                              );
-                              final error = await mappingProvider.saveMapping(updatedMapping);
-                              if (error == null) {
-                                if (context.mounted) Navigator.pop(context);
-                              } else {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(error),
-                                      backgroundColor: Colors.red.shade800,
-                                    ),
-                                  );
-                                }
-                              }
-                            } : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1A2744),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            ),
-                            child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+  Color _getRoleColor(String role) {
+    final catProvider = context.read<CategoryProvider>();
+    final cat = catProvider.getCategoryByName(role);
+    if (cat != null) return catProvider.getColor(cat['color']);
+
+    switch (role.toLowerCase()) {
+      case 'warden': return const Color(0xFF4CAF50);
+      case 'security': return const Color(0xFF2196F3);
+      case 'maintenance':
+      case 'maintenannce': return const Color(0xFFFF9800);
+      default: return Colors.grey;
+    }
+  }
+
+  IconData _getRoleIcon(String role) {
+    final catProvider = context.read<CategoryProvider>();
+    return catProvider.getIconData(role);
   }
 
   List<DropdownMenuItem<SubZone>> _getWingDropdownItems(Zone? zone, SubZone? currentSelection) {
@@ -978,13 +832,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     );
   }
 
-  Widget _buildEditableStaffItem(
-    Staff staff, 
-    VoidCallback onRemove, 
-    Function(Staff) onEdit,
-    List<Staff> currentStaff,
-    LocationMapping? existingMapping,
-  ) {
+  Widget _buildEditableStaffItem(Staff staff, int index) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -999,264 +847,713 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           const SizedBox(width: 12),
           Expanded(child: Text(staff.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
           IconButton(
-            icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey), 
-            onPressed: () => _showAddStaffDialog(
-              context, 
-              onEdit, 
-              currentStaff, 
-              existingMapping, 
-              existing: staff,
-            ),
+            icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey),
+            onPressed: () async {
+              final result = await Navigator.of(context).push<Staff>(
+                MaterialPageRoute(
+                  builder: (_) => AddStaffPage(
+                    availableStaffByRole: widget.availableStaffByRole,
+                    currentStaff: currentStaff,
+                    existingMapping: widget.existingMapping,
+                    existing: staff,
+                  ),
+                ),
+              );
+              if (result != null && mounted) {
+                setState(() => currentStaff[index] = result);
+              }
+            },
           ),
-          IconButton(icon: const Icon(Icons.close, size: 16, color: Colors.redAccent), onPressed: onRemove),
+          IconButton(
+            icon: const Icon(Icons.close, size: 16, color: Colors.redAccent),
+            onPressed: () => setState(() => currentStaff.removeAt(index)),
+          ),
         ],
       ),
     );
   }
 
-  void _showAddStaffDialog(
-    BuildContext context, 
-    Function(Staff) onAdd, 
-    List<Staff> currentStaff,
-    LocationMapping? existingMapping,
-    {Staff? existing}
-  ) {
-    final nameController = TextEditingController(text: existing?.name);
-    final phoneController = TextEditingController(text: existing?.phone);
-    final usernameController = TextEditingController(text: existing?.username);
-    final catProvider = context.read<CategoryProvider>();
-    final roles = catProvider.categories
-        .where((c) => (c['is_staff_role'] ?? 1) == 1)
-        .map((c) => c['name'] as String)
-        .toList();
-    if (roles.isEmpty) roles.add('Warden'); 
+  @override
+  Widget build(BuildContext context) {
+    final hostelProvider = context.watch<HierarchicalHostelProvider>();
+    final mappingProvider = context.read<MappingProvider>();
 
-    String selectedRole = existing?.role ?? roles.first;
-    Map<String, dynamic>? selectedStaffUser;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          String roleKey = selectedRole.toLowerCase();
-          if (roleKey.contains('maint')) {
-            roleKey = 'maintenance';
-          }
-          final availableStaff = _availableStaffByRole[roleKey] ?? _availableStaffByRole['maintenance'] ?? _availableStaffByRole['maintenannce'] ?? [];
-          
-          if (existing != null && selectedStaffUser == null && availableStaff.isNotEmpty) {
-            try {
-              selectedStaffUser = availableStaff.firstWhere(
-                (u) => u['phone'] == existing.phone || (u['full_name'] == existing.name && u['phone'] == existing.phone),
-                orElse: () => availableStaff.first,
-              );
-            } catch (_) {}
-          }
-
-          final String? errorText = null;
-          
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            title: Text(existing == null ? 'Add Staff' : 'Edit Staff', style: const TextStyle(fontWeight: FontWeight.bold)),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: SkeuomorphicNavBar(
+          title: 'Edit Mapping',
+          onBack: () => Navigator.of(context).pop(),
+        ),
+        body: _isInitializing
+            ? const Center(
+                child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+              )
+            : Column(
                 children: [
-                  const Align(alignment: Alignment.centerLeft, child: Text('Role', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: roles.map((role) {
-                      bool isSelected = selectedRole == role;
-                      return ChoiceChip(
-                        label: Text(role),
-                        selected: isSelected,
-                        onSelected: (val) {
-                          setDialogState(() {
-                            selectedRole = role;
-                            selectedStaffUser = null;
-                            nameController.clear();
-                            phoneController.clear();
-                            usernameController.clear();
-                          });
-                        },
-                        selectedColor: _getRoleColor(role).withValues(alpha: 0.2),
-                        checkmarkColor: _getRoleColor(role),
-                        labelStyle: TextStyle(color: isSelected ? _getRoleColor(role) : Colors.black87, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
-                        backgroundColor: Colors.grey.shade100,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      );
-                    }).toList(),
+                  Expanded(
+                    child: _buildFormFields(hostelProvider),
                   ),
-                  const SizedBox(height: 24),
-                  
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Select Person', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      Autocomplete<Map<String, dynamic>>(
-                        key: ValueKey(selectedRole),
-                        optionsBuilder: (TextEditingValue textEditingValue) {
-                          if (textEditingValue.text.isEmpty) {
-                            return availableStaff;
-                          }
-                          return availableStaff.where((u) {
-                            final searchKey = u['search_key'] as String? ?? '';
-                            return searchKey.contains(textEditingValue.text.toLowerCase());
-                          });
-                        },
-                        displayStringForOption: (Map<String, dynamic> option) {
-                          final name = option['full_name'] ?? option['username'] ?? 'Unknown';
-                          final dept = option['department'] ?? 'N/A';
-                          return '$name ($dept)';
-                        },
-                        onSelected: (Map<String, dynamic> val) {
-                          setDialogState(() {
-                            selectedStaffUser = val;
-                            nameController.text = val['full_name'] ?? val['username'] ?? '';
-                            phoneController.text = val['phone'] ?? '';
-                            usernameController.text = val['username'] ?? '';
-                          });
-                        },
-                        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                          // Pre-fill if we have an existing selection
-                          if (selectedStaffUser != null && controller.text.isEmpty) {
-                            final name = selectedStaffUser!['full_name'] ?? selectedStaffUser!['username'] ?? 'Unknown';
-                            final dept = selectedStaffUser!['department'] ?? 'N/A';
-                            controller.text = '$name ($dept)';
-                          }
-                          return TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            decoration: InputDecoration(
-                              filled: true,
-                              fillColor: Colors.grey.shade50,
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              prefixIcon: const Icon(Icons.search),
-                              hintText: availableStaff.isEmpty ? 'No $selectedRole found' : 'Search staff by name, ID, or department...',
-                              hintStyle: const TextStyle(fontSize: 14),
-                            ),
-                          );
-                        },
-                      ),
-                      if (availableStaff.isEmpty && selectedRole.toLowerCase() == 'warden')
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            'No active warden users are available. Create the user first through User Management.',
-                            style: TextStyle(color: Colors.red.shade800, fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      if (errorText != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            errorText,
-                            style: TextStyle(color: Colors.red.shade800, fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: phoneController,
-                    readOnly: true, 
-                    decoration: InputDecoration(
-                      labelText: 'Phone Number',
-                      hintText: 'Auto-populated',
-                      filled: true,
-                      fillColor: Colors.grey.shade100,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      prefixIcon: const Icon(Icons.phone),
-                    ),
-                    keyboardType: TextInputType.phone,
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: usernameController,
-                    readOnly: true, 
-                    decoration: InputDecoration(
-                      labelText: 'Username',
-                      hintText: 'Auto-populated',
-                      filled: true,
-                      fillColor: Colors.grey.shade100,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      prefixIcon: const Icon(Icons.alternate_email),
-                    ),
-                  ),
+                  _buildSaveButton(mappingProvider),
                 ],
               ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              ElevatedButton(
-                onPressed: (nameController.text.isNotEmpty && errorText == null) ? () {
-                  onAdd(Staff(
-                    id: selectedStaffUser?['id']?.toString() ?? existing?.id ?? '', 
-                    name: nameController.text, 
-                    role: selectedRole, 
-                    phone: phoneController.text, 
-                    username: usernameController.text
-                  ));
-                  Navigator.pop(context);
-                } : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A2744),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  disabledBackgroundColor: Colors.grey.shade300,
-                ),
-                child: const Text('Confirm', style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          );
-        },
       ),
     );
   }
 
-  Widget _buildStyledField({
-    required String label,
-    required TextEditingController controller,
-    required IconData icon,
-    required String hint,
-    bool isPassword = false,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          obscureText: isPassword,
-          keyboardType: keyboardType,
-          style: const TextStyle(fontSize: 14),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-            prefixIcon: Icon(icon, color: const Color(0xFF1A2744), size: 20),
-            filled: true,
-            fillColor: Colors.grey.shade50,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade200),
+  Widget _buildFormFields(HierarchicalHostelProvider hostelProvider) {
+    String previewPath = selectedHostel?.name ?? 'Select Location';
+    if (selectedZone != null) previewPath += ' › ${selectedZone!.name}';
+    if (selectedSubZone != null) previewPath += ' › ${selectedSubZone!.name}';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildDropdown<HierarchicalHostel>(
+            label: 'Select Hostel *',
+            value: selectedHostel,
+            items: hostelProvider.hostels.map((h) => DropdownMenuItem(value: h, child: Text(h.name))).toList(),
+            onChanged: (val) async {
+              if (val != null) {
+                setState(() {
+                  selectedHostel = val;
+                  selectedZone = null;
+                  selectedSubZone = null;
+                });
+                await hostelProvider.loadHostelHierarchy(val);
+                if (mounted) setState(() {});
+              }
+            },
+          ),
+          const SizedBox(height: 16),
+          if (selectedHostel != null && selectedHostel!.zones.isEmpty && hostelProvider.isLoading)
+            const Center(child: LinearProgressIndicator())
+          else
+            _buildDropdown<Zone>(
+              label: 'Select Floor (Optional)',
+              value: selectedZone,
+              enabled: selectedHostel != null && selectedHostel!.zones.isNotEmpty,
+              items: selectedHostel?.zones.map((z) => DropdownMenuItem(value: z, child: Text(z.name))).toList() ?? [],
+              onChanged: (val) {
+                setState(() {
+                  selectedZone = val;
+                  selectedSubZone = (val != null && val.subZones.isNotEmpty) ? val.subZones.first : null;
+                });
+              },
             ),
-            enabledBorder: OutlineInputBorder(
+          const SizedBox(height: 16),
+          _buildDropdown<SubZone>(
+            label: 'Select Wing (Optional)',
+            value: selectedSubZone,
+            enabled: selectedZone != null,
+            items: _getWingDropdownItems(selectedZone, selectedSubZone),
+            onChanged: (val) => setState(() => selectedSubZone = val),
+          ),
+
+          const SizedBox(height: 24),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFD4AF37).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade200),
+              border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.3)),
             ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on, color: Color(0xFFD4AF37), size: 16),
+                const SizedBox(width: 8),
+                Expanded(child: Text(previewPath, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A2744)))),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+          const Text('Assigned Staff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 12),
+          ...currentStaff.asMap().entries.map((entry) => _buildEditableStaffItem(entry.value, entry.key)),
+
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: () async {
+              final result = await Navigator.of(context).push<Staff>(
+                MaterialPageRoute(
+                  builder: (_) => AddStaffPage(
+                    availableStaffByRole: widget.availableStaffByRole,
+                    currentStaff: currentStaff,
+                    existingMapping: widget.existingMapping,
+                  ),
+                ),
+              );
+              if (result != null && mounted) {
+                setState(() => currentStaff.add(result));
+              }
+            },
+            icon: const Icon(Icons.add_circle_outline),
+            label: const Text('Add Staff Member'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF1A2744),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSaveButton(MappingProvider mappingProvider) {
+    final existingMapping = widget.existingMapping;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        child: Row(
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                onPressed: (selectedHostel != null && currentStaff.isNotEmpty) ? () async {
+                  final updatedMapping = LocationMapping(
+                    id: existingMapping?.id ?? '',
+                    hostelId: selectedHostel!.id.toString(),
+                    hostelName: selectedHostel!.name,
+                    zoneId: selectedZone?.id.toString(),
+                    zoneName: selectedZone?.name,
+                    subZoneId: selectedSubZone?.id.toString(),
+                    subZoneName: selectedSubZone?.name,
+                    assignedStaff: currentStaff.map((s) {
+                      return Staff(
+                        id: s.id,
+                        name: s.name,
+                        role: s.role,
+                        phone: s.phone,
+                        username: s.username,
+                        hostelName: selectedHostel!.name,
+                        floorName: selectedZone?.name,
+                        wingName: selectedSubZone?.name,
+                      );
+                    }).toList(),
+                  );
+                  final error = await mappingProvider.saveMapping(updatedMapping);
+                  if (!mounted) return;
+                  if (error == null) {
+                    Navigator.pop(context);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(error),
+                        backgroundColor: Colors.red.shade800,
+                      ),
+                    );
+                  }
+                } : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A2744),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AddStaffPage — Full-screen page (replaces the old showDialog approach)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class AddStaffPage extends StatefulWidget {
+  final Map<String, List<Map<String, dynamic>>> availableStaffByRole;
+  final List<Staff> currentStaff;
+  final LocationMapping? existingMapping;
+  final Staff? existing;
+
+  const AddStaffPage({
+    super.key,
+    required this.availableStaffByRole,
+    required this.currentStaff,
+    this.existingMapping,
+    this.existing,
+  });
+
+  @override
+  State<AddStaffPage> createState() => _AddStaffPageState();
+}
+
+class _AddStaffPageState extends State<AddStaffPage> {
+  late final TextEditingController nameController;
+  late final TextEditingController phoneController;
+  late final TextEditingController usernameController;
+  late final TextEditingController searchController;
+
+  List<String> roles = ['Warden', 'Security', 'Maintenance'];
+  late String selectedRole;
+  Map<String, dynamic>? selectedStaffUser;
+  bool showDropdown = false;
+  bool _rolesInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    nameController = TextEditingController(text: widget.existing?.name);
+    phoneController = TextEditingController(text: widget.existing?.phone);
+    usernameController = TextEditingController(text: widget.existing?.username);
+    searchController = TextEditingController();
+    selectedRole = widget.existing?.role ?? 'Warden';
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_rolesInitialized) {
+      _rolesInitialized = true;
+      final catProvider = context.read<CategoryProvider>();
+      final Set<String> rolesSet = {};
+      for (var r in ['Warden', 'Security', 'Maintenance']) {
+        rolesSet.add(r);
+      }
+      for (var c in catProvider.categories) {
+        if ((c['is_staff_role'] ?? 1) == 1) {
+          String name = c['name']?.toString().trim() ?? '';
+          if (name.isNotEmpty) {
+            if (name.toLowerCase().contains('warden')) {
+              name = 'Warden';
+            } else if (name.toLowerCase().contains('secur')) {
+              name = 'Security';
+            } else if (name.toLowerCase().contains('maint')) {
+              name = 'Maintenance';
+            }
+            rolesSet.add(name);
+          }
+        }
+      }
+      roles = rolesSet.toList();
+      if (widget.existing?.role != null && roles.contains(widget.existing!.role)) {
+        selectedRole = widget.existing!.role;
+      } else if (!roles.contains(selectedRole)) {
+        selectedRole = roles.first;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    phoneController.dispose();
+    usernameController.dispose();
+    searchController.dispose();
+    super.dispose();
+  }
+
+  Color _getRoleColor(String role) {
+    final catProvider = context.read<CategoryProvider>();
+    final cat = catProvider.getCategoryByName(role);
+    if (cat != null) return catProvider.getColor(cat['color']);
+
+    switch (role.toLowerCase()) {
+      case 'warden': return const Color(0xFF4CAF50);
+      case 'security': return const Color(0xFF2196F3);
+      case 'maintenance':
+      case 'maintenannce': return const Color(0xFFFF9800);
+      default: return Colors.grey;
+    }
+  }
+
+  void _confirmAndPop() {
+    final rawName = nameController.text.trim().isNotEmpty
+        ? nameController.text.trim()
+        : (selectedStaffUser?['full_name'] ?? selectedStaffUser?['name'] ?? 'Staff').toString();
+    final cleanName = rawName.replaceAll(RegExp(r'\s*\([^)]*\)'), '').trim();
+    final sPhone = phoneController.text.trim().isNotEmpty
+        ? phoneController.text.trim()
+        : (selectedStaffUser?['phone']?.toString() ?? '');
+    final sBioId = usernameController.text.trim().isNotEmpty
+        ? usernameController.text.trim()
+        : (selectedStaffUser?['username']?.toString() ?? selectedStaffUser?['bio_id']?.toString() ?? cleanName.replaceAll(' ', '_').toLowerCase());
+
+    debugPrint('=== [STAFF PAGE DEBUG] Confirm Clicked! ===');
+    debugPrint('  Adding Staff: id=$sBioId, name=$cleanName, role=$selectedRole, phone=$sPhone');
+
+    Navigator.pop(
+      context,
+      Staff(
+        id: sBioId,
+        name: cleanName,
+        role: selectedRole,
+        phone: sPhone,
+        username: sBioId,
+        hostelName: widget.existingMapping?.hostelName,
+        floorName: widget.existingMapping?.zoneName ?? widget.existingMapping?.zoneId,
+        wingName: widget.existingMapping?.subZoneName ?? widget.existingMapping?.subZoneId ?? 'All',
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    String roleKey = selectedRole.toLowerCase();
+    if (roleKey.contains('maint')) {
+      roleKey = 'maintenance';
+    } else if (roleKey.contains('secur')) {
+      roleKey = 'security';
+    }
+    final availableStaff = widget.availableStaffByRole[roleKey] ?? [];
+
+    if (widget.existing != null && selectedStaffUser == null && availableStaff.isNotEmpty) {
+      try {
+        selectedStaffUser = availableStaff.firstWhere(
+          (u) => u['phone'] == widget.existing!.phone || (u['full_name'] == widget.existing!.name && u['phone'] == widget.existing!.phone),
+          orElse: () => availableStaff.first,
+        );
+      } catch (_) {}
+    }
+
+    final String searchFilter = searchController.text.trim().toLowerCase();
+    final matchingStaff = availableStaff.where((u) {
+      if (searchFilter.isEmpty) return true;
+      final bio = (u['username'] ?? u['bio_id'] ?? '').toString().toLowerCase();
+      final fn  = (u['full_name'] ?? u['name'] ?? '').toString().toLowerCase();
+      final sk  = (u['search_key'] ?? '').toString().toLowerCase();
+      return bio.contains(searchFilter) || fn.contains(searchFilter) || sk.contains(searchFilter);
+    }).toList();
+
+    final bool canConfirm = nameController.text.trim().isNotEmpty || selectedStaffUser != null;
+
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: SkeuomorphicNavBar(
+          title: widget.existing == null ? 'Add Staff' : 'Edit Staff',
+          onBack: () => Navigator.of(context).pop(),
+        ),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ROLE SECTION
+                        const Text(
+                          'Role',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A2744),
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: roles.map((role) {
+                            bool isSelected = selectedRole == role;
+                            final roleColor = _getRoleColor(role);
+                            return ChoiceChip(
+                              avatar: Icon(
+                                role.toLowerCase().contains('warden')
+                                    ? Icons.shield_outlined
+                                    : role.toLowerCase().contains('secur')
+                                        ? Icons.security_outlined
+                                        : Icons.build_outlined,
+                                size: 16,
+                                color: isSelected ? roleColor : Colors.grey.shade600,
+                              ),
+                              label: Text(role),
+                              selected: isSelected,
+                              onSelected: (val) {
+                                setState(() {
+                                  selectedRole = role;
+                                  selectedStaffUser = null;
+                                  nameController.clear();
+                                  phoneController.clear();
+                                  usernameController.clear();
+                                  searchController.clear();
+                                  showDropdown = false;
+                                });
+                              },
+                              selectedColor: roleColor.withValues(alpha: 0.15),
+                              checkmarkColor: roleColor,
+                              side: BorderSide(
+                                color: isSelected ? roleColor : Colors.grey.shade300,
+                                width: isSelected ? 1.5 : 1,
+                              ),
+                              labelStyle: TextStyle(
+                                color: isSelected ? roleColor : Colors.black87,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                              backgroundColor: Colors.grey.shade50,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 28),
+
+                        // SELECT PERSON SECTION
+                        const Text(
+                          'Select Person',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A2744),
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: searchController,
+                          onTap: () {
+                            setState(() {
+                              showDropdown = true;
+                            });
+                          },
+                          onChanged: (val) {
+                            setState(() {
+                              showDropdown = true;
+                            });
+                          },
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF1A2744), width: 1.5),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            prefixIcon: const Icon(Icons.search, color: Color(0xFF1A2744), size: 22),
+                            hintText: 'Search or select staff person...',
+                            hintStyle: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                          ),
+                        ),
+                        if (showDropdown && matchingStaff.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 220),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade300),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.05),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                )
+                              ],
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: matchingStaff.length,
+                              separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
+                              itemBuilder: (context, index) {
+                                final staffItem = matchingStaff[index];
+                                final String sName = (staffItem['full_name'] ?? staffItem['name'] ?? staffItem['username'] ?? 'Unknown').toString();
+                                final String sDept = (staffItem['department'] ?? 'Staff').toString();
+                                final String sPhone = (staffItem['phone'] ?? '').toString();
+                                final String sBioId = (staffItem['username'] ?? staffItem['bio_id'] ?? '').toString();
+
+                                final bool isSelected = (selectedStaffUser?['bio_id'] == sBioId) || (nameController.text == sName);
+
+                                return Material(
+                                  color: isSelected ? const Color(0xFF1A2744).withValues(alpha: 0.08) : Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () {
+                                      debugPrint('=== [STAFF SELECTOR TAP] Selected: $sName ($sBioId, $sPhone) ===');
+                                      setState(() {
+                                        selectedStaffUser = staffItem;
+                                        nameController.text = sName;
+                                        phoneController.text = sPhone;
+                                        usernameController.text = sBioId;
+                                        searchController.text = '$sName ($sDept)';
+                                        showDropdown = false;
+                                      });
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                      child: Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 14,
+                                            backgroundColor: _getRoleColor(selectedRole).withValues(alpha: 0.15),
+                                            child: Icon(Icons.person, size: 16, color: _getRoleColor(selectedRole)),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  sName,
+                                                  style: TextStyle(
+                                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                                    fontSize: 14,
+                                                    color: isSelected ? const Color(0xFF1A2744) : Colors.black87,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '$sDept ${sBioId.isNotEmpty ? "• ID: $sBioId" : ""} ${sPhone.isNotEmpty ? "• Ph: $sPhone" : ""}',
+                                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (isSelected)
+                                            const Icon(Icons.check_circle, color: Color(0xFF1A2744), size: 20),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                        if (availableStaff.isEmpty && selectedRole.toLowerCase() == 'warden')
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              'No active warden users are available. Create the user first through User Management.',
+                              style: TextStyle(color: Colors.red.shade800, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+
+                        const SizedBox(height: 28),
+
+                        // STAFF DETAILS SECTION
+                        const Text(
+                          'Phone Number',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A2744),
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: phoneController,
+                          readOnly: false,
+                          onChanged: (v) => setState(() {}),
+                          decoration: InputDecoration(
+                            hintText: 'Enter phone number',
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF1A2744), width: 1.5),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            prefixIcon: const Icon(Icons.phone, color: Color(0xFF1A2744), size: 22),
+                          ),
+                          keyboardType: TextInputType.phone,
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Username / Staff Bio ID',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A2744),
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: usernameController,
+                          readOnly: false,
+                          onChanged: (v) => setState(() {}),
+                          decoration: InputDecoration(
+                            hintText: 'Enter Username / Bio ID',
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF1A2744), width: 1.5),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            prefixIcon: const Icon(Icons.alternate_email, color: Color(0xFF1A2744), size: 22),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Bottom action buttons
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: canConfirm ? _confirmAndPop : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1A2744),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              disabledBackgroundColor: Colors.grey.shade300,
+                            ),
+                            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 }

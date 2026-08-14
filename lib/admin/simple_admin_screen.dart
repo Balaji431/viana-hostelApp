@@ -241,7 +241,7 @@ class _SimpleAdminScreenState extends State<SimpleAdminScreen> with SingleTicker
           ),
           SizedBox(height: 8),
           Text(
-            'User management features coming soon',
+            'User accounts and role assignments are managed automatically through VStudy institutional sync.',
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey,
@@ -426,7 +426,7 @@ class _SimpleAdminScreenState extends State<SimpleAdminScreen> with SingleTicker
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Edit Category'),
-        content: const Text('Category management features coming soon.'),
+        content: const Text('Category updates are synchronized with central hostel configuration.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

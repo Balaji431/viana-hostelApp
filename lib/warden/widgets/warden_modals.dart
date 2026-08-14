@@ -571,7 +571,40 @@ class WardenRoomChangeDetailsModal extends StatefulWidget {
 class _WardenRoomChangeDetailsModalState extends State<WardenRoomChangeDetailsModal> {
   bool _isProcessing = false;
 
-  Future<void> _updateStatus(String status) async {
+  Future<void> _handleReject() async {
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Rejection Reason", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: "Enter reason for rejecting transfer request...",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text("Confirm Reject"),
+          ),
+        ],
+      ),
+    );
+
+    if (reason != null && reason.isNotEmpty) {
+      _updateStatus('rejected', remarks: reason);
+    }
+  }
+
+  Future<void> _updateStatus(String status, {String? remarks}) async {
     setState(() => _isProcessing = true);
     try {
       final user = context.read<UserProvider>();
@@ -579,14 +612,15 @@ class _WardenRoomChangeDetailsModalState extends State<WardenRoomChangeDetailsMo
         requestId: widget.request.requestId,
         status: status,
         wardenId: user.dbId ?? 1,
+        remarks: remarks,
       );
 
-      if (response['success'] == true) {
+      if (response['success'] == true || response['status'] == 'success') {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Request $status successfully'),
-              backgroundColor: status == 'approved' ? Colors.green : Colors.red,
+              backgroundColor: (status == 'approved' || status == 'pre_approved') ? Colors.green : Colors.red,
             ),
           );
           Navigator.pop(context);
@@ -676,30 +710,31 @@ class _WardenRoomChangeDetailsModalState extends State<WardenRoomChangeDetailsMo
                       Row(
                         children: [
                           Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => _updateStatus('rejected'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade50,
-                                foregroundColor: Colors.red,
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(vertical: 15),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                            child: OutlinedButton(
+                              onPressed: _handleReject,
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: const Color(0xFF1E293B),
+                                side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: const StadiumBorder(),
                               ),
-                              child: const Text("Reject", style: TextStyle(fontWeight: FontWeight.bold)),
+                              child: const Text("Reject", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                             ),
                           ),
                           const SizedBox(width: 15),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () => _updateStatus('pre_approved'),
+                              onPressed: () => _updateStatus('approved'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFD4AF37),
+                                backgroundColor: const Color(0xFF2563EB),
                                 foregroundColor: Colors.white,
                                 elevation: 2,
-                                padding: const EdgeInsets.symmetric(vertical: 15),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                                shadowColor: const Color(0xFF1D4ED8).withOpacity(0.4),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: const StadiumBorder(),
                               ),
-                              child: const Text("Pre-Approve", style: TextStyle(fontWeight: FontWeight.bold)),
+                              child: const Text("Approve", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                             ),
                           ),
                         ],
@@ -906,7 +941,6 @@ class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
               _buildDetailTile(Icons.badge_outlined, 'Register No', regNo),
               _buildDetailTile(Icons.meeting_room_outlined, 'Room Details', room),
               _buildDetailTile(Icons.phone_outlined, 'Phone', phone),
-              _buildDetailTile(Icons.email_outlined, 'Email', email),
               if (institution != 'N/A')
                 _buildDetailTile(Icons.school_outlined, 'Institution', institution),
               _buildDetailTile(Icons.shield_outlined, 'Conduct', conduct),

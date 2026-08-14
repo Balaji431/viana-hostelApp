@@ -90,18 +90,31 @@ try {
 
     $insertProfileStmt = $db->prepare("
         INSERT INTO profile (
-            full_name, reg_no, user_id, email, personal_phone, room_allocation,
+            full_name, reg_no, user_id, email, personal_phone, room_allocation, warden,
             institution, hostel_name, address, renewal_date, remaining_days,
             check_in_date, valid_from
         ) VALUES (
-            :full_name, :reg_no, :user_id, :email, :personal_phone, :room_allocation,
+            :full_name, :reg_no, :user_id, :email, :personal_phone, :room_allocation, :warden,
             :institution, :hostel_name, :address, :renewal_date, :remaining_days,
             :check_in_date, :valid_from
         ) ON DUPLICATE KEY UPDATE 
             full_name = VALUES(full_name), email = VALUES(email), personal_phone = VALUES(personal_phone),
-            room_allocation = VALUES(room_allocation), hostel_name = VALUES(hostel_name),
+            room_allocation = VALUES(room_allocation), 
+            warden = COALESCE(NULLIF(VALUES(warden),''), warden), 
+            hostel_name = VALUES(hostel_name),
             renewal_date = VALUES(renewal_date), remaining_days = VALUES(remaining_days),
             check_in_date = VALUES(check_in_date), valid_from = VALUES(valid_from)
+    ");
+
+    $findWardenStmt = $db->prepare("
+        SELECT warden_name FROM rooms_groups_details 
+        WHERE (room_number = :rn OR REPLACE(REPLACE(TRIM(room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(:rn2), ' ', ''), '-', ''))
+          AND warden_name IS NOT NULL AND warden_name != '' LIMIT 1
+    ");
+
+    $findWardenMappingStmt = $db->prepare("
+        SELECT name FROM mapping_staff 
+        WHERE LOWER(role) = 'warden' AND (LOWER(hostel_name) = LOWER(:hn) OR LOWER(:hn2) LIKE CONCAT('%', LOWER(hostel_name), '%')) LIMIT 1
     ");
 
     $insertParentStmt = $db->prepare("
@@ -174,6 +187,13 @@ try {
             $updateUserStmt->execute([$name, $email, $phone, $campus, $hostel, $hType, $rType, $roomNo, $roll]);
         }
 
+        $assignedWarden = null;
+        if (!empty($roomNo)) {
+            $findWardenStmt->execute([':rn' => $roomNo, ':rn2' => $roomNo]);
+            $assignedWarden = $findWardenStmt->fetchColumn() ?: null;
+            // NO hostel-only fallback: if room lookup fails, keep null to preserve existing profile.warden
+        }
+
         $insertProfileStmt->execute([
             ':full_name'       => $name,
             ':reg_no'          => $roll,
@@ -181,6 +201,7 @@ try {
             ':email'           => $email,
             ':personal_phone'  => $phone,
             ':room_allocation' => $roomNo,
+            ':warden'          => $assignedWarden,
             ':institution'     => 'SIMATS',
             ':hostel_name'     => $hostel,
             ':address'         => 'Thandalam Campus, Chennai',
@@ -195,10 +216,16 @@ try {
         $insertMapStmt->execute([$parentId, $roll]);
     }
 
-    // Process API 2 Paid Applications
+    // ⚠️  API 2 (hostel-applications/paid) — DISABLED: booked-rooms/external is the exclusive source of truth.
+    // New student accounts must NOT be created from this API. Only booked-rooms/external drives users & profile.
+    // This loop is intentionally left empty. Do NOT re-enable without updating the clean_sync_booked_rooms.php policy.
     foreach ($paidApps as $app) {
-        $roll   = trim($app['student']['rollNumber'] ?? $app['student']['registerNumber'] ?? '');
+        $roll = trim($app['student']['rollNumber'] ?? $app['student']['registerNumber'] ?? '');
         if (!$roll) continue;
+
+        // SKIP: do not insert new students from API 2.
+        // Only update vstudy_payments/old_api cache tables (handled below in the upsert section).
+        continue;
 
         $name   = trim($app['student']['name'] ?? 'Student');
         $email  = trim($app['student']['email'] ?? '');
@@ -248,6 +275,17 @@ try {
             $newStudentsAdded++;
         }
 
+        // Only look up warden if we have a room number.
+        // The paid-apps API does NOT return roomNumber, so $roomNo is empty here.
+        // Using a hostel-only fallback picks a random first warden - that's the bug.
+        // Leave $assignedWarden = null so the ON DUPLICATE KEY UPDATE COALESCE preserves the existing warden.
+        $assignedWarden = null;
+        if (!empty($roomNo)) {
+            $findWardenStmt->execute([':rn' => $roomNo, ':rn2' => $roomNo]);
+            $assignedWarden = $findWardenStmt->fetchColumn() ?: null;
+        }
+        // NO hostel-only fallback here - would overwrite correct room-based warden with wrong generic one
+
         $insertProfileStmt->execute([
             ':full_name'       => $name,
             ':reg_no'          => $roll,
@@ -255,6 +293,7 @@ try {
             ':email'           => $email,
             ':personal_phone'  => $phone,
             ':room_allocation' => $roomNo,
+            ':warden'          => $assignedWarden,
             ':institution'     => 'SIMATS',
             ':hostel_name'     => $hostel,
             ':address'         => 'Thandalam Campus, Chennai',

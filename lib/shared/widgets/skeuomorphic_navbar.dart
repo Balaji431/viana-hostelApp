@@ -118,61 +118,70 @@ class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget 
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Left slot: w-28
-              SizedBox(
-                width: 112,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: onBack != null
-                      ? IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: const Icon(Icons.chevron_left, color: Colors.white, size: 28),
-                          onPressed: onBack,
-                        )
-                      : null,
-                ),
-              ),
+              // Left slot
+              if (onBack != null)
+                SizedBox(
+                  width: 48,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(Icons.chevron_left, color: Colors.white, size: 28),
+                      onPressed: onBack,
+                    ),
+                  ),
+                )
+              else if (processedRightAction != null)
+                const SizedBox(width: 48)
+              else
+                const SizedBox.shrink(),
 
               // Center: Title
               Expanded(
                 child: GestureDetector(
                   onLongPress: onTitleLongPress,
                   behavior: HitTestBehavior.opaque,
-                  child: Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.tinos(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      shadows: [
-                        const Shadow(
-                          color: Color.fromRGBO(0, 0, 0, 0.3),
-                          offset: Offset(0, -1),
-                        ),
-                        const Shadow(
-                          color: Color.fromRGBO(255, 255, 255, 0.2),
-                          offset: Offset(0, 1),
-                        ),
-                      ],
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.center,
+                    child: Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      style: GoogleFonts.tinos(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        shadows: [
+                          const Shadow(
+                            color: Color.fromRGBO(0, 0, 0, 0.3),
+                            offset: Offset(0, -1),
+                          ),
+                          const Shadow(
+                            color: Color.fromRGBO(255, 255, 255, 0.2),
+                            offset: Offset(0, 1),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
 
-              // Right slot: w-28
-              SizedBox(
-                width: 112,
-                child: processedRightAction != null
-                    ? Align(
-                        alignment: Alignment.centerRight,
-                        child: processedRightAction,
-                      )
-                    : null,
-              ),
+              // Right slot
+              if (processedRightAction != null)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 48),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: processedRightAction,
+                  ),
+                )
+              else if (onBack != null)
+                const SizedBox(width: 48)
+              else
+                const SizedBox.shrink(),
             ],
           ),
         ),

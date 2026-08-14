@@ -65,5 +65,9 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>We need camera access so you can capture photos to attach to support tickets and chat messages.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need photo library access so you can select photos to attach to support tickets and chat messages.</string>
 </dict>
 </plist>

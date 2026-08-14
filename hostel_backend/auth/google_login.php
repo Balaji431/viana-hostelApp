@@ -16,6 +16,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../utils/response.php';
 require_once __DIR__ . '/../utils/activity_logger.php';
 require_once __DIR__ . '/../utils/auth_helper.php';
+require_once __DIR__ . '/../utils/vstudy_sync_helper.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -88,14 +89,24 @@ try {
     }
 
     // 1. Search in users table (Warden / Student / Admin)
-    $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType,
+    $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType, u.RoomType as u_room_type,
                      p.personal_phone as phone, p.room_allocation, p.institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic,
-                     p.valid_from, p.valid_to, u.biometric_id,
-                     rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel, rgd.room_type as room_type,
-                     '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code
+                     p.valid_from, p.valid_to, u.biometric_id, COALESCE(p.warden, rgd.warden_name) as warden,
+                     rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel, COALESCE(rgd.room_type, rm.room_type, u.RoomType) as room_type,
+                     '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code,
+                     COALESCE(rgd.amount, rm.amount, 0) as rm_amount,
+                     COALESCE(rgd.food, rm.food, 50000) as rm_food,
+                     COALESCE(rgd.caution_deposit, rm.caution_deposit, 0) as rm_caution
               FROM users u
               LEFT JOIN profile p ON u.username = p.reg_no
-              LEFT JOIN rooms_groups_details rgd ON (rgd.room_number = p.room_allocation)
+              LEFT JOIN rooms_groups_details rgd ON (
+                  rgd.room_number = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
+                  OR REPLACE(REPLACE(TRIM(rgd.room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
+              )
+              LEFT JOIN room_master rm ON (
+                  rm.room_code = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
+                  OR REPLACE(REPLACE(TRIM(rm.room_code), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
+              )
               WHERE u.email = :email LIMIT 0,1";
 
     $stmt = $db->prepare($query);
@@ -154,6 +165,28 @@ try {
             }
         }
 
+        // Dynamic fee calculation
+        $resolvedRoomType = trim($row['room_type'] ?? $row['u_room_type'] ?? 'Standard Room');
+        $rTypeLower = strtolower($resolvedRoomType);
+        $isAc = (strpos($rTypeLower, 'ac') !== false);
+
+        $room_amount = (float)($row['rm_amount'] > 0 ? $row['rm_amount'] : 0);
+        if ($room_amount <= 0 && !empty($resolvedRoomType)) {
+            $typeStmt = $db->prepare("SELECT MAX(amount) as amt FROM room_master WHERE LOWER(TRIM(room_type)) = ? AND amount > 0");
+            $typeStmt->execute([$rTypeLower]);
+            $typeAmt = $typeStmt->fetchColumn();
+            if ($typeAmt && $typeAmt > 0) {
+                $room_amount = (float)$typeAmt;
+            } else {
+                $room_amount = 70000;
+            }
+        }
+
+        $room_food = (float)($row['rm_food'] > 0 ? $row['rm_food'] : 50000);
+        $room_caution = (float)($row['rm_caution'] > 0 ? $row['rm_caution'] : ($isAc ? 10000 : 5000));
+        $total_fee = $room_amount + $room_food + $room_caution;
+        $renew_amount = $room_amount + $room_food;
+
         $user_data = [
             "id" => $row['id'],
             "username" => $row['register_no'],
@@ -172,14 +205,21 @@ try {
             "conduct" => $row['conduct'] ?? 'Good',
             "conduct_remarks" => $row['conduct_remarks'] ?? '',
             "biometric_id" => $row['biometric_id'],
-            
+            "warden" => $row['warden'] ?? '',
+            "group_name" => $row['floor_name'] ?? $row['group_name'] ?? '',
+            "floor_name" => $row['floor_name'] ?? $row['group_name'] ?? '',
             "room_no" => $room_no,
             "room_code" => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
             "block" => $block,
             "wing" => $wing,
-            "room_type" => $row['room_type'],
+            "room_type" => $resolvedRoomType,
             "room_facility" => $row['room_facility'] ?? 'NON AC',
             "room_bath_attached" => $row['room_bath_attached'] ?? 'No',
+            "room_amount" => $room_amount,
+            "room_food" => $room_food,
+            "room_caution" => $room_caution,
+            "total_fee" => $total_fee,
+            "renew_amount" => $renew_amount,
             "check_in_date" => $row['valid_from'],
             "renewal_date" => $row['valid_to'],
             "hostel_type" => $row['HostelType'] ?? 'Boys',
@@ -307,7 +347,9 @@ try {
                 "conduct"          => $row['conduct'] ?? 'Good',
                 "conduct_remarks"  => $row['conduct_remarks'] ?? '',
                 "biometric_id"     => $row['biometric_id'],
-                
+                "warden"           => $row['warden'] ?? '',
+                "group_name"       => $row['floor_name'] ?? $row['group_name'] ?? '',
+                "floor_name"       => $row['floor_name'] ?? $row['group_name'] ?? '',
                 "room_no"          => $row['hr_room_no'] ?? 'N/A',
                 "room_code"        => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
                 "block"            => $row['block'] ?? 'N/A',
@@ -426,6 +468,66 @@ try {
         ];
         sendResponse(true, "Login successful", $user_data);
         exit();
+    }
+
+    // 3.5. On-Demand Live API Sync Fallback
+    // If not found in local DB, attempt a live fetch directly from external VStudy APIs
+    if (syncStudentOnDemand($email, $db)) {
+        // Try querying users table again after live sync
+        $stmt = $db->prepare($query);
+        $stmt->bindParam(':email', $email);
+        $stmt->execute();
+
+        if ($stmt->rowCount() > 0) {
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $room_no = $row['hr_room_no'] ?? $row['room_allocation'] ?? 'N/A';
+            $block = $row['block'] ?? 'N/A';
+            $hostel = $row['room_hostel'] ?? $row['profile_hostel'] ?? 'N/A';
+
+            $user_data = [
+                "id"               => $row['id'],
+                "username"         => $row['register_no'],
+                "full_name"        => $row['full_name'],
+                "register_no"      => $row['register_no'],
+                "phone"            => $row['phone'],
+                "dob"              => $row['dob'],
+                "address"          => $row['address'],
+                "role"             => $row['role'],
+                "institution"      => $row['institution'] ?? 'N/A',
+                "hostel_name"      => $hostel,
+                "room_allocation"  => $row['room_allocation'] ?? 'N/A',
+                "profile_pic"      => $row['profile_pic'],
+                "valid_from"       => $row['valid_from'] ?? '0000-00-00',
+                "valid_to"         => $row['valid_to'] ?? '0000-00-00',
+                "conduct"          => $row['conduct'] ?? 'Good',
+                "conduct_remarks"  => $row['conduct_remarks'] ?? '',
+                "biometric_id"     => $row['biometric_id'],
+                "warden"           => $row['warden'] ?? '',
+                "group_name"       => $row['floor_name'] ?? $row['group_name'] ?? '',
+                "floor_name"       => $row['floor_name'] ?? $row['group_name'] ?? '',
+                "room_no"          => $room_no,
+                "room_code"        => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
+                "block"            => $block,
+                "wing"             => (!empty($row['floor_name']) && !empty($row['wing_name'])) ? ($row['floor_name'] . ' - ' . $row['wing_name']) : 'N/A',
+                "room_type"        => $row['room_type'] ?? 'N/A',
+                "room_facility"    => $row['room_facility'] ?? 'NON AC',
+                "room_bath_attached" => $row['room_bath_attached'] ?? 'No',
+                "check_in_date"    => $row['valid_from'] ?? '0000-00-00',
+                "renewal_date"     => $row['valid_to'] ?? '0000-00-00',
+                "hostel_type"      => $row['HostelType'] ?? 'Boys',
+                "token"            => generateJWT($row['id'], $row['register_no'], $row['role'])
+            ];
+
+            logActivity($row['id'], $row['register_no'], $row['role'], 'LOGIN', 'users', null, ['login_time' => date('Y-m-d H:i:s')]);
+            logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN_SUCCESS', 'Authentication', null, [
+                'registration_no' => $row['register_no'],
+                'timestamp' => date('Y-m-d H:i:s'),
+                'ip_address' => getClientIp(),
+                'source' => 'Google Login On-Demand Sync'
+            ]);
+            sendResponse(true, "Login successful", $user_data);
+            exit();
+        }
     }
 
     // 4. Not found anywhere

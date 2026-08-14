@@ -56,20 +56,49 @@ class CategoryProvider with ChangeNotifier {
     }
   }
 
+  /// Normalize department keys across variations (e.g. Maintenannce -> maintenance, messages -> warden)
+  String _normalizeKey(String key) {
+    final lower = key.trim().toLowerCase();
+    if (lower == 'messages' || lower.contains('warden')) return 'warden';
+    if (lower.contains('maint')) return 'maintenance';
+    if (lower.contains('sec')) return 'security';
+    if (lower.contains('parent')) return 'parent_warden';
+    return lower;
+  }
+
+  /// Immediately increment a category's unread count in memory (0 ms update on incoming message).
+  void incrementUnread(String categoryName, [int amount = 1]) {
+    final normKey = _normalizeKey(categoryName);
+
+    bool found = false;
+    for (final k in _unreadCounts.keys.toList()) {
+      if (_normalizeKey(k) == normKey) {
+        _unreadCounts[k] = (_unreadCounts[k] ?? 0) + amount;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      _unreadCounts[normKey] = amount;
+    }
+    notifyListeners();
+    _saveCachedCounts();
+  }
+
   /// Immediately zero a category's unread count in memory (call when user opens a chat).
   /// This makes the red badge vanish instantly without waiting for the next API poll.
   void setUnreadCount(String categoryName, int count) {
-    final lowerKey = categoryName.toLowerCase();
+    final normKey = _normalizeKey(categoryName);
     bool found = false;
     for (final k in _unreadCounts.keys.toList()) {
-      if (k.toLowerCase() == lowerKey) {
+      if (_normalizeKey(k) == normKey) {
         _unreadCounts[k] = count;
         found = true;
         break;
       }
     }
     if (!found) {
-      _unreadCounts[lowerKey] = count;
+      _unreadCounts[normKey] = count;
     }
     notifyListeners();
     _saveCachedCounts();
@@ -85,6 +114,9 @@ class CategoryProvider with ChangeNotifier {
       final response = await ApiService.getAssignedStaff(studentId);
       if (response['success'] == true && response['data'] != null) {
         _assignedStaff = Map<String, dynamic>.from(response['data']);
+        if (response['group_name'] != null && response['group_name'].toString().isNotEmpty) {
+          _assignedStaff['group_name'] = response['group_name'].toString();
+        }
         notifyListeners();
       }
     } catch (e) {
@@ -98,13 +130,10 @@ class CategoryProvider with ChangeNotifier {
   }
 
   int getUnreadCount(String categoryName) {
-    // Normalize: 'messages' and 'warden' both map to 'warden' key
-    String lowerKey = categoryName.toLowerCase();
-    if (lowerKey == 'messages') lowerKey = 'warden';
+    final normKey = _normalizeKey(categoryName);
 
-    // Case-insensitive lookup — handles mismatches like 'security' vs 'Security'
     for (final entry in _unreadCounts.entries) {
-      if (entry.key.toLowerCase() == lowerKey) return entry.value;
+      if (_normalizeKey(entry.key) == normKey) return entry.value;
     }
     return 0;
   }
@@ -128,10 +157,11 @@ class CategoryProvider with ChangeNotifier {
     }
   }
 
-  Future<void> fetchCounts({String? wardenUsername, String? studentUsername}) async {
+  Future<void> fetchCounts({String? wardenUsername, String? studentUsername, bool force = false}) async {
     final now = DateTime.now();
-    if (_lastFetchTime != null &&
-        now.difference(_lastFetchTime!) < const Duration(seconds: 2) &&
+    if (!force &&
+        _lastFetchTime != null &&
+        now.difference(_lastFetchTime!) < const Duration(milliseconds: 300) &&
         _lastWardenUsername == wardenUsername &&
         _lastStudentUsername == studentUsername) {
       return;

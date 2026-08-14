@@ -74,14 +74,22 @@ class LocationMapping {
   });
 
   Map<String, dynamic> toJson() {
+    final String hName = hostelName ?? '';
+    final String fName = zoneName ?? zoneId ?? '';
+    final String wName = subZoneName ?? subZoneId ?? 'All';
+
     return {
       'id': id,
       'hostel_id': int.tryParse(hostelId) ?? hostelId,
-      // The DB stores NAMES in zone_id/sub_zone_id (varchar columns), not numeric IDs
-      'zone_id': zoneName ?? zoneId,
-      'sub_zone_id': subZoneName ?? subZoneId,
-      // 'staff' is the key save.php expects
-      'staff': assignedStaff.map((s) => s.toJson()).toList(),
+      'zone_id': fName,
+      'sub_zone_id': wName,
+      'staff': assignedStaff.map((s) {
+        final Map<String, dynamic> sMap = s.toJson();
+        if ((sMap['hostel_name'] ?? '').toString().isEmpty) sMap['hostel_name'] = hName;
+        if ((sMap['floor_name'] ?? '').toString().isEmpty) sMap['floor_name'] = fName;
+        if ((sMap['wing_name'] ?? '').toString().isEmpty) sMap['wing_name'] = wName;
+        return sMap;
+      }).toList(),
     };
   }
 

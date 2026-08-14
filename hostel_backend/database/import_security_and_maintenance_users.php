@@ -13,13 +13,17 @@ function fetchAllFromApi($search, $apiKey, $baseUrl) {
     do {
         $url = $baseUrl . "?search=" . urlencode($search) . "&page=" . $page;
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "X-API-KEY: $apiKey",
-            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_HTTPHEADER => [
+                "X-API-KEY: $apiKey",
+                "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Accept: application/json"
+            ]
         ]);
 
         $response = curl_exec($ch);
@@ -31,11 +35,19 @@ function fetchAllFromApi($search, $apiKey, $baseUrl) {
         }
 
         $json = json_decode($response, true);
-        if ($json && isset($json['success']) && $json['success'] === true) {
-            $totalPages = $json['total_pages'] ?? 1;
-            $items = $json['data'] ?? [];
-            $allRecords = array_merge($allRecords, $items);
-            $page++;
+        if (is_array($json)) {
+            if (isset($json['success']) && $json['success'] === true) {
+                $totalPages = $json['total_pages'] ?? 1;
+                $items = $json['data'] ?? [];
+                $allRecords = array_merge($allRecords, $items);
+                $page++;
+            } else if (isset($json[0]) && is_array($json[0])) {
+                // Direct JSON array of employee objects
+                $allRecords = array_merge($allRecords, $json);
+                break;
+            } else {
+                break;
+            }
         } else {
             break;
         }
@@ -52,7 +64,9 @@ try {
         throw new Exception("Database connection failed");
     }
 
-    // 1. Fetch and Import Security Users (approx 129)
+    $defaultPassword = password_hash('welcome123', PASSWORD_DEFAULT);
+
+    // 1. Fetch and Import Security Users
     $securityRecords = fetchAllFromApi("security", $apiKey, $baseUrl);
     $secStmt = $db->prepare("
         INSERT INTO security_users (bio_id, employee_name, email, phone, department, gender, dob)
@@ -66,24 +80,71 @@ try {
             dob = VALUES(dob)
     ");
 
+    $userSecUpsert = $db->prepare("
+        INSERT INTO users (username, full_name, email, phone_number, role, password, Designation, Status, is_active, Institution)
+        VALUES (:username, :name, :email, :phone, 'security', :pw, 'Security Guard', '1', 1, 'SIMATS')
+        ON DUPLICATE KEY UPDATE
+            full_name = VALUES(full_name),
+            email = VALUES(email),
+            phone_number = VALUES(phone_number),
+            role = 'security',
+            Status = '1',
+            is_active = 1
+    ");
+
+    $staffSecUpsert = $db->prepare("
+        INSERT INTO staff_users (bio_id, password, name, email, phone, dept, desig, role)
+        VALUES (:bio_id, :pw, :name, :email, :phone, :dept, 'Security Guard', 'security')
+        ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            email = VALUES(email),
+            phone = VALUES(phone),
+            role = 'security'
+    ");
+
     $secCount = 0;
     foreach ($securityRecords as $row) {
         $bioId = trim($row['bio_id'] ?? '');
         if (empty($bioId)) continue;
 
+        $name  = trim($row['employee_name'] ?? 'Security Staff');
+        $email = trim($row['email'] ?? '');
+        $phone = trim($row['phone'] ?? '');
+        $dept  = trim($row['department'] ?? 'Security');
+        $gender= trim($row['gender'] ?? '');
+        $dob   = trim($row['dob'] ?? '');
+
         $secStmt->execute([
             ':bio_id' => $bioId,
-            ':employee_name' => trim($row['employee_name'] ?? 'Security Staff'),
-            ':email' => trim($row['email'] ?? ''),
-            ':phone' => trim($row['phone'] ?? ''),
-            ':department' => trim($row['department'] ?? 'Security'),
-            ':gender' => trim($row['gender'] ?? ''),
-            ':dob' => trim($row['dob'] ?? '')
+            ':employee_name' => $name,
+            ':email' => $email,
+            ':phone' => $phone,
+            ':department' => $dept,
+            ':gender' => $gender,
+            ':dob' => $dob
         ]);
+
+        $userSecUpsert->execute([
+            ':username' => $bioId,
+            ':name'     => $name,
+            ':email'    => $email,
+            ':phone'    => $phone,
+            ':pw'       => $defaultPassword
+        ]);
+
+        $staffSecUpsert->execute([
+            ':bio_id' => $bioId,
+            ':pw'     => $defaultPassword,
+            ':name'   => $name,
+            ':email'  => $email,
+            ':phone'  => $phone,
+            ':dept'   => $dept
+        ]);
+
         $secCount++;
     }
 
-    // 2. Fetch and Import Maintenance Users (approx 139)
+    // 2. Fetch and Import Maintenance Users
     $maintRecords = fetchAllFromApi("maintenance", $apiKey, $baseUrl);
     $maintStmt = $db->prepare("
         INSERT INTO maintenance_users (bio_id, employee_name, email, phone, department, gender, dob)
@@ -97,20 +158,67 @@ try {
             dob = VALUES(dob)
     ");
 
+    $userMaintUpsert = $db->prepare("
+        INSERT INTO users (username, full_name, email, phone_number, role, password, Designation, Status, is_active, Institution)
+        VALUES (:username, :name, :email, :phone, 'maintenance', :pw, 'Maintenance Staff', '1', 1, 'SIMATS')
+        ON DUPLICATE KEY UPDATE
+            full_name = VALUES(full_name),
+            email = VALUES(email),
+            phone_number = VALUES(phone_number),
+            role = 'maintenance',
+            Status = '1',
+            is_active = 1
+    ");
+
+    $staffMaintUpsert = $db->prepare("
+        INSERT INTO staff_users (bio_id, password, name, email, phone, dept, desig, role)
+        VALUES (:bio_id, :pw, :name, :email, :phone, :dept, 'Maintenance Staff', 'maintenance')
+        ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            email = VALUES(email),
+            phone = VALUES(phone),
+            role = 'maintenance'
+    ");
+
     $maintCount = 0;
     foreach ($maintRecords as $row) {
         $bioId = trim($row['bio_id'] ?? '');
         if (empty($bioId)) continue;
 
+        $name  = trim($row['employee_name'] ?? 'Maintenance Staff');
+        $email = trim($row['email'] ?? '');
+        $phone = trim($row['phone'] ?? '');
+        $dept  = trim($row['department'] ?? 'Maintenance');
+        $gender= trim($row['gender'] ?? '');
+        $dob   = trim($row['dob'] ?? '');
+
         $maintStmt->execute([
             ':bio_id' => $bioId,
-            ':employee_name' => trim($row['employee_name'] ?? 'Maintenance Staff'),
-            ':email' => trim($row['email'] ?? ''),
-            ':phone' => trim($row['phone'] ?? ''),
-            ':department' => trim($row['department'] ?? 'Maintenance'),
-            ':gender' => trim($row['gender'] ?? ''),
-            ':dob' => trim($row['dob'] ?? '')
+            ':employee_name' => $name,
+            ':email' => $email,
+            ':phone' => $phone,
+            ':department' => $dept,
+            ':gender' => $gender,
+            ':dob' => $dob
         ]);
+
+        $userMaintUpsert->execute([
+            ':username' => $bioId,
+            ':name'     => $name,
+            ':email'    => $email,
+            ':phone'    => $phone,
+            ':pw'       => $defaultPassword
+        ]);
+
+        $staffMaintUpsert->execute([
+            ':bio_id' => $bioId,
+            ':pw'     => $defaultPassword,
+            ':name'   => $name,
+            ':email'  => $email,
+            ':phone'  => $phone,
+            ':dept'   => $dept
+        ]);
+
         $maintCount++;
     }
 

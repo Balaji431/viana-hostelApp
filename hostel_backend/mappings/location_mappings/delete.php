@@ -48,6 +48,24 @@ try {
         $wing = $mapping['sub_zone_id'] ?? 'All';
         
         foreach ($staff as $s) {
+            $uBio = trim($s['username'] ?? '');
+            $sRole = strtolower(trim($s['role'] ?? ''));
+            
+            if (!empty($uBio) && (strpos($sRole, 'maint') !== false || strpos($sRole, 'secur') !== false)) {
+                // Check if staff has any other remaining mappings in mapping_staff
+                $checkRemaining = $pdo->prepare("SELECT COUNT(*) FROM mapping_staff WHERE (username = ? OR staff_bio_id = ?) AND mapping_id != ?");
+                $checkRemaining->execute([$uBio, $uBio, $mappingId]);
+                $remCount = $checkRemaining->fetchColumn();
+
+                if ($remCount == 0) {
+                    // Remove from users and profile tables if no active mapping_staff record remains
+                    $pdo->prepare("DELETE FROM profile WHERE reg_no = ? OR user_id IN (SELECT id FROM users WHERE username = ?)")->execute([$uBio, $uBio]);
+                    $pdo->prepare("DELETE FROM users WHERE username = ? AND role IN ('maintenance', 'security')")->execute([$uBio, $uBio]);
+                    $pdo->prepare("DELETE FROM maintenance_users WHERE bio_id = ?")->execute([$uBio]);
+                    $pdo->prepare("DELETE FROM security_users WHERE bio_id = ?")->execute([$uBio]);
+                }
+            }
+
             logAudit(
                 null,
                 $s['username'],

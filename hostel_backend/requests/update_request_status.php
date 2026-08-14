@@ -116,9 +116,11 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
             
             // Custom message based on status
             if ($data->status == 'fixed') {
-                $msg = "[MAINTENANCE] Task completed by $staff_role ($staff_name). Student, please verify and acknowledge if the issue is resolved.";
+                $msg = "[MAINTENANCE] Issue has been marked as fixed by $staff_role ($staff_name). Student, please verify and acknowledge if the issue is resolved.";
             } elseif ($data->status == 'rejected' && !empty($data->reason)) {
                 $msg = "Request has been REJECTED by $staff_role ($staff_name). Reason: " . $data->reason;
+            } elseif ($data->status == 'completed') {
+                $msg = "Request has been COMPLETED by $staff_role ($staff_name).";
             } else {
                 $msg = "Request has been $display_status by $staff_role ($staff_name)";
             }
@@ -149,7 +151,7 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
                 $stu = $s_stmt->fetch(PDO::FETCH_ASSOC);
 
                 if ($stu && !empty($stu['fcm_token'])) {
-                    // Title format: Warden Name (Warden) -> e.g. Dr. Ramesh (Warden)
+                    // Title format: Staff Name (Role) -> e.g. A naveen arul (Maintenance)
                     $title = $staff_name . " (" . ucfirst($staff_role) . ")";
                     $st = strtolower($data->status);
                     $req_type_clean = !empty($request['request_type']) ? $request['request_type'] : ucfirst($req_dept);
@@ -157,7 +159,11 @@ if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id
                     if ($st === 'rejected') {
                         $reason_text = !empty($data->reason) ? $data->reason : 'No reason specified';
                         $body = "Your " . $req_type_clean . " request has been rejected by " . $staff_name . ". Reason: " . $reason_text;
-                    } elseif ($st === 'approved' || $st === 'fixed' || $st === 'completed') {
+                    } elseif ($st === 'fixed') {
+                        $body = "The " . $req_type_clean . " issue has been fixed. Please check and verify the resolution.";
+                    } elseif ($st === 'completed') {
+                        $body = "Your " . $req_type_clean . " problem has been solved and the request is completed.";
+                    } elseif ($st === 'approved') {
                         $body = "Your " . $req_type_clean . " request has been approved by " . $staff_name . ".";
                     } else {
                         $body = "Your " . $req_type_clean . " request status updated to " . strtoupper($st) . " by " . $staff_name . ".";

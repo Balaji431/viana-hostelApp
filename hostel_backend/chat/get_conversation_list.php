@@ -76,7 +76,7 @@ try {
             )
             AND (
                 rgd.room_number LIKE CONCAT('%-', TRIM(ms.wing_name), '-%')
-                OR ms.wing_name IS NULL OR ms.wing_name = '' OR TRIM(ms.wing_name) = 'W0'
+                OR ms.wing_name IS NULL OR ms.wing_name = '' OR TRIM(ms.wing_name) = 'W0' OR LOWER(TRIM(ms.wing_name)) = 'all'
             )
         ");
         $sub_stmt->execute([$warden_username, $warden_username, $mapping_role, $target_dept, $target_dept, $target_dept]);
@@ -163,11 +163,10 @@ try {
              WHERE r7.student_id = u.id AND LOWER(r7.department) = LOWER(:target_dept6)
              AND cm3.status IN ('sent', 'delivered')
              AND cm3.message_type NOT IN ('request_card', 'status')
-             AND CONVERT(cm3.sender_id USING utf8mb4) != CONVERT(cm3.receiver_id USING utf8mb4)
              AND (
-                 (:warden_username IS NOT NULL AND :warden_username != '' AND CONVERT(cm3.receiver_id USING utf8mb4) = CONVERT(:warden_username2 USING utf8mb4))
-                 OR
-                 ((:warden_username3 IS NULL OR :warden_username3 = '') AND CONVERT(cm3.sender_id USING utf8mb4) != CONVERT(u.username USING utf8mb4))
+                 CONVERT(cm3.sender_id USING utf8mb4) = CONVERT(u.username USING utf8mb4)
+                 OR CONVERT(cm3.sender_id USING utf8mb4) = CONVERT(u.id USING utf8mb4)
+                 OR CONVERT(cm3.sender_id USING utf8mb4) LIKE 'p-%'
              )
             ) as unread_count
         FROM users u
@@ -182,9 +181,6 @@ try {
         ':target_dept4' => $target_dept,
         ':target_dept5' => $target_dept,
         ':target_dept6' => $target_dept,
-        ':warden_username'  => $warden_username,
-        ':warden_username2' => $warden_username,
-        ':warden_username3' => $warden_username,
     ];
 
     $stmt = $db->prepare($query);

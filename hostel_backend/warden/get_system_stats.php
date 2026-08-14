@@ -27,7 +27,7 @@ try {
                 COALESCE(SUM(rgd.available_beds), 0) as total_available 
             FROM rooms_groups_details rgd
             JOIN mapping_staff ms ON (
-                TRIM(rgd.hostel_name) LIKE CONCAT('%', TRIM(ms.hostel_name), '%')
+                LOWER(TRIM(rgd.hostel_name)) = LOWER(TRIM(ms.hostel_name))
                 AND LOWER(rgd.group_name) LIKE CONCAT('%', LOWER(ms.floor_name), '%')
             )
             WHERE ms.username = :warden_username OR ms.staff_bio_id = :warden_username2

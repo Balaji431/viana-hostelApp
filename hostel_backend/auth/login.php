@@ -46,14 +46,24 @@ if (!$username || !$password) {
 
 if ($username && $password) {
     try {
-        $query = "SELECT u.id, u.full_name, u.username as register_no, u.password, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType,
+        $query = "SELECT u.id, u.full_name, u.username as register_no, u.password, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType, u.RoomType as u_room_type,
                          p.personal_phone as phone, p.room_allocation, p.institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic,
-                         p.valid_from, p.valid_to, u.biometric_id,
-                         rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel, rgd.room_type as room_type,
-                         '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code
+                         p.valid_from, p.valid_to, u.biometric_id, COALESCE(NULLIF(rgd.warden_name,''), p.warden) as warden,
+                         rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel, COALESCE(rgd.room_type, rm.room_type, u.RoomType) as room_type,
+                         '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code,
+                         COALESCE(rgd.amount, rm.amount, 0) as rm_amount,
+                         COALESCE(rgd.food, rm.food, 50000) as rm_food,
+                         COALESCE(rgd.caution_deposit, rm.caution_deposit, 0) as rm_caution
                   FROM users u
                   LEFT JOIN profile p ON u.username = p.reg_no
-                  LEFT JOIN rooms_groups_details rgd ON (rgd.room_number = p.room_allocation)
+                  LEFT JOIN rooms_groups_details rgd ON (
+                      rgd.room_number = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
+                      OR REPLACE(REPLACE(TRIM(rgd.room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
+                  )
+                  LEFT JOIN room_master rm ON (
+                      rm.room_code = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
+                      OR REPLACE(REPLACE(TRIM(rm.room_code), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
+                  )
                   WHERE u.username = :username LIMIT 0,1";
             if ($db === null) {
                 sendResponse(false, "Database connection failed", null, 500);
@@ -67,8 +77,8 @@ if ($username && $password) {
                 $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 
                 if (password_verify($password, $row['password'])) { 
-                    // Block student login via Login ID (username/password), EXCEPT for demo student 192211929
-                    if (strtolower($row['role']) === 'student' && trim($row['register_no']) !== '192211929') {
+                    // Block student login via Login ID (username/password), EXCEPT for demo students (192211929, 192511250)
+                    if (strtolower($row['role']) === 'student' && !in_array(trim($row['register_no']), ['192211929', '192511250'])) {
                         logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN_BLOCKED', 'Authentication', null, [
                             'registration_no' => $row['register_no'],
                             'timestamp' => date('Y-m-d H:i:s'),
@@ -129,6 +139,28 @@ if ($username && $password) {
                         }
                     }
 
+                    // Dynamic fee calculation
+                    $resolvedRoomType = trim($row['room_type'] ?? $row['u_room_type'] ?? 'Standard Room');
+                    $rTypeLower = strtolower($resolvedRoomType);
+                    $isAc = (strpos($rTypeLower, 'ac') !== false);
+
+                    $room_amount = (float)($row['rm_amount'] > 0 ? $row['rm_amount'] : 0);
+                    if ($room_amount <= 0 && !empty($resolvedRoomType)) {
+                        $typeStmt = $db->prepare("SELECT MAX(amount) as amt FROM room_master WHERE LOWER(TRIM(room_type)) = ? AND amount > 0");
+                        $typeStmt->execute([$rTypeLower]);
+                        $typeAmt = $typeStmt->fetchColumn();
+                        if ($typeAmt && $typeAmt > 0) {
+                            $room_amount = (float)$typeAmt;
+                        } else {
+                            $room_amount = 70000;
+                        }
+                    }
+
+                    $room_food = (float)($row['rm_food'] > 0 ? $row['rm_food'] : 50000);
+                    $room_caution = (float)($row['rm_caution'] > 0 ? $row['rm_caution'] : ($isAc ? 10000 : 5000));
+                    $total_fee = $room_amount + $room_food + $room_caution;
+                    $renew_amount = $room_amount + $room_food;
+
                     $user_data = [
                         "id" => $row['id'],
                         "username" => $row['register_no'],
@@ -147,17 +179,21 @@ if ($username && $password) {
                         "conduct" => $row['conduct'] ?? 'Good',
                         "conduct_remarks" => $row['conduct_remarks'] ?? '',
                         "biometric_id" => $row['biometric_id'],
-                        
+                        "warden" => $row['warden'] ?? '',
+                        "group_name" => $row['floor_name'] ?? $row['group_name'] ?? '',
+                        "floor_name" => $row['floor_name'] ?? $row['group_name'] ?? '',
                         "room_no" => $room_no,
                         "room_code" => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
                         "block" => $block,
                         "wing" => $wing,
-                        "room_type" => $row['room_type'],
+                        "room_type" => $resolvedRoomType,
                         "room_facility" => $row['room_facility'] ?? 'NON AC',
                         "room_bath_attached" => $row['room_bath_attached'] ?? 'No',
-                        "check_in_date" => $row['valid_from'],
-                        "renewal_date" => $row['valid_to'],
-                        "hostel_type" => $row['HostelType'] ?? 'Boys',
+                        "room_amount" => $room_amount,
+                        "room_food" => $room_food,
+                        "room_caution" => $room_caution,
+                        "total_fee" => $total_fee,
+                        "renew_amount" => $renew_amount,
                         "token" => generateJWT($row['id'], $row['register_no'], $final_role)
                     ];
                     
@@ -190,7 +226,7 @@ if ($username && $password) {
 
                     // Check if entered password matches default welcome123
                     if ($password === 'welcome123') {
-                        if (trim($username) !== '192211929') {
+                        if (!in_array(trim($username), ['192211929', '192511250'])) {
                             sendResponse(false, "Students must log in using 'Sign in with Google'. Login ID access is restricted for student accounts.", null, 403);
                             exit();
                         }
@@ -305,9 +341,9 @@ if ($username && $password) {
                     // Check Parent Login Logic if not in users and not in vstudy_payments
                     $parent_query = "SELECT p.*, s.full_name as student_name, s.username as student_username, s.id as std_id
                                     FROM parent_users p
-                                    LEFT JOIN parent_student_map psm ON p.parent_id = psm.parent_id
-                                    LEFT JOIN users s ON psm.student_id = s.username
-                                    WHERE LOWER(p.parent_id) = LOWER(?) LIMIT 0,1";
+                                    LEFT JOIN parent_student_map psm ON (CONVERT(p.parent_id USING utf8mb4) = CONVERT(psm.parent_id USING utf8mb4))
+                                    LEFT JOIN users s ON (CONVERT(psm.student_id USING utf8mb4) = CONVERT(s.username USING utf8mb4))
+                                    WHERE LOWER(CONVERT(p.parent_id USING utf8mb4)) = LOWER(CONVERT(? USING utf8mb4)) LIMIT 0,1";
                     $p_stmt = $db->prepare($parent_query);
                     $p_stmt->execute([$username]);
                     
@@ -322,8 +358,8 @@ if ($username && $password) {
                             $verify = ($password === $db_password);
                         }
 
-                        // Allow default passwords (123456 or welcome123) for parent accounts
-                        if (!$verify && ($password === '123456' || $password === 'welcome123')) {
+                        // Allow default password (welcome123) for parent accounts
+                        if (!$verify && $password === 'welcome123') {
                             $verify = true;
                         }
                         
@@ -370,38 +406,54 @@ if ($username && $password) {
                                 'source' => 'Normal Login',
                                 'reason' => 'Invalid password'
                             ]);
-                            sendResponse(false, "Invalid parent credentials", null, 401);
+                            sendResponse(false, "Incorrect password", null, 401);
                         }
                     } else if (preg_match('/^(p-|p_|parent[-_]?)(.+)$/i', $username, $matches)) {
                         // Dynamic parent lookup by student reg no prefix
                         $std_reg = trim($matches[2]);
-                        $s_stmt = $db->prepare("SELECT id, username, full_name FROM users WHERE username = :reg LIMIT 1");
+                        $s_stmt = $db->prepare("SELECT id, username, full_name FROM users WHERE (LOWER(CONVERT(username USING utf8mb4)) = LOWER(CONVERT(:reg USING utf8mb4))) LIMIT 1");
                         $s_stmt->execute([':reg' => $std_reg]);
                         $s_row = $s_stmt->fetch(PDO::FETCH_ASSOC);
 
-                        if ($s_row && ($password === '123456' || $password === 'welcome123')) {
-                            $p_id = "p-" . strtolower($s_row['username']);
-                            $hash = password_hash('123456', PASSWORD_BCRYPT);
-                            $insP = $db->prepare("INSERT INTO parent_users (parent_id, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password = VALUES(password)");
-                            $insP->execute([$p_id, $hash]);
+                        if (!$s_row) {
+                            $s_stmt2 = $db->prepare("SELECT user_id as id, reg_no as username, full_name FROM profile WHERE (LOWER(CONVERT(reg_no USING utf8mb4)) = LOWER(CONVERT(:reg USING utf8mb4))) LIMIT 1");
+                            $s_stmt2->execute([':reg' => $std_reg]);
+                            $s_row = $s_stmt2->fetch(PDO::FETCH_ASSOC);
+                        }
 
-                            $insM = $db->prepare("INSERT IGNORE INTO parent_student_map (parent_id, student_id) VALUES (?, ?)");
-                            $insM->execute([$p_id, $s_row['username']]);
+                        if (!$s_row) {
+                            $s_stmt3 = $db->prepare("SELECT 0 as id, roll_number as username, student_name as full_name FROM vstudy_payments WHERE (LOWER(CONVERT(roll_number USING utf8mb4)) = LOWER(CONVERT(:reg USING utf8mb4))) LIMIT 1");
+                            $s_stmt3->execute([':reg' => $std_reg]);
+                            $s_row = $s_stmt3->fetch(PDO::FETCH_ASSOC);
+                        }
 
-                            $user_data = [
-                                "id" => $s_row['id'],
-                                "username" => $p_id,
-                                "register_no" => $p_id,
-                                "full_name" => "Parent of " . $s_row['full_name'],
-                                "role" => 'parent',
-                                "profile_pic" => "",
-                                "linked_student_id" => $s_row['id'],
-                                "linked_student_username" => $s_row['username'],
-                                "linked_student_name" => $s_row['full_name']
-                            ];
-                            sendResponse(true, "Parent Login successful", $user_data);
+                        if ($s_row) {
+                            if ($password === 'welcome123') {
+                                $p_id = "p-" . strtolower($s_row['username']);
+                                $hash = password_hash('welcome123', PASSWORD_BCRYPT);
+                                $insP = $db->prepare("INSERT INTO parent_users (parent_id, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password = VALUES(password)");
+                                $insP->execute([$p_id, $hash]);
+
+                                $insM = $db->prepare("INSERT IGNORE INTO parent_student_map (parent_id, student_id) VALUES (?, ?)");
+                                $insM->execute([$p_id, $s_row['username']]);
+
+                                $user_data = [
+                                    "id" => $s_row['id'],
+                                    "username" => $p_id,
+                                    "register_no" => $p_id,
+                                    "full_name" => "Parent of " . $s_row['full_name'],
+                                    "role" => 'parent',
+                                    "profile_pic" => "",
+                                    "linked_student_id" => $s_row['id'],
+                                    "linked_student_username" => $s_row['username'],
+                                    "linked_student_name" => $s_row['full_name']
+                                ];
+                                sendResponse(true, "Parent Login successful", $user_data);
+                            } else {
+                                sendResponse(false, "Incorrect password", null, 401);
+                            }
                         } else {
-                            sendResponse(false, "Invalid Username or Password", null, 401);
+                            sendResponse(false, "Enter valid username", null, 401);
                         }
                     } else {
                         // User not found in users, vstudy_payments, and parents
@@ -412,7 +464,7 @@ if ($username && $password) {
                             'source' => 'Normal Login',
                             'reason' => 'User not found'
                         ]);
-                        sendResponse(false, "Invalid Username or Password", null, 401);
+                        sendResponse(false, "Enter valid username", null, 401);
                     }
                 }
             }

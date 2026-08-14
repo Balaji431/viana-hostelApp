@@ -175,18 +175,20 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
         final List<dynamic> data = response['data'] ?? [];
         if (mounted) {
           if (data.isEmpty) {
-            final hasRealMsgs = _messages.any((m) => m['id'] != null && !m['id'].toString().startsWith('local'));
-            if (!hasRealMsgs && _messages.isEmpty) {
-              setState(() {
-                _messages.add({
-                  'type': 'text',
-                  'sender': 'officer',
-                  'content': 'Security Desk. Please state your issue or report an emergency.',
-                  'timestamp': DateTime.now().toIso8601String(),
-                });
-              });
-            }
+            setState(() {
+              _messages.removeWhere((m) => m['status'] != 'sending');
+            });
             return;
+          }
+
+          if (_activeRequestId == null && data.isNotEmpty) {
+            for (var msg in data) {
+              final rid = msg['request_id'] ?? msg['req_id'];
+              if (rid != null && rid.toString().isNotEmpty) {
+                _activeRequestId = rid.toString();
+                break;
+              }
+            }
           }
 
           setState(() {
@@ -219,19 +221,18 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
               });
             }
 
+            // Only retain actively sending messages (within last 15s)
             for (var localMsg in _messages) {
-              final localId = localMsg['id']?.toString() ?? "";
-              if (localId.startsWith('local_')) {
-                bool matchesServer = updatedList.any((s) => 
-                  (s['content'].toString().trim().toLowerCase() == localMsg['content'].toString().trim().toLowerCase() &&
-                   s['sender'] == 'student') ||
-                  (s['type'] == 'request' &&
-                   localMsg['type'] == 'request' &&
-                   (s['request_id']?.toString() == localMsg['request_id']?.toString() ||
-                    s['category']?.toString().toLowerCase() == localMsg['category']?.toString().toLowerCase()))
-                );
-                if (!matchesServer) {
-                  updatedList.add(localMsg);
+              if (localMsg['status'] == 'sending') {
+                final localTime = _parseTimestamp(localMsg['timestamp']);
+                if (DateTime.now().difference(localTime).inSeconds < 15) {
+                  bool matchesServer = updatedList.any((s) => 
+                    s['content'].toString().trim() == localMsg['content'].toString().trim() &&
+                    s['sender'] == 'student'
+                  );
+                  if (!matchesServer) {
+                    updatedList.add(localMsg);
+                  }
                 }
               }
             }
@@ -248,7 +249,12 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
               msg['status'] != 'seen'
             );
             if (hasIncoming && _activeRequestId != null && mounted && user.username.isNotEmpty) {
-              ApiService.markRead(_activeRequestId!, user.username);
+              ApiService.markRead(_activeRequestId!, user.username).then((_) {
+                if (mounted) {
+                  context.read<CategoryProvider>().setUnreadCount(widget.department, 0);
+                  context.read<CategoryProvider>().fetchCounts(studentUsername: user.username, force: true);
+                }
+              });
             }
           });
         }
@@ -684,9 +690,21 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
 
   Widget _buildSubHeader() {
     final user = context.read<UserProvider>();
-    final roomCode = user.isParent 
+    final rawRoom = user.isParent 
         ? user.linkedStudentRoom 
         : (user.roomNumber.isNotEmpty ? user.roomNumber : user.roomAllocation);
+
+    final roomCode = rawRoom
+        .replaceAll(' - ', '-')
+        .replaceAll('- ', '-')
+        .replaceAll(' ', '')
+        .replaceAll('T-32', 'T32')
+        .trim();
+
+    final displayGroup = user.groupName;
+    final String labelText = displayGroup.isNotEmpty
+        ? (roomCode.isNotEmpty ? "$displayGroup • $roomCode" : displayGroup)
+        : (roomCode.isNotEmpty ? roomCode : "Room Unallocated");
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -697,11 +715,14 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            roomCode.toUpperCase(),
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato'),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
+          Expanded(
+            child: Text(
+              labelText,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato'),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
           ),
         ],
       ),
@@ -897,12 +918,15 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
             children: [
               Icon(Icons.lock_outline, color: Colors.grey.shade600, size: 18),
               const SizedBox(width: 8),
-              Text(
-                'Chat disabled: ${widget.department} not assigned',
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  'Chat disabled: ${widget.department} not assigned',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -930,7 +954,12 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: const [
-                Text('Select a request category...'),
+                Expanded(
+                  child: Text(
+                    'Select a request category...',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 Icon(Icons.keyboard_arrow_down),
               ],
             ),
@@ -958,7 +987,13 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(_selectedCategory ?? 'Select a request category...', style: TextStyle(color: _selectedCategory == null ? Colors.grey : const Color(0xFF1B2B48), fontWeight: FontWeight.bold)),
+                    Expanded(
+                      child: Text(
+                        _selectedCategory ?? 'Select a request category...', 
+                        style: TextStyle(color: _selectedCategory == null ? Colors.grey : const Color(0xFF1B2B48), fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                     const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
                   ],
                 ),

@@ -13,6 +13,7 @@ import 'warden_chat_interface.dart';
 import '../../shared/category_provider.dart';
 import 'warden_main_screen.dart';
 import 'warden_allocation_screen.dart';
+import 'warden_room_search_screen.dart';
 import '../../core/design_system.dart' as ds;
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/main_layout.dart';
@@ -432,6 +433,14 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
           onExit: (_) => setHover(() => isHover = false),
           child: GestureDetector(
             onTap: () {
+              if (type == 'room_search') {
+                showDialog(
+                  context: context,
+                  builder: (context) => const WardenRoomSearchScreen(isDialog: true),
+                );
+                return;
+              }
+
               if (type == 'reports') {
                 final mainResponsive = context.findAncestorStateOfType<MainResponsiveLayoutState>();
                 if (mainResponsive != null) {

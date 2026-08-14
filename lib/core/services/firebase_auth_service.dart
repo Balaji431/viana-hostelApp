@@ -6,7 +6,10 @@ import '../app_logger.dart';
 class FirebaseAuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
   static final FirebaseFirestore _db = FirebaseFirestore.instance;
-  static final GoogleSignIn _googleSignIn = GoogleSignIn();
+  static final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: '907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com',
+    scopes: ['email', 'profile'],
+  );
 
   /// Current Firebase User
   static User? get currentUser => _auth.currentUser;

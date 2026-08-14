@@ -61,6 +61,12 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
   static final ValueNotifier<int> fcmRefreshNotifier = ValueNotifier<int>(0);
 
+  /// Cached FCM token — obtained once at init() and reused immediately on login.
+  /// This avoids the race condition where the token is fetched but user isn't
+  /// logged in yet, so the save is skipped. On login we use this cached value.
+  static String? _cachedToken;
+  static String? get cachedToken => _cachedToken;
+
   // Notification IDs by requestId hash for targeted cancellation
   static int _notifIdForRequest(String requestId) {
     return requestId.hashCode.abs() % 100000;
@@ -174,12 +180,17 @@ class NotificationService {
       if (context != null) {
         try {
           final user = Provider.of<UserProvider>(context, listen: false);
-          if (user.role == UserRole.student) {
-            Provider.of<CategoryProvider>(context, listen: false).fetchCounts(studentUsername: user.username);
-          } else if (user.isParent) {
-            Provider.of<CategoryProvider>(context, listen: false).fetchCounts(studentUsername: user.username);
+          final catProvider = Provider.of<CategoryProvider>(context, listen: false);
+          
+          // 🚀 INSTANT 0 ms local optimistic badge increment:
+          final String dept = (message.data['department'] ?? message.data['type'] ?? 'warden').toString();
+          catProvider.incrementUnread(dept);
+
+          // Force-fetch updated exact counts from server immediately
+          if (user.role == UserRole.student || user.isParent) {
+            catProvider.fetchCounts(studentUsername: user.username, force: true);
           } else if (user.role == UserRole.warden || user.role == UserRole.security || user.role == UserRole.maintenance || user.role == UserRole.staff) {
-            Provider.of<CategoryProvider>(context, listen: false).fetchCounts(wardenUsername: user.username);
+            catProvider.fetchCounts(wardenUsername: user.username, force: true);
           }
         } catch (e) {
           AppLogger.error("Error refreshing counts in foreground push: $e");
@@ -193,16 +204,21 @@ class NotificationService {
 
     String? token = await getToken();
     if (token != null) {
+      _cachedToken = token; // Cache for use at login time
       final context = navigatorKey.currentContext; 
       if (context != null) {
         final user = Provider.of<UserProvider>(context, listen: false);
         if (user.isLoggedIn) {
+          // Already logged in (e.g. app restart with session) — save immediately
           saveTokenToBackend(user.username, token);
         }
+        // If not logged in yet: token is cached in _cachedToken.
+        // UserProvider.login() will call saveTokenToBackend via _saveFCMToken().
       }
     }
 
     FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+       _cachedToken = newToken; // Keep cache fresh on token rotation
        final context = navigatorKey.currentContext;
        if (context != null) {
          final user = Provider.of<UserProvider>(context, listen: false);
@@ -212,6 +228,8 @@ class NotificationService {
   }
 
   static Future<String?> getToken() async {
+    // Return cached token immediately if available — avoids duplicate Firebase calls
+    if (_cachedToken != null && _cachedToken!.isNotEmpty) return _cachedToken;
     try {
       if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
         String? apnsToken = await FirebaseMessaging.instance.getAPNSToken();
@@ -224,6 +242,7 @@ class NotificationService {
         AppLogger.info("APNs Token: $apnsToken");
       }
       String? token = await FirebaseMessaging.instance.getToken();
+      if (token != null) _cachedToken = token; // Always keep cache fresh
       AppLogger.info("FCM Token: $token");
       return token;
     } catch (e) {
@@ -233,22 +252,26 @@ class NotificationService {
   }
 
   static Future<void> saveTokenToBackend(String username, String token) async {
-    try {
-      if (username.isEmpty || username == 'null') return;
-      // Use ApiService.buildUri so the correct URL is used in both local & production
-      final url = ApiService.buildUri('auth/save_token.php');
-      
-      AppLogger.info("Saving token for $username to $url");
-      
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'username': username, 'fcm_token': token}),
-      ).timeout(const Duration(seconds: 2)); // 2 s max — prevents blocking logout/startup
-      
-      AppLogger.info("Token Save Response: ${response.statusCode} - ${response.body}");
-    } catch (e) {
-      AppLogger.error("Token Save Failed: $e");
+    if (username.isEmpty || username == 'null' || token.isEmpty) return;
+    final url = ApiService.buildUri('auth/save_token.php');
+    AppLogger.info("Saving FCM token for $username to $url");
+
+    // Retry up to 3 times with increasing back-off (handles Docker cold start)
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'username': username, 'fcm_token': token}),
+        ).timeout(const Duration(seconds: 10));
+        AppLogger.info("Token saved (attempt $attempt): ${response.statusCode} ${response.body}");
+        return; // success — stop retrying
+      } catch (e) {
+        AppLogger.error("Token save attempt $attempt failed: $e");
+        if (attempt < 3) {
+          await Future.delayed(Duration(seconds: attempt * 2)); // 2s, 4s back-off
+        }
+      }
     }
   }
 
@@ -261,7 +284,7 @@ class NotificationService {
     required String requestId,
     bool isMuted = false,
   }) async {
-    final int notifId = _notifIdForRequest(requestId);
+    final int notifId = (requestId + "_" + DateTime.now().millisecondsSinceEpoch.toString()).hashCode.abs() % 100000;
     final bool currentlyMuted = isMuted;
     final String muteLabel = currentlyMuted ? 'Unmute 🔔' : 'Mute 🔕';
 
@@ -403,8 +426,10 @@ class NotificationService {
     });
 
     if (requestId != null && requestId.isNotEmpty) {
-      // Show with 3 action buttons using deterministic notification ID
-      final int notifId = requestId.hashCode.abs() % 100000;
+      // Generate a unique notification ID for each message so subsequent messages
+      // trigger fresh heads-up alerts & sound without silently replacing previous ones
+      final String msgKey = message.data['message_id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+      final int notifId = (requestId + "_" + msgKey).hashCode.abs() % 100000;
       final String muteLabel = isMuted ? 'Unmute 🔔' : 'Mute 🔕';
 
       final androidDetails = AndroidNotificationDetails(

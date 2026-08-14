@@ -12,7 +12,20 @@
           "package_name": "com.vianasoft.stay"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "907286443175-mok20tbf9lusa5auh162hcr8havg2sc6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.vianasoft.stay",
+            "certificate_hash": "850c2d923fa5110ffdb05c1b49e7e367ce4aa85a"
+          }
+        },
+        {
+          "client_id": "907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDVpdGqbpX_pqpt2GYbpfRSRccxNjMIHFk"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "907286443175-905drg76rvp17qu5si0dn1lga6ppot9g.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.vianasoft.stay"
+              }
+            }
+          ]
         }
       }
     }

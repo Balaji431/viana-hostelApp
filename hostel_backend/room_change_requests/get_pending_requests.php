@@ -22,7 +22,7 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
     if (empty($room_type_name)) {
         if ($request_id) {
             // Try to find the actual room type from the requested room
-            $res = $conn->query("SELECT hr.room_type FROM hostel_rooms hr JOIN room_change_requests rcr ON hr.room_code = rcr.requested_room WHERE rcr.request_id = '$request_id'");
+            $res = $conn->query("SELECT rm.room_type FROM room_master rm JOIN room_change_requests rcr ON rm.room_code = rcr.requested_room WHERE rcr.request_id = '$request_id'");
             if ($res && $row = $res->fetch_assoc()) {
                 $room_type_name = $row['room_type'];
             }
@@ -46,7 +46,7 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
     
     if (empty($normalized) || $normalized === 'AC' || $normalized === 'NON AC' || $normalized === 'STANDARD') {
         if ($request_id) {
-             $res = $conn->query("SELECT hr.room_type FROM hostel_rooms hr JOIN room_change_requests rcr ON hr.room_code = rcr.requested_room WHERE rcr.request_id = '$request_id'");
+             $res = $conn->query("SELECT rm.room_type FROM room_master rm JOIN room_change_requests rcr ON rm.room_code = rcr.requested_room WHERE rcr.request_id = '$request_id'");
              if ($res && $row = $res->fetch_assoc()) {
                  return getFeeForRoomType($conn, $row['room_type']);
              }
@@ -73,9 +73,9 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
  */
 function getWardenForRequestedRoom($conn, $requested_room_code) {
     // 1. Get requested room's location details
-    $query = "SELECT hr.hostel_name, hr.floor, hr.wing_code 
-              FROM hostel_rooms hr 
-              WHERE hr.room_code = ? LIMIT 1";
+    $query = "SELECT rm.location_name as hostel_name, rm.floor_no as floor, rm.building_code as wing_code 
+              FROM room_master rm 
+              WHERE rm.room_code = ? LIMIT 1";
               
     $stmt = $conn->prepare($query);
     $stmt->bind_param("s", $requested_room_code);
@@ -174,6 +174,13 @@ function getWardenForRequestedRoom($conn, $requested_room_code) {
 }
 
 try {
+    // Auto-cancel approved requests that were not completed/paid within 3 days (72 hours)
+    $conn->query("UPDATE room_change_requests 
+                  SET status = 'cancelled', payment_status = 'unpaid', remarks = 'Auto-cancelled after 3 days due to non-payment' 
+                  WHERE (LOWER(status) = 'approved' OR LOWER(status) = 'pre_approved') 
+                  AND payment_status = 'unpaid' 
+                  AND updated_at < DATE_SUB(NOW(), INTERVAL 3 DAY)");
+
     // Get filters
     $status = isset($_GET['status']) ? $_GET['status'] : 'pending';
     $warden_username = isset($_GET['warden_username']) ? $_GET['warden_username'] : null;
@@ -212,10 +219,35 @@ try {
     $requests = [];
     while ($row = $result->fetch_assoc()) {
         // Filter by assigned warden in PHP
-        if ($warden_username) {
-            $assigned_warden = getWardenForRequestedRoom($conn, $row['requested_room']);
-            if ($assigned_warden !== $warden_username) {
-                continue; // Skip this request
+        if ($warden_username && strtolower($warden_username) !== 'admin' && strtolower($warden_username) !== 'warden1') {
+            $escaped_w = $conn->real_escape_string($warden_username);
+            $w_check = $conn->query("SELECT DISTINCT hostel_name FROM mapping_staff WHERE (TRIM(username) = '$escaped_w' OR TRIM(staff_bio_id) = '$escaped_w' OR LOWER(TRIM(name)) LIKE '%" . strtolower($escaped_w) . "%') AND LOWER(role) = 'warden'");
+            $managed_hostels = [];
+            if ($w_check) {
+                while ($w_row = $w_check->fetch_assoc()) {
+                    if (!empty($w_row['hostel_name'])) {
+                        $managed_hostels[] = strtolower(trim($w_row['hostel_name']));
+                    }
+                }
+            }
+
+            if (!empty($managed_hostels)) {
+                $req_room = strtolower($row['requested_room'] ?? '');
+                $curr_room = strtolower($row['current_room'] ?? '');
+                $reason_str = strtolower($row['reason'] ?? '');
+                $is_match = false;
+                foreach ($managed_hostels as $mh) {
+                    if ($mh != '' && (strpos($req_room, $mh) !== false || strpos($curr_room, $mh) !== false || strpos($reason_str, $mh) !== false)) {
+                        $is_match = true;
+                        break;
+                    }
+                }
+                if (!$is_match) {
+                    $assigned_warden = getWardenForRequestedRoom($conn, $row['requested_room']);
+                    if ($assigned_warden !== $warden_username && $assigned_warden !== 'warden1') {
+                        continue;
+                    }
+                }
             }
         }
         $amt = (float)$row['amount_to_pay'];

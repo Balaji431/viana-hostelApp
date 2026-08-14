@@ -60,6 +60,8 @@ class UserProvider with ChangeNotifier {
   String _roomCode = "";
   String _bedNo = "";
   String _roomAllocation = "";
+  String _groupName = "";
+  String _warden = "";
   String _block = "";
   String _wing = "";
   String _roomType = "8-sharing"; // 8-sharing, 6-sharing, 4-sharing
@@ -72,6 +74,13 @@ class UserProvider with ChangeNotifier {
   String _renewalStatus = 'Approved';
   String _conduct = 'Good';
   String _conductRemarks = '';
+
+  // 🔥 DYNAMIC ROOM FEE PROPERTIES
+  double _roomAmount = 70000.0;
+  double _roomFood = 50000.0;
+  double _roomCaution = 5000.0;
+  double _totalFee = 125000.0;
+  double _renewAmount = 120000.0;
 
   // 🔥 TEMPORARY STAY GUEST PROPERTIES
   Map<String, dynamic>? _temporaryStayRequest;
@@ -119,10 +128,30 @@ class UserProvider with ChangeNotifier {
   String get institution => _institution;
   String get hostelName => _hostelName;
   String get hostelType => _hostelType;
-  String get roomNumber => _roomNumber;
+  String get roomNumber {
+    final String val = _roomNumber.isNotEmpty ? _roomNumber : _roomAllocation;
+    return val
+        .replaceAll(' - ', '-')
+        .replaceAll('- ', '-')
+        .replaceAll(' ', '')
+        .replaceAll('T-32', 'T32')
+        .trim();
+  }
   String get roomCode => _roomCode;
   String get bedNo => _bedNo;
-  String get roomAllocation => _roomAllocation;
+  String get roomAllocation {
+    final String val = _roomAllocation.isNotEmpty ? _roomAllocation : _roomNumber;
+    return val
+        .replaceAll(' - ', '-')
+        .replaceAll('- ', '-')
+        .replaceAll(' ', '')
+        .replaceAll('T-32', 'T32')
+        .trim();
+  }
+  String get groupName => _groupName.isNotEmpty
+      ? _groupName
+      : (_hostelName.isNotEmpty ? "$_hostelName Second Floor" : "Vaigai Hostel Second Floor");
+  String get warden => _warden.isNotEmpty ? _warden : "Kanita K";
   String get block => _block;
   String get wing => _wing;
   String get fullRoomDetails => _roomNumber.isNotEmpty
@@ -149,6 +178,13 @@ class UserProvider with ChangeNotifier {
   String get renewalStatus => _renewalStatus;
   String get conduct => _conduct;
   String get conductRemarks => _conductRemarks;
+
+  // 🔥 DYNAMIC ROOM FEE GETTERS
+  double get roomAmount => _roomAmount;
+  double get roomFood => _roomFood;
+  double get roomCaution => _roomCaution;
+  double get totalFee => _totalFee;
+  double get renewAmount => _renewAmount;
 
   bool get isRoomAllocated {
     final String rNum = _roomNumber.trim().toUpperCase();
@@ -336,19 +372,30 @@ class UserProvider with ChangeNotifier {
     _dob = userData['dob']?.toString() ?? "";
     _address = userData['address']?.toString() ?? "";
 
+    String _cleanRoom(dynamic val) {
+      if (val == null) return "";
+      return val.toString().replaceAll(' - ', '-').replaceAll('- ', '-').replaceAll(' ', '').replaceAll('T-32', 'T32').trim();
+    }
     _institution = userData['institution']?.toString() ?? "";
     _hostelName = userData['hostel_name']?.toString() ?? "";
-    _roomNumber = userData['room_no']?.toString() ?? "";
-    _roomCode = userData['room_code']?.toString() ?? "";
+    _roomNumber = _cleanRoom(userData['room_no'] ?? userData['room_allocation']);
+    _roomCode = _cleanRoom(userData['room_code'] ?? userData['room_no'] ?? userData['room_allocation']);
     _bedNo = userData['bed_no']?.toString() ?? "";
     _block = userData['block']?.toString() ?? "";
     _wing = userData['wing']?.toString() ?? "";
-    _roomAllocation = userData['room_allocation']?.toString() ?? "";
+    _roomAllocation = _cleanRoom(userData['room_allocation'] ?? userData['room_no']);
+    _groupName = userData['group_name']?.toString() ?? userData['floor_name']?.toString() ?? "";
+    _warden = userData['warden']?.toString() ?? "";
     // Parse room type from room_allocation (e.g., "Bed: (6 IN 1)" -> "6-sharing")
     _roomType =
         _parseRoomType(_roomAllocation, userData['room_type']?.toString());
     _roomFacility = userData['room_facility']?.toString() ?? "";
     _roomBathAttached = userData['room_bath_attached']?.toString() ?? "";
+    _roomAmount = double.tryParse(userData['room_amount']?.toString() ?? '') ?? 70000.0;
+    _roomFood = double.tryParse(userData['room_food']?.toString() ?? '') ?? 50000.0;
+    _roomCaution = double.tryParse(userData['room_caution']?.toString() ?? '') ?? 5000.0;
+    _totalFee = double.tryParse(userData['total_fee']?.toString() ?? '') ?? (_roomAmount + _roomFood + _roomCaution);
+    _renewAmount = double.tryParse(userData['renew_amount']?.toString() ?? '') ?? (_roomAmount + _roomFood);
     _profilePic = userData['profile_pic']?.toString() ?? "";
     _conduct = userData['conduct']?.toString() ?? "Good";
     _conductRemarks = userData['conduct_remarks']?.toString() ?? "";
@@ -451,35 +498,42 @@ class UserProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // 🔥 SAVE FCM TOKEN TO BACKEND
+  // 🔥 SAVE FCM TOKEN TO BACKEND — called immediately after login
   Future<void> _saveFCMTokenAfterStartup() async {
     if (kIsWeb) return;
-    await Future<void>.delayed(const Duration(seconds: 6));
+    // No artificial delay — use the cached token from NotificationService init.
+    // If the token isn't cached yet (very rare: device just booted), wait briefly.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
     await _saveFCMToken();
   }
 
   Future<void> _saveFCMToken() async {
     try {
-      // Use _loginUsername as the primary identifier (consistent with send_message.php logic)
+      // Prefer _loginUsername (actual login key like 'admin1', '29066')
+      // Fall back to _registerNo for students
       final String username =
           (_loginUsername != null && _loginUsername!.isNotEmpty)
               ? _loginUsername!
               : _registerNo;
 
       if (username.isNotEmpty && username != 'null') {
-        final String? token =
-            await NotificationService.getToken();
+        // First try the cached token from NotificationService (already fetched at app init)
+        // This avoids a second Firebase call and works even if the app is foregrounded
+        String? token = NotificationService.cachedToken;
+        if (token == null || token.isEmpty) {
+          // Fallback: ask Firebase directly (first-ever launch or token expired)
+          token = await NotificationService.getToken();
+        }
         if (token != null && token.isNotEmpty) {
-          await NotificationService.saveTokenToBackend(
-            username,
-            token,
-          );
+          await NotificationService.saveTokenToBackend(username, token);
+        } else {
+          AppLogger.error('FCM token is null — cannot register for push notifications');
         }
       } else {
-        AppLogger.error("Invalid username for FCM token save");
+        AppLogger.error('Invalid username for FCM token save: "$username"');
       }
     } catch (e) {
-      AppLogger.error("Error saving FCM token: $e");
+      AppLogger.error('Error saving FCM token: $e');
     }
   }
 
@@ -583,11 +637,15 @@ class UserProvider with ChangeNotifier {
     if (userData.containsKey('hostel_type')) {
       _hostelType = userData['hostel_type']?.toString() ?? _hostelType;
     }
+    String _cleanRoom(dynamic val) {
+      if (val == null) return "";
+      return val.toString().replaceAll(' - ', '-').replaceAll('- ', '-').replaceAll(' ', '').replaceAll('T-32', 'T32').trim();
+    }
     if (userData.containsKey('room_no')) {
-      _roomNumber = userData['room_no']?.toString() ?? _roomNumber;
+      _roomNumber = _cleanRoom(userData['room_no']);
     }
     if (userData.containsKey('room_code')) {
-      _roomCode = userData['room_code']?.toString() ?? _roomCode;
+      _roomCode = _cleanRoom(userData['room_code']);
     }
     if (userData.containsKey('bed_no')) {
       _bedNo = userData['bed_no']?.toString() ?? _bedNo;
@@ -599,16 +657,44 @@ class UserProvider with ChangeNotifier {
       _wing = userData['wing']?.toString() ?? _wing;
     }
     if (userData.containsKey('room_allocation')) {
-      _roomAllocation =
-          userData['room_allocation']?.toString() ?? _roomAllocation;
+      _roomAllocation = _cleanRoom(userData['room_allocation']);
+    }
+    if (userData.containsKey('group_name') && userData['group_name'] != null && userData['group_name'].toString().isNotEmpty) {
+      _groupName = userData['group_name'].toString();
+    } else if (userData.containsKey('floor_name') && userData['floor_name'] != null && userData['floor_name'].toString().isNotEmpty) {
+      _groupName = userData['floor_name'].toString();
+    }
+    if (userData.containsKey('warden') && userData['warden'] != null && userData['warden'].toString().isNotEmpty) {
+      _warden = userData['warden'].toString();
     }
     final String? rawRoomType = userData['room_type']?.toString();
     _roomType = _parseRoomType(_roomAllocation, rawRoomType);
     _roomFacility = userData['room_facility']?.toString() ?? _roomFacility;
     _roomBathAttached =
         userData['room_bath_attached']?.toString() ?? _roomBathAttached;
+    
+    if (userData.containsKey('room_amount') && userData['room_amount'] != null) {
+      _roomAmount = double.tryParse(userData['room_amount'].toString()) ?? _roomAmount;
+    }
+    if (userData.containsKey('room_food') && userData['room_food'] != null) {
+      _roomFood = double.tryParse(userData['room_food'].toString()) ?? _roomFood;
+    }
+    if (userData.containsKey('room_caution') && userData['room_caution'] != null) {
+      _roomCaution = double.tryParse(userData['room_caution'].toString()) ?? _roomCaution;
+    }
+    if (userData.containsKey('total_fee') && userData['total_fee'] != null) {
+      _totalFee = double.tryParse(userData['total_fee'].toString()) ?? (_roomAmount + _roomFood + _roomCaution);
+    } else if (userData.containsKey('room_amount')) {
+      _totalFee = _roomAmount + _roomFood + _roomCaution;
+    }
+    if (userData.containsKey('renew_amount') && userData['renew_amount'] != null) {
+      _renewAmount = double.tryParse(userData['renew_amount'].toString()) ?? (_roomAmount + _roomFood);
+    } else if (userData.containsKey('room_amount')) {
+      _renewAmount = _roomAmount + _roomFood;
+    }
+
     AppLogger.info(
-        "SYNC: Received raw room_type: $rawRoomType, Parsed to: $_roomType");
+        "SYNC: Received raw room_type: $rawRoomType, Parsed to: $_roomType, TotalFee: $_totalFee, Amount: $_roomAmount");
     if (userData.containsKey('profile_pic')) {
       _profilePic = userData['profile_pic']?.toString() ?? _profilePic;
     }

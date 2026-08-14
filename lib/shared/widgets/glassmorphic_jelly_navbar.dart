@@ -42,7 +42,8 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
   // Track the layout constraints
   double _totalWidth = 0.0;
   double _tabWidth = 0.0;
-  static const double _barHeight = 72.0;
+  
+  double get _barHeight => widget.totalTabs >= 6 ? 64.0 : 72.0;
 
   @override
   void initState() {
@@ -54,7 +55,7 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
 
     _controller.addListener(_updateAnimation);
     
-    // Set initial positions once width is known (calculated in build via LayoutBuilder)
+    // Set initial positions once width is known
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _snapToTab(widget.currentIndex, animate: false);
     });
@@ -78,22 +79,16 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
   void _updateAnimation() {
     final t = _controller.value;
     
-    // If moving right (endLeft > startLeft), left edge lags behind right edge
-    // If moving left (endLeft < startLeft), right edge lags behind left edge
     final bool movingRight = _endLeft > _startLeft;
 
     double leftT;
     double rightT;
 
     if (movingRight) {
-      // Right edge moves fast with a bouncy elastic curve
       rightT = const ElasticOutCurve(0.85).transform(t);
-      // Left edge starts later (lag)
       leftT = Interval(0.15, 1.0, curve: Curves.easeOutCubic).transform(t);
     } else {
-      // Left edge moves fast with bouncy elastic
       leftT = const ElasticOutCurve(0.85).transform(t);
-      // Right edge lags
       rightT = Interval(0.15, 1.0, curve: Curves.easeOutCubic).transform(t);
     }
 
@@ -107,7 +102,7 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
     if (_totalWidth == 0.0) return;
 
     final targetCenter = (index + 0.5) * _tabWidth;
-    const basePillWidth = 44.0;
+    final double basePillWidth = widget.totalTabs >= 6 ? 34.0 : 44.0;
     final halfPillWidth = basePillWidth / 2;
     
     final targetLeft = targetCenter - halfPillWidth;
@@ -132,11 +127,9 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
     final startX = details.localPosition.dx;
     final currentCenter = _currentLeft + (_currentRight - _currentLeft) / 2;
     
-    // Find the touch coordinates relative to the current active tab
     final leftLimit = widget.currentIndex * _tabWidth;
     final rightLimit = (widget.currentIndex + 1) * _tabWidth;
     
-    // Allow small touch padding of 15px to make it easy to grab
     if (startX >= leftLimit - 15 && startX <= rightLimit + 15) {
       _controller.stop();
       setState(() {
@@ -157,25 +150,21 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
     final touchX = details.localPosition.dx;
     _dragX = (touchX - _dragOffset).clamp(0.0, _totalWidth);
 
-    const basePillWidth = 44.0;
+    final double basePillWidth = widget.totalTabs >= 6 ? 34.0 : 44.0;
     final halfPillWidth = basePillWidth / 2;
     
-    // Stretch factor based on speed/delta of the drag
     final double dragDelta = details.delta.dx;
     final double stretch = (dragDelta * 1.8).clamp(-22.0, 22.0);
 
     setState(() {
       if (dragDelta > 0) {
-        // Dragging right: stretch right edge forward
         _currentLeft = _dragX - halfPillWidth;
         _currentRight = _dragX + halfPillWidth + stretch;
       } else {
-        // Dragging left: stretch left edge backward
         _currentLeft = _dragX - halfPillWidth + stretch;
         _currentRight = _dragX + halfPillWidth;
       }
 
-      // Live haptic ticking as slider crosses tab thresholds
       final center = _currentLeft + (_currentRight - _currentLeft) / 2;
       final int activeHoverIndex = (center / _tabWidth).floor().clamp(0, widget.totalTabs - 1);
       if (activeHoverIndex != _lastHoverIndex) {
@@ -198,8 +187,14 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
 
   @override
   Widget build(BuildContext context) {
+    final double horizontalMargin = widget.totalTabs >= 6 ? 8.0 : 16.0;
+    final double bottomMargin = widget.totalTabs >= 6 ? 12.0 : 20.0;
+    final double iconSize = widget.totalTabs >= 6 ? 20.0 : 24.0;
+    final double labelFontSize = widget.totalTabs >= 6 ? 8.5 : 10.0;
+    final double pillHeight = widget.totalTabs >= 6 ? 38.0 : 44.0;
+
     return Container(
-      margin: const EdgeInsets.only(left: 16, right: 16, bottom: 20, top: 8),
+      margin: EdgeInsets.only(left: horizontalMargin, right: horizontalMargin, bottom: bottomMargin, top: 4),
       height: _barHeight,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(32),
@@ -217,10 +212,10 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
           filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F0E6).withOpacity(0.75), // premium light cream glass overlay
+              color: const Color(0xFFF5F0E6).withOpacity(0.85), // premium light cream glass overlay
               borderRadius: BorderRadius.circular(32),
               border: Border.all(
-                color: const Color(0xFFD4AF37).withOpacity(0.25),
+                color: const Color(0xFFD4AF37).withOpacity(0.3),
                 width: 1.0,
               ),
             ),
@@ -229,7 +224,6 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
                 _totalWidth = constraints.maxWidth;
                 _tabWidth = _totalWidth / widget.totalTabs;
 
-                // Safely update position if tab centers were zero initially
                 if (_currentLeft == 0.0 && _currentRight == 0.0 && _totalWidth > 0.0) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     _snapToTab(widget.currentIndex, animate: false);
@@ -242,9 +236,9 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
                     // Glassmorphic Jelly Slider Pill
                     Positioned(
                       left: _currentLeft,
-                      top: 7,
-                      width: (_currentRight - _currentLeft).clamp(20.0, _tabWidth * 1.5),
-                      height: 44,
+                      top: widget.totalTabs >= 6 ? 5 : 7,
+                      width: (_currentRight - _currentLeft).clamp(18.0, _tabWidth * 1.5),
+                      height: pillHeight,
                       child: AnimatedScale(
                         scale: _isDragging ? 1.08 : 1.0,
                         duration: const Duration(milliseconds: 200),
@@ -256,13 +250,13 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                const Color(0xFFF5F0E6).withOpacity(0.55),
-                                const Color(0xFFF5F0E6).withOpacity(0.25),
+                                const Color(0xFFF5F0E6).withOpacity(0.65),
+                                const Color(0xFFF5F0E6).withOpacity(0.35),
                               ],
                             ),
                             borderRadius: BorderRadius.circular(22),
                             border: Border.all(
-                              color: const Color(0xFFD4AF37).withOpacity(0.25),
+                              color: const Color(0xFFD4AF37).withOpacity(0.35),
                               width: 1.2,
                             ),
                             boxShadow: [
@@ -302,35 +296,32 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
                               },
                               behavior: HitTestBehavior.opaque,
                               child: Column(
-                                mainAxisAlignment: MainAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const SizedBox(height: 7),
                                   SizedBox(
-                                    height: 44,
+                                    height: pillHeight,
                                     child: Center(
                                       child: Icon(
                                         isHighlighted ? tab.activeIcon : tab.icon,
                                         color: isHighlighted
                                             ? const Color(0xFFD4AF37)
                                             : const Color(0xFF4A4A4A),
-                                        size: 24,
-                                        shadows: null,
+                                        size: iconSize,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: 1),
                                   Text(
                                     tab.label,
                                     style: TextStyle(
                                       color: isHighlighted
                                           ? const Color(0xFFD4AF37)
                                           : const Color(0xFF4A4A4A),
-                                      fontSize: 10,
+                                      fontSize: labelFontSize,
                                       fontWeight: isHighlighted
                                           ? FontWeight.w700
                                           : FontWeight.w500,
                                       fontFamily: 'Lato',
-                                      shadows: null,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,

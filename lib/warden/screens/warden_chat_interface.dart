@@ -28,6 +28,7 @@ class WardenChatInterface extends StatefulWidget {
 
 class _WardenChatInterfaceState extends State<WardenChatInterface> {
   Map<String, dynamic>? _activeConversation;
+  String? _activeRequestId;
   List<Map<String, dynamic>> _conversations = [];
   List<Map<String, dynamic>> _activeMessages = [];
   bool _isLoading = true;
@@ -72,7 +73,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
       if (mounted) {
         if (_activeConversation == null) {
           _fetchConversations(silent: true);
@@ -186,13 +187,30 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
           final user = context.read<UserProvider>();
           final myUsername = user.username.toString();
           final myDbId = user.dbId?.toString() ?? "";
+
+          // Resolve active request ID if not yet assigned
+          if (_activeRequestId == null || _activeRequestId!.isEmpty) {
+            for (var m in newMsgList) {
+              final rid = m['request_id']?.toString() ?? m['req_id']?.toString();
+              if (rid != null && rid.isNotEmpty) {
+                _activeRequestId = rid;
+                break;
+              }
+            }
+          }
+          if (_activeRequestId == null || _activeRequestId!.isEmpty) {
+            _activeRequestId = _activeConversation?['request_id']?.toString();
+          }
+
           bool hasIncoming = newMsgList.any((msg) =>
             msg['status'] != 'seen' &&
             !( (msg['sender_username']?.toString() == myUsername && myUsername.isNotEmpty) || 
                (msg['sender_id']?.toString() == myDbId && myDbId.isNotEmpty) )
           );
-          if (hasIncoming && _activeRequestId != null && mounted) {
-            ApiService.markRead(_activeRequestId!, user.username);
+          if (hasIncoming && _activeRequestId != null && _activeRequestId!.isNotEmpty && mounted) {
+            ApiService.markRead(_activeRequestId!, user.username).then((_) {
+              if (mounted) context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username, force: true);
+            });
           }
         }
       }
@@ -263,8 +281,6 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
       }
     });
   }
-
-  String? get _activeRequestId => _activeConversation?['request_id']?.toString();
 
   DateTime _parseTimestamp(dynamic timestamp) {
     if (timestamp == null || timestamp == 'null' || timestamp == '') return DateTime.now();
@@ -488,15 +504,18 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
           contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
           onTap: () {
             setState(() {
+              conv['unread_count'] = 0;
               _activeConversation = conv;
+              _activeRequestId = conv['request_id']?.toString();
               _activeMessages = [];
               _isLoading = true;
             });
             final user = context.read<UserProvider>();
+            context.read<CategoryProvider>().setUnreadCount(widget.channel, 0);
             final requestId = conv['request_id']?.toString() ?? "";
-            if (user.username.isNotEmpty) {
+            if (user.username.isNotEmpty && requestId.isNotEmpty) {
               ApiService.markRead(requestId, user.username).then((_) {
-                if (mounted) context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username);
+                if (mounted) context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username, force: true);
               });
             }
             _fetchMessages();

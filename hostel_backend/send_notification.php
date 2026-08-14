@@ -72,6 +72,7 @@ function sendFCM($token, $title, $body, $requestId = '', $senderId = '', $sender
                 'data' => [
                     'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
                     'request_id'   => (string)$requestId,
+                    'message_id'   => (string)time() . '_' . rand(100, 999),
                     'sender_id'    => (string)$senderId,
                     'sender_name'  => (string)$senderName,
                     'message'      => (string)$messageText,
@@ -79,6 +80,7 @@ function sendFCM($token, $title, $body, $requestId = '', $senderId = '', $sender
                     'body'         => (string)$body,
                     'type'         => (string)$type,
                     'department'   => (string)$department,
+                    'timestamp'    => (string)time(),
                 ],
                 'android' => [
                     'priority' => 'high',   // Wakes device even in Doze mode

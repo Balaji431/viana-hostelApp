@@ -40,7 +40,7 @@ try {
     }
 
     if ($is_in_users_table) {
-        $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType as hostel_gender,
+        $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType as hostel_gender, u.RoomType as u_room_type,
                          COALESCE(p.email, u.email) as email, 
                          COALESCE(p.personal_phone, u.phone_number) as phone, 
                          COALESCE(p.institution, u.Institution) as institution, COALESCE(p.hostel_name, u.HostelName) as profile_hostel, p.address, p.dob, p.profile_pic,
@@ -50,12 +50,24 @@ try {
                          p.renewal_date,
                          p.remaining_days,
                          p.bed_no,
+                         COALESCE(NULLIF(rgd.warden_name,''), p.warden) as warden,
                          u.biometric_id,
-                         rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel,
-                         rgd.room_type as room_type, '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code
+                         rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, rgd.group_name as group_name, '' as wing_name, rgd.hostel_name as room_hostel,
+                         COALESCE(NULLIF(rgd.room_type,''), NULLIF(rm.room_type,''), u.RoomType) as room_type,
+                         COALESCE(NULLIF(rm.amount, 0), NULLIF(rgd.amount, 0), 0) as rm_amount,
+                         COALESCE(NULLIF(rm.food, 0), NULLIF(rgd.food, 0), 0) as rm_food,
+                         COALESCE(NULLIF(rm.caution_deposit, 0), NULLIF(rgd.caution_deposit, 0), 0) as rm_caution,
+                         rgd.room_number as room_code
                   FROM users u
                   LEFT JOIN profile p ON u.username = p.reg_no
-                  LEFT JOIN rooms_groups_details rgd ON (rgd.room_number = COALESCE(NULLIF(p.room_allocation,''), u.RoomId))
+                  LEFT JOIN rooms_groups_details rgd ON (
+                      rgd.room_number = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
+                      OR REPLACE(REPLACE(TRIM(rgd.room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
+                  )
+                  LEFT JOIN room_master rm ON (
+                      rm.room_code = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
+                      OR REPLACE(REPLACE(TRIM(rm.room_code), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
+                  )
                   WHERE u.id = :id LIMIT 1";
 
         $stmt = $db->prepare($query);
@@ -112,6 +124,28 @@ try {
                 }
             }
 
+            // Dynamic fee calculation per room and room type
+            $resolvedRoomType = trim($row['room_type'] ?? $row['u_room_type'] ?? 'Standard Room');
+            $rTypeLower = strtolower($resolvedRoomType);
+            $isAc = (strpos($rTypeLower, 'ac') !== false);
+
+            $room_amount = (float)($row['rm_amount'] > 0 ? $row['rm_amount'] : 0);
+            if ($room_amount <= 0 && !empty($resolvedRoomType)) {
+                $typeStmt = $db->prepare("SELECT MAX(amount) as amt FROM room_master WHERE LOWER(TRIM(room_type)) = ? AND amount > 0");
+                $typeStmt->execute([$rTypeLower]);
+                $typeAmt = $typeStmt->fetchColumn();
+                if ($typeAmt && $typeAmt > 0) {
+                    $room_amount = (float)$typeAmt;
+                } else {
+                    $room_amount = 70000;
+                }
+            }
+
+            $room_food = (float)($row['rm_food'] > 0 ? $row['rm_food'] : 50000);
+            $room_caution = (float)($row['rm_caution'] > 0 ? $row['rm_caution'] : ($isAc ? 10000 : 5000));
+            $total_fee = $room_amount + $room_food + $room_caution;
+            $renew_amount = $room_amount + $room_food;
+
             $user_data = [
                 "id" => $row['id'],
                 "username" => $row['register_no'],
@@ -134,14 +168,22 @@ try {
                 "conduct" => $row['conduct'] ?? 'Good',
                 "conduct_remarks" => $row['conduct_remarks'] ?? '',
                 "biometric_id" => $row['biometric_id'] ?? '',
+                "warden" => $row['warden'] ?? '',
+                "group_name" => $row['group_name'] ?? $row['floor_name'] ?? '',
+                "floor_name" => $row['floor_name'] ?? $row['group_name'] ?? '',
                 "room_no" => $room_no,
                 "room_code" => $row['room_code'] ?? $row['room_allocation'] ?? 'N/A',
                 "block" => $mapped_floor,
                 "wing" => $mapped_wing,
-                "room_type" => $row['room_type'] ?? 'Standard Room',
-                "room_facility" => $row['room_facility'] ?? 'NON AC',
-                "room_bath_attached" => $row['room_bath_attached'] ?? 'No',
-                "hostel_type" => $row['hostel_gender'] ?? 'Boys'
+                "room_type" => $resolvedRoomType,
+                "room_facility" => $isAc ? 'AC' : 'NON AC',
+                "room_bath_attached" => (strpos($rTypeLower, 'bath') !== false || strpos($rTypeLower, 'b and t') !== false) ? 'Yes' : 'No',
+                "hostel_type" => $row['hostel_gender'] ?? 'Boys',
+                "room_amount" => $room_amount,
+                "room_food" => $room_food,
+                "room_caution" => $room_caution,
+                "total_fee" => $total_fee,
+                "renew_amount" => $renew_amount
             ];
             echo json_encode(['success' => true, 'data' => $user_data]);
         } else {

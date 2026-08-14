@@ -33,6 +33,7 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
   String _assignedStaffName = 'Warden';
   String? _assignedStaffUsername;
   bool _isAssigned = true;
+  String _groupName = '';
   final List<Map<String, dynamic>> _messages = [];
   final ScrollController _scrollController = ScrollController(); 
 
@@ -81,12 +82,20 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
     final deptKey = widget.department.toLowerCase();
     bool isAssigned = false;
     
+    if (user.warden.isNotEmpty) {
+      _assignedStaffName = user.warden;
+      _isAssigned = true;
+    }
+
     if (catProvider.assignedStaff.containsKey(deptKey) && catProvider.assignedStaff[deptKey] != null) {
       isAssigned = true;
       if (mounted) {
         setState(() {
-          _assignedStaffName = catProvider.assignedStaff[deptKey]['name'] ?? widget.department;
+          _assignedStaffName = catProvider.assignedStaff[deptKey]['name'] ?? user.warden;
           _assignedStaffUsername = catProvider.assignedStaff[deptKey]['username']?.toString();
+          if (catProvider.assignedStaff['group_name'] != null && catProvider.assignedStaff['group_name'].toString().isNotEmpty) {
+            _groupName = catProvider.assignedStaff['group_name'].toString();
+          }
           _isAssigned = true;
         });
       }
@@ -94,12 +103,17 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
     // Call this asynchronously in the background so it doesn't block loading
     ApiService.getAssignedStaff(user.dbId!).then((staffRes) {
-      if (staffRes['success'] == true && staffRes['data'] != null && staffRes['data'][deptKey] != null) {
+      if (staffRes['success'] == true) {
         if (mounted) {
           setState(() {
-            _assignedStaffName = staffRes['data'][deptKey]['name'] ?? widget.department;
-            _assignedStaffUsername = staffRes['data'][deptKey]['username']?.toString();
-            _isAssigned = true;
+            if (staffRes['group_name'] != null && staffRes['group_name'].toString().isNotEmpty) {
+              _groupName = staffRes['group_name'].toString();
+            }
+            if (staffRes['data'] != null && staffRes['data'][deptKey] != null) {
+              _assignedStaffName = staffRes['data'][deptKey]['name'] ?? widget.department;
+              _assignedStaffUsername = staffRes['data'][deptKey]['username']?.toString();
+              _isAssigned = true;
+            }
           });
         }
       } else {
@@ -139,7 +153,7 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
       if (mounted) _fetchMessages(silent: true);
     });
   }
@@ -172,7 +186,7 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
         if (_activeRequestId == null && data.isNotEmpty) {
           for (var msg in data) {
             final rid = msg['request_id'] ?? msg['req_id'];
-            if (rid != null) {
+            if (rid != null && rid.toString().isNotEmpty) {
               _activeRequestId = rid.toString();
               break;
             }
@@ -183,6 +197,8 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             final List<Map<String, dynamic>> updatedList = [];
             
             for (var msg in data) {
+              if (msg['id'] == null) continue;
+              
               String type = 'text';
               String messageType = msg['message_type']?.toString() ?? "";
               if (messageType == 'request' || messageType == 'request_card') {
@@ -211,19 +227,18 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
               updatedList.add(serverMsg);
             }
 
+            // Only retain messages that are actively in 'sending' state (within last 15s)
             for (var localMsg in _messages) {
-              final localId = localMsg['id']?.toString() ?? "";
-              if (localId.startsWith('local_')) {
-                bool matchesServer = updatedList.any((s) => 
-                  (s['content'].toString().trim().toLowerCase() == localMsg['content'].toString().trim().toLowerCase() &&
-                   s['sender'] == 'student') ||
-                  (s['type'] == 'request' &&
-                   localMsg['type'] == 'request' &&
-                   (s['request_id']?.toString() == localMsg['request_id']?.toString() ||
-                    s['category']?.toString().toLowerCase() == localMsg['category']?.toString().toLowerCase()))
-                );
-                if (!matchesServer) {
-                  updatedList.add(localMsg);
+              if (localMsg['status'] == 'sending') {
+                final localTime = _parseTimestamp(localMsg['timestamp']);
+                if (DateTime.now().difference(localTime).inSeconds < 15) {
+                  bool matchesServer = updatedList.any((s) => 
+                    s['content'].toString().trim() == localMsg['content'].toString().trim() &&
+                    s['sender'] == 'student'
+                  );
+                  if (!matchesServer) {
+                    updatedList.add(localMsg);
+                  }
                 }
               }
             }
@@ -244,7 +259,12 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             );
             
             if (hasIncoming && _activeRequestId != null && mounted) {
-              ApiService.markRead(_activeRequestId!, user.username);
+              ApiService.markRead(_activeRequestId!, user.username).then((_) {
+                if (mounted) {
+                  context.read<CategoryProvider>().setUnreadCount(widget.department, 0);
+                  context.read<CategoryProvider>().fetchCounts(studentUsername: user.username, force: true);
+                }
+              });
             }
           });
       }
@@ -658,9 +678,24 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
   Widget _buildSubHeader() {
     final user = context.read<UserProvider>();
-    final roomCode = user.isParent 
+    final rawRoom = user.isParent 
         ? user.linkedStudentRoom 
         : (user.roomNumber.isNotEmpty ? user.roomNumber : user.roomAllocation);
+
+    final roomCode = rawRoom
+        .replaceAll(' - ', '-')
+        .replaceAll('- ', '-')
+        .replaceAll(' ', '')
+        .replaceAll('T-32', 'T32')
+        .trim();
+
+    final displayGroup = _groupName.isNotEmpty 
+        ? _groupName 
+        : (user.groupName.isNotEmpty ? user.groupName : (user.hostelName.isNotEmpty ? "${user.hostelName} Second Floor" : ""));
+
+    final String labelText = displayGroup.isNotEmpty
+        ? (roomCode.isNotEmpty ? "$displayGroup • $roomCode" : displayGroup)
+        : (roomCode.isNotEmpty ? roomCode : "Room Unallocated");
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -668,7 +703,15 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(roomCode.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato')),
+          Expanded(
+            child: Text(
+              labelText, 
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
@@ -873,12 +916,15 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             children: [
               Icon(Icons.lock_outline, color: Colors.grey.shade600, size: 18),
               const SizedBox(width: 8),
-              Text(
-                'Chat disabled: ${widget.department} not assigned',
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  'Chat disabled: ${widget.department} not assigned',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -906,7 +952,12 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: const [
-                Text('Select a request category...'),
+                Expanded(
+                  child: Text(
+                    'Select a request category...',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 Icon(Icons.keyboard_arrow_down),
               ],
             ),
@@ -934,7 +985,13 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(_selectedCategory ?? 'Select a request category...', style: TextStyle(color: _selectedCategory == null ? Colors.grey : const Color(0xFF1B2B48), fontWeight: FontWeight.bold)),
+                    Expanded(
+                      child: Text(
+                        _selectedCategory ?? 'Select a request category...', 
+                        style: TextStyle(color: _selectedCategory == null ? Colors.grey : const Color(0xFF1B2B48), fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                     const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
                   ],
                 ),

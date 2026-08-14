@@ -10,16 +10,20 @@ import 'user_provider.dart';
 import 'request_provider.dart';
 import 'ui_provider.dart';
 import 'category_provider.dart';
+import '../core/notification_service.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
 import '../core/providers/mapping_provider.dart';
 import '../core/providers/allocation_provider.dart';
 import '../student/screens/home_screen.dart';
 import '../student/screens/attendance_page.dart' show AttendancePage, BiometricHistoryPage;
+import '../student/screens/no_due_page.dart';
 import '../student/screens/settings_page.dart';
 import '../warden/screens/warden_home_tab.dart';
 import '../warden/screens/warden_attendance_tab.dart';
 import '../warden/screens/warden_reports_tab.dart';
 import '../warden/screens/warden_management_tab.dart';
+import '../warden/screens/warden_room_change_requests_screen.dart';
+import '../warden/screens/warden_room_search_screen.dart';
 import '../admin/admin_screen.dart';
 import '../admin/screens/admin_activity_logs_screen.dart';
 import '../admin/screens/temporary_stay_admin_screen.dart';
@@ -171,6 +175,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   }
 
   void _applyInitialUiState() {
+    context.read<UIProvider>().setShowBottomNavBar(true);
     if (widget.initialRequestId != null) {
       if (widget.showAnnouncements) {
         context.read<UIProvider>().setActiveChatChannel('Announcements');
@@ -223,7 +228,9 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
       }
     }
 
-    _countTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+    NotificationService.fcmRefreshNotifier.addListener(_onFCMCountRefresh);
+
+    _countTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (mounted) {
         final currentUser = Provider.of<UserProvider>(context, listen: false);
         final currentCatProvider =
@@ -233,24 +240,34 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     });
   }
 
-  void _fetchUnreadCounts(UserProvider user, CategoryProvider catProvider) {
+  void _onFCMCountRefresh() {
+    if (mounted) {
+      final currentUser = Provider.of<UserProvider>(context, listen: false);
+      final currentCatProvider =
+          Provider.of<CategoryProvider>(context, listen: false);
+      _fetchUnreadCounts(currentUser, currentCatProvider, force: true);
+    }
+  }
+
+  void _fetchUnreadCounts(UserProvider user, CategoryProvider catProvider, {bool force = false}) {
     if (user.role == UserRole.warden ||
         user.role == UserRole.admin ||
         user.role == UserRole.security ||
         user.role == UserRole.maintenance ||
         user.role == UserRole.staff) {
-      catProvider.fetchCounts(wardenUsername: user.username);
+      catProvider.fetchCounts(wardenUsername: user.username, force: force);
     } else if (user.role == UserRole.student) {
-      catProvider.fetchCounts(studentUsername: user.username);
+      catProvider.fetchCounts(studentUsername: user.username, force: force);
     } else if (user.isParent) {
-      catProvider.fetchCounts(studentUsername: user.username);
+      catProvider.fetchCounts(studentUsername: user.username, force: force);
     } else {
-      catProvider.fetchCounts();
+      catProvider.fetchCounts(force: force);
     }
   }
 
   @override
   void dispose() {
+    NotificationService.fcmRefreshNotifier.removeListener(_onFCMCountRefresh);
     _pageController.dispose();
     _countTimer?.cancel();
     if (kIsWeb) {
@@ -299,20 +316,31 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                   )
                 : null,
             child: isDesktop
-                ? Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        _buildSidebar(context, user, tabs),
-                        _buildMainContentCard(isDesktop, tabs),
-                        if (ui.activeChatChannel != null)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 12),
-                            child: _buildChatSidePanel(context, ui, user.role),
+                ? LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                          child: Center(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                _buildSidebar(context, user, tabs),
+                                const SizedBox(width: 16),
+                                _buildMainContentCard(isDesktop, tabs),
+                                if (ui.activeChatChannel != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 12),
+                                    child: _buildChatSidePanel(context, ui, user.role),
+                                  ),
+                              ],
+                            ),
                           ),
-                      ],
-                    ),
+                        ),
+                      );
+                    },
                   )
                 : LinenGridBackground(
                     child: _buildMainContentCard(isDesktop, tabs),
@@ -437,19 +465,22 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
 
   Widget _buildChatSidePanel(
       BuildContext context, UIProvider ui, UserRole role) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final dynamicWidth = (screenWidth - 220 - 390 - 44).clamp(300.0, 400.0);
+
     return SizedBox(
       height: MediaQuery.of(context).size.height,
       child: Container(
-        width: 400,
+        width: dynamicWidth,
         margin: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
         decoration: BoxDecoration(
           color: const Color(0xFFF9F6F1),
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
                 color: Colors.black45,
                 blurRadius: 15,
-                offset: const Offset(0, 5))
+                offset: Offset(0, 5))
           ],
         ),
         clipBehavior: Clip.antiAlias,
@@ -787,6 +818,11 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
               activeIcon: Icons.calendar_month,
               page: AttendancePage()),
           const _TabItem(
+              label: 'No Due',
+              icon: Icons.receipt_long_outlined,
+              activeIcon: Icons.receipt_long,
+              page: NoDuePage()),
+          const _TabItem(
               label: 'Bio History',
               icon: Icons.fingerprint,
               activeIcon: Icons.fingerprint,
@@ -846,6 +882,11 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
               activeIcon: Icons.calendar_month,
               page: WardenAttendanceTab()),
           _TabItem(
+              label: 'Transfer',
+              icon: Icons.sync_outlined,
+              activeIcon: Icons.sync,
+              page: WardenRoomChangeRequestsScreen(wardenId: user.dbId ?? 1)),
+          _TabItem(
               label: 'Reports',
               icon: Icons.bar_chart_outlined,
               activeIcon: Icons.bar_chart,
@@ -855,6 +896,11 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
               icon: Icons.settings_outlined,
               activeIcon: Icons.settings,
               page: WardenManagementTab()),
+          const _TabItem(
+              label: 'Room Search',
+              icon: Icons.search_outlined,
+              activeIcon: Icons.search,
+              page: WardenRoomSearchScreen()),
           const _TabItem(
               label: 'Settings',
               icon: Icons.person_outline,

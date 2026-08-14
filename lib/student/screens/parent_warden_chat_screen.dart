@@ -149,9 +149,10 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
 
         if (mounted) {
           setState(() {
+            final List<Map<String, dynamic>> updatedList = [];
             for (var msg in data) {
-              final serverId = msg['id']?.toString();
-              if (serverId == null) continue;
+              final serverId = msg['id']?.toString() ?? '';
+              if (serverId.isEmpty) continue;
 
               String type = 'text';
               String messageType = msg['message_type']?.toString() ?? "";
@@ -176,27 +177,32 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
                 'status': msg['status']?.toString() ?? 'sent',
                 'request_data': msg,
               };
+              updatedList.add(serverMsg);
+            }
 
-              _messages.removeWhere((m) => 
-                m['id'].toString().startsWith('temp') && 
-                m['content'] == serverMsg['content']
-              );
-
-              int existingIndex = _messages.indexWhere((m) => m['id']?.toString() == serverId);
-              if (existingIndex != -1) {
-                if (_messages[existingIndex]['status'] != serverMsg['status']) {
-                  _messages[existingIndex]['status'] = serverMsg['status'];
+            // Retain actively sending messages (within last 15s)
+            for (var localMsg in _messages) {
+              if (localMsg['status'] == 'sending') {
+                final localTime = _parseTimestamp(localMsg['timestamp']);
+                if (DateTime.now().difference(localTime).inSeconds < 15) {
+                  bool matchesServer = updatedList.any((s) =>
+                    s['content'].toString().trim() == localMsg['content'].toString().trim()
+                  );
+                  if (!matchesServer) {
+                    updatedList.add(localMsg);
+                  }
                 }
-              } else {
-                _messages.add(serverMsg);
               }
             }
 
-            _messages.sort((a, b) {
+            updatedList.sort((a, b) {
               final t1 = _parseTimestamp(a['timestamp']);
               final t2 = _parseTimestamp(b['timestamp']);
               return t2.compareTo(t1);
             });
+
+            _messages.clear();
+            _messages.addAll(updatedList);
 
             bool hasIncoming = data.any((msg) =>
               msg['sender_id']?.toString() != user.username &&

@@ -109,25 +109,45 @@ try {
 
     $pwHash = password_hash('welcome123', PASSWORD_BCRYPT);
 
+    // Look up default hostel_name if hostel_id is specified
+    $defaultHostelName = '';
+    if (!empty($hostelId)) {
+        $hStmt = $pdo->prepare("SELECT hostel_name FROM hostel_type WHERE id = ?");
+        $hStmt->execute([$hostelId]);
+        $defaultHostelName = $hStmt->fetchColumn() ?: '';
+    }
+
     foreach ($data['staff'] as $staff) {
-        $uBioId = trim($staff['username'] ?? '');
+        $uBioId  = trim($staff['username'] ?? $staff['staff_bio_id'] ?? $staff['id'] ?? '');
+        $sName   = trim($staff['name'] ?? 'Staff');
+        $sPhone  = trim($staff['phone'] ?? '');
+        $sRole   = trim($staff['role'] ?? 'Warden');
+        $sHostel = !empty($staff['hostel_name']) ? $staff['hostel_name'] : $defaultHostelName;
+        $sFloor  = !empty($staff['floor_name'])  ? $staff['floor_name']  : ($zoneId ?: 'All');
+        $sWing   = !empty($staff['wing_name'])   ? $staff['wing_name']   : ($subZoneId ?: 'All');
+
         $stmt->execute([
             $mappingId, 
-            $staff['name'], 
-            $staff['role'], 
-            $staff['phone'], 
+            $sName, 
+            $sRole, 
+            $sPhone, 
             $uBioId,
-            $uBioId, // save bio_id into staff_bio_id as well
-            $staff['hostel_name'] ?? '',
-            $staff['floor_name'] ?? '',
-            $staff['wing_name'] ?? ''
+            $uBioId,
+            $sHostel,
+            $sFloor,
+            $sWing
         ]);
 
         if (!empty($uBioId)) {
             $sRole = strtolower(trim($staff['role'] ?? 'staff'));
             if (strpos($sRole, 'maint') !== false) {
                 $sRole = 'maintenance';
+            } else if (strpos($sRole, 'secur') !== false) {
+                $sRole = 'security';
+            } else if (strpos($sRole, 'warden') !== false) {
+                $sRole = 'warden';
             }
+
             $sName = trim($staff['name'] ?? 'Staff');
             $sPhone = trim($staff['phone'] ?? '');
             $sHostel = trim($staff['hostel_name'] ?? '');
@@ -140,6 +160,23 @@ try {
                 ':pw'       => $pwHash,
                 ':hostel'   => $sHostel
             ]);
+
+            // Get user_id for profile table
+            $uIdStmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+            $uIdStmt->execute([$uBioId]);
+            $uId = $uIdStmt->fetchColumn();
+
+            if ($uId) {
+                $profileUpsert = $pdo->prepare("
+                    INSERT INTO profile (full_name, reg_no, user_id, email, personal_phone, room_allocation, institution, hostel_name)
+                    VALUES (?, ?, ?, ?, ?, 'Staff Office', 'SIMATS', ?)
+                    ON DUPLICATE KEY UPDATE
+                        full_name = VALUES(full_name),
+                        personal_phone = VALUES(personal_phone),
+                        hostel_name = VALUES(hostel_name)
+                ");
+                $profileUpsert->execute([$sName, $uBioId, $uId, NULL, $sPhone, $sHostel]);
+            }
 
             $staffUserUpsert->execute([
                 ':bio_id' => $uBioId,

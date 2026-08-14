@@ -1,7 +1,7 @@
 # VStay Docker Build and Push Automation Script
 # Make sure you are logged into Docker Hub: docker login
 
-$DOCKER_USERNAME = Read-Host -Prompt "Enter your Docker Hub Username"
+$DOCKER_USERNAME = (Read-Host -Prompt "Enter your Docker Hub Username").Trim()
 
 if ([string]::IsNullOrEmpty($DOCKER_USERNAME)) {
     Write-Error "Docker Hub Username cannot be empty!"

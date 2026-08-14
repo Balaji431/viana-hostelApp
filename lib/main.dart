@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:flutter/services.dart';
 import 'core/api_service.dart';
 import 'core/deferred_app_services.dart' deferred as app_services;
 import 'core/providers/allocation_provider.dart';
@@ -22,20 +23,35 @@ import 'shared/wallpaper_provider.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// Deduplication: track recently-reported error messages to prevent
+// the same error being inserted multiple times within a short window.
+final _recentErrors = <String>{};
+bool _flutterErrorHandled = false;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
 
   final prefs = await SharedPreferences.getInstance();
 
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
+    // Set flag so PlatformDispatcher.onError skips this same error
+    _flutterErrorHandled = true;
     _reportErrorAfterStartup(
       details.exceptionAsString(),
       details.stack?.toString() ?? '',
     );
+    // Reset flag after a microtask so it only blocks the current error
+    Future.microtask(() => _flutterErrorHandled = false);
   };
 
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    // Skip if FlutterError.onError already handled this (avoids duplicate DB rows)
+    if (_flutterErrorHandled) return true;
     _reportErrorAfterStartup(error.toString(), stack.toString());
     return true;
   };
@@ -74,9 +90,17 @@ void _scheduleAppServicesInitialization() {
 }
 
 void _reportErrorAfterStartup(String message, String stackTrace) {
+  // Deduplicate: skip if the same error was already queued recently
+  final key = message.length > 200 ? message.substring(0, 200) : message;
+  if (_recentErrors.contains(key)) return;
+  _recentErrors.add(key);
+
   unawaited(() async {
     await Future<void>.delayed(const Duration(seconds: 5));
     await ApiService.reportError(message, stackTrace);
+    // Remove from dedup set after 60 s so genuine recurrences are still logged
+    await Future<void>.delayed(const Duration(seconds: 60));
+    _recentErrors.remove(key);
   }());
 }
 
@@ -90,6 +114,13 @@ class MyApp extends StatelessWidget {
       navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: RoyalTheme.theme,
+      builder: (context, child) {
+        if (child == null) return const SizedBox.shrink();
+        if (kIsWeb) {
+          return SelectionArea(child: child);
+        }
+        return child;
+      },
       home: const AuthWrapper(),
       onGenerateRoute: (settings) => MaterialPageRoute(
         settings: settings,

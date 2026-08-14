@@ -78,109 +78,43 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       final List<Map<String, dynamic>> mappedLocalRooms = localRoomsList.map<Map<String, dynamic>>((localRoom) {
         final String roomType = localRoom['room_type'] ?? 'Not Assigned';
         final String locName = localRoom['location_name'] ?? '';
+        final int occupancy = int.tryParse(localRoom['occupancy']?.toString() ?? '') ?? int.tryParse(localRoom['total_beds']?.toString() ?? '') ?? _extractCapacity(roomType);
+        final int totalBeds = int.tryParse(localRoom['total_beds']?.toString() ?? '') ?? occupancy;
+        final int occupiedBeds = int.tryParse(localRoom['occupied_beds']?.toString() ?? '') ?? 0;
+        final int assignedPending = int.tryParse(localRoom['assigned_pending']?.toString() ?? '') ?? 0;
+        final int availableBeds = int.tryParse(localRoom['available_beds']?.toString() ?? '') ?? (totalBeds - (occupiedBeds + assignedPending));
+
+        final String roomCode = localRoom['room_code'] ?? localRoom['location_code'] ?? '';
+        final List<dynamic> rawStudents = localRoom['students'] is List ? localRoom['students'] : [];
+        final List<String> studentsList = rawStudents.map((s) => s.toString()).toList();
+
         return {
           'id': localRoom['id'],
-          'location_name': locName,
+          'location_name': _cleanHostelName(locName, roomCode),
           'building_code': _normalizeBuildingCode(localRoom['building_code'] ?? '', locName),
           'floor_no': localRoom['floor_no'] ?? '',
           'block_no': localRoom['block_no'] ?? '',
           'room_no': localRoom['room_no'] ?? '',
           'room_type': roomType,
-          'room_capacity': int.tryParse(localRoom['room_capacity']?.toString() ?? '') ?? _extractCapacity(roomType),
-          'location_code': localRoom['room_code'] ?? '',
+          'occupancy': occupancy,
+          'total_beds': totalBeds,
+          'occupied_beds': occupiedBeds,
+          'assigned_pending': assignedPending,
+          'available_beds': availableBeds < 0 ? 0 : availableBeds,
+          'gender': localRoom['gender'] ?? 'Male',
+          'active': localRoom['active'] ?? 1,
+          'amount': localRoom['amount'] ?? 0.00,
+          'location_code': roomCode,
+          'students': studentsList,
         };
       }).toList();
 
       _allRooms = mappedLocalRooms;
-
-      // 2. Fetch external locations API via backend proxy to bypass CORS on Web
-      final extResponse = await ApiService.getRequest('rooms/fetch_locations.php?t=${DateTime.now().millisecondsSinceEpoch}');
-      if (extResponse['success'] == true || extResponse['status'] == 'success') {
-        final dynamic decoded = extResponse['data'];
-        List<dynamic> data = (decoded is List) ? decoded : (decoded['data'] ?? []);
-
-        final List<Map<String, dynamic>> externalRooms = data.map<Map<String, dynamic>>((item) {
-          final String locationCode = item['location_code'] ?? '';
-          final String locationName = item['location_name'] ?? '';
-          
-          // Smart parsing: find F\d+ floor token so building codes with dashes
-          // (T-30, T-32, T-14, T-19, P-05) are kept intact.
-          // e.g. "T-30-F01-WA0-R01" → building=T-30, floor=F01, wing=WA0, room=R01
-          String buildingCode = 'N/A';
-          String floorCode    = 'N/A';
-          String wingCode     = 'N/A';
-          String roomCode     = 'N/A';
-          if (locationCode.isNotEmpty) {
-            final parts = locationCode.split('-');
-            int floorIdx = -1;
-            for (int i = 0; i < parts.length; i++) {
-              if (RegExp(r'^F\d+$', caseSensitive: false).hasMatch(parts[i])) {
-                floorIdx = i;
-                break;
-              }
-            }
-            if (floorIdx != -1) {
-              buildingCode = parts.sublist(0, floorIdx).join('-');
-              floorCode    = parts[floorIdx];
-              wingCode     = floorIdx + 1 < parts.length ? parts[floorIdx + 1] : 'N/A';
-              roomCode     = floorIdx + 2 < parts.length ? parts[floorIdx + 2] : 'N/A';
-            } else {
-              buildingCode = parts.isNotEmpty ? parts[0] : 'N/A';
-              floorCode    = parts.length > 1 ? parts[1] : 'N/A';
-              wingCode     = parts.length > 2 ? parts[2] : 'N/A';
-              roomCode     = parts.length > 3 ? parts[3] : 'N/A';
-            }
-          }
-          buildingCode = _normalizeBuildingCode(buildingCode, locationName);
-          final normalizedFloor = _normalizeFloor(floorCode);
-          
-          // Look up local database record for room details
-          final localRoom = (locationCode.isNotEmpty ? localRoomsByCode[locationCode] : null) ?? localRoomsByName[locationName];
-          final String roomType = localRoom?['room_type'] ?? 'Not Assigned';
-          final int roomCapacity = localRoom?['room_capacity'] != null 
-              ? int.tryParse(localRoom!['room_capacity'].toString()) ?? _extractCapacity(locationName)
-              : _extractCapacity(locationName);
-          final dynamic localId = localRoom?['id'];
-
-          return {
-            'id': localId,
-            'location_name': locationName,
-            'building_code': buildingCode,
-            'floor_no': normalizedFloor,
-            'block_no': wingCode,
-            'room_no': roomCode,
-            'room_type': roomType,
-            'room_capacity': roomCapacity,
-            'location_code': locationCode,
-          };
-        }).toList();
-
-        // Avoid duplicates in the external list
-        final Set<String> processedNames = externalRooms.map((r) => r['location_name'] as String).toSet();
-        
-        // Append local rooms that are not in the external list
-        final List<Map<String, dynamic>> missingLocalRooms = [];
-        for (var entry in localRoomsByName.entries) {
-          if (!processedNames.contains(entry.key)) {
-            final localRoom = entry.value;
-            final String roomType = localRoom['room_type'] ?? 'Not Assigned';
-            final String locName = localRoom['location_name'] ?? '';
-            missingLocalRooms.add({
-              'id': localRoom['id'],
-              'location_name': locName,
-              'building_code': _normalizeBuildingCode(localRoom['building_code'] ?? '', locName),
-              'floor_no': localRoom['floor_no'] ?? '',
-              'block_no': localRoom['block_no'] ?? '',
-              'room_no': localRoom['room_no'] ?? '',
-              'room_type': roomType,
-              'room_capacity': int.tryParse(localRoom['room_capacity']?.toString() ?? '') ?? _extractCapacity(roomType),
-              'location_code': localRoom['room_code'] ?? '',
-            });
-          }
-        }
-
-        _allRooms = [...externalRooms, ...missingLocalRooms];
-      }
+      _allRooms.sort((a, b) {
+        final int idA = int.tryParse(a['id']?.toString() ?? '0') ?? 0;
+        final int idB = int.tryParse(b['id']?.toString() ?? '0') ?? 0;
+        return idA.compareTo(idB);
+      });
     } catch (e) {
       debugPrint('Error mapping room data: $e');
     }
@@ -209,14 +143,17 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
   }
 
   int _extractCapacity(String name) {
-    final upper = name.toUpperCase();
-    final in1Match = RegExp(r'(\d+)\s*IN\s*1').firstMatch(upper);
-    if (in1Match != null) {
-      return int.tryParse(in1Match.group(1) ?? '') ?? 0;
+    final String upper = name.toUpperCase();
+    final RegExp match = RegExp(r'(\d+)\s*IN\s*1');
+    final RegExpMatch? res = match.firstMatch(upper);
+    if (res != null) {
+      return int.parse(res.group(1)!);
     }
-    final dormMatch = RegExp(r'DORM\s*(\d+)').firstMatch(upper);
-    if (dormMatch != null) {
-      return int.tryParse(dormMatch.group(1) ?? '') ?? 0;
+    if (upper.contains('FOUR') || upper.contains('4')) {
+      return 4;
+    }
+    if (upper.contains('TRIPLE') || upper.contains('3')) {
+      return 3;
     }
     if (upper.contains('DOUBLE')) {
       return 2;
@@ -254,6 +191,12 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
                (_selectedBuildingFilter == null || room['building_code'] == _selectedBuildingFilter) &&
                (_selectedFloorFilter == null || room['floor_no'] == _selectedFloorFilter);
       }).toList();
+
+      _filteredRooms.sort((a, b) {
+        final int idA = int.tryParse(a['id']?.toString() ?? '0') ?? 0;
+        final int idB = int.tryParse(b['id']?.toString() ?? '0') ?? 0;
+        return idA.compareTo(idB);
+      });
     });
   }
 
@@ -405,45 +348,51 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
 
   String _normalizeBuildingCode(String buildingCode, String locationName) {
     final String code = buildingCode.trim();
-    // Canonical group codes — map parsed room-code prefixes to their group codes
-    if (code == 'T14' || code == 'T-14') return 'T-14';
-    if (code == 'T12' || code == 'T-12') return 'T-12';
-    if (code == 'T30' || code == 'T-30') return 'T-30';
-    if (code == 'T32' || code == 'T-32') return 'T-32';
-    if (code == 'T19' || code == 'T-19') return 'T-19';
-    // P04- prefix rooms belong to the P05 group (Max Fax)
-    if (code == 'P04') return 'P05';
-    // P05- prefix rooms belong to the P-05 group (Radiance Inn)
-    if (code == 'P05') return 'P-05';
-    // P-10 prefix rooms belong to the P10 group (Stunners Den)
-    if (code == 'P-10') return 'P10';
+    if (code == 'T30') return 'T30';
+    if (code == 'T-30') return 'T-30';
+    if (code == 'T32') return 'T32';
+    if (code == 'T-32') return 'T-32';
+    if (code == 'T14' || code == 'T-14') return 'T14';
+    if (code == 'T12' || code == 'T-12') return 'T12';
+    if (code == 'T19' || code == 'T-19') return 'T19';
+    if (code == 'T10' || code == 'T-10') return 'T10';
+    if (code == 'T22' || code == 'T-22') return 'T22';
+    if (code == 'T09' || code == 'T-09') return 'T09';
+    if (code == 'P05' || code == 'P-05') return 'P-05';
+    if (code == 'P10' || code == 'P-10') return 'P-10';
     return code;
   }
 
-  String _cleanHostelName(String rawName) {
-    final Map<String, String> hostelMapping = {
-      'KAVERI': 'Kaveri Hostel',
-      'VAIGAI': 'Vaigai Hostel',
-      'KRISHNA': 'Krishna Hostel',
-      'KRISHAN': 'Krishna Hostel',
-      'NOYYAL': 'Noyyal Hostel',
-      'PONNI': 'Ponni Hostel',
-      'SIRUVANI': 'Siruvani Hostel',
-      'PORUNAI': 'Porunai Hostel (4F - 8F )',
-      'PALAR': 'Palar Hostel',
-      'ALLIED': 'Allied Health Sciences',
-      'RADIANTS': 'Radiance Inn',
-      'MAXFAX': 'Max Fax',
-      'MAX FAX': 'Max Fax',
-      'STUNNER': 'Stunners Den',
-    };
-    
-    final upperName = rawName.toUpperCase();
-    for (var entry in hostelMapping.entries) {
-      if (upperName.contains(entry.key)) {
-        return entry.value;
-      }
+  String _cleanHostelName(String rawName, [String? roomCode]) {
+    final String code = (roomCode ?? '').trim().toUpperCase();
+    if (code.startsWith('T30-') || code.startsWith('T30 -') || code.startsWith('T30_')) {
+      return 'Krishna hostel(new)';
     }
+    if (code.startsWith('T32-') || code.startsWith('T32 -') || code.startsWith('T32_')) {
+      return 'Vaigai hostel(new)';
+    }
+    if (code.startsWith('T-30-') || code.startsWith('T-30 -')) {
+      return 'Krishna Hostel';
+    }
+    if (code.startsWith('T-32-') || code.startsWith('T-32 -')) {
+      return 'Vaigai Hostel';
+    }
+
+    final String name = rawName.trim();
+    if (name.toLowerCase().contains('(new)')) {
+      if (name.toLowerCase().contains('krishna')) return 'Krishna hostel(new)';
+      if (name.toLowerCase().contains('vaigai')) return 'Vaigai hostel(new)';
+    }
+    if (name.toLowerCase().contains('krishna')) return 'Krishna Hostel';
+    if (name.toLowerCase().contains('vaigai')) return 'Vaigai Hostel';
+    if (name.toLowerCase().contains('kaveri')) return 'Kaveri Hostel';
+    if (name.toLowerCase().contains('noyyal')) return 'Noyyal Hostel';
+    if (name.toLowerCase().contains('ponni')) return 'Ponni Hostel';
+    if (name.toLowerCase().contains('siruvani')) return 'Siruvani Hostel';
+    if (name.toLowerCase().contains('porunai')) return 'Porunai Hostel';
+    if (name.toLowerCase().contains('palar')) return 'Palar Hostel';
+    if (name.toLowerCase().contains('radiance')) return 'Radiance Inn';
+    if (name.toLowerCase().contains('stunner')) return 'Stunners Den';
     return rawName;
   }
 
@@ -486,7 +435,21 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
     }
   }
 
+  int _calculateMaxRoomCols(List<Map<String, dynamic>> rooms) {
+    int maxCap = 1;
+    for (var r in rooms) {
+      final String typeName = r['room_type']?.toString() ?? '';
+      final int cap = _extractCapacity(typeName);
+      if (cap > 0 && cap <= 12) {
+        if (cap > maxCap) maxCap = cap;
+      }
+    }
+    return maxCap;
+  }
+
   Widget _buildDataTable() {
+    final int dynamicColsCount = _calculateMaxRoomCols(_filteredRooms);
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -504,26 +467,39 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
         borderRadius: BorderRadius.circular(16),
         child: PaginatedDataTable2(
           border: TableBorder.all(
-            color: const Color(0xFFEAEAEA),
-            width: 0.5,
+            color: const Color(0xFF94A3B8),
+            width: 1.5,
           ),
           columnSpacing: 24,
-          minWidth: 1000,
+          minWidth: 1400 + (dynamicColsCount * 130),
           dataRowHeight: 64,
           headingRowHeight: 56,
           headingRowColor: WidgetStateProperty.all(const Color(0xFFF8F9FA)),
-          rowsPerPage: 15,
-          availableRowsPerPage: const [10, 15, 25, 50, 100],
-          columns: const [
-            DataColumn2(label: Text('Hostel Name', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 264),
-            DataColumn2(label: Text('Room Code', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 240),
-            DataColumn2(label: Text('Room Type', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 300),
-            DataColumn2(label: Text('Edit', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 80, numeric: false),
-            DataColumn2(label: Text('Save', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 90),
+          rowsPerPage: 100,
+          availableRowsPerPage: const [15, 25, 50, 100, 200],
+          columns: [
+            const DataColumn2(label: Text('ID', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 60),
+            const DataColumn2(label: Text('Hostel Name', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 170),
+            const DataColumn2(label: Text('Room Code', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 170),
+            const DataColumn2(label: Text('Room Type', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 240),
+            const DataColumn2(label: Text('Total Beds', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 90, numeric: true),
+            const DataColumn2(label: Text('Occupied Beds', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 100, numeric: true),
+            const DataColumn2(label: Text('Assigned Pending', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 120, numeric: true),
+            const DataColumn2(label: Text('Available Beds', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 110, numeric: true),
+            ...List.generate(dynamicColsCount, (i) => DataColumn2(
+              label: Text('Bed ${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+              size: ColumnSize.S,
+              fixedWidth: 130,
+            )),
+            const DataColumn2(label: Text('Gender', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 80),
+            const DataColumn2(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 100, numeric: true),
+            const DataColumn2(label: Text('Edit', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 60),
+            const DataColumn2(label: Text('Save', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))), size: ColumnSize.S, fixedWidth: 80),
           ],
           source: RoomDataTableSource(
             rooms: _filteredRooms,
             roomTypes: _roomTypes,
+            dynamicColsCount: dynamicColsCount,
             onRoomTypeChanged: (room, newType) {
               setState(() {
                 room['room_type'] = newType;
@@ -535,6 +511,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
               await _updateRoomTypeDirect(room, room['room_type'] ?? 'Not Assigned');
             },
             cleanHostelName: _cleanHostelName,
+            extractCapacity: _extractCapacity,
           ),
         ),
       ),
@@ -548,7 +525,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       child: Column(
         children: [
           const SizedBox(height: 40),
-          const Text('RR ADMIN', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 2)),
+          const Text('VSTAY ADMIN', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 2)),
           const SizedBox(height: 40),
           _sidebarItem(Icons.bed, 'Room Master', true),
           const Spacer(),
@@ -735,18 +712,22 @@ class _RoomEditDialogState extends State<RoomEditDialog> {
 class RoomDataTableSource extends DataTableSource {
   final List<Map<String, dynamic>> rooms;
   final List<Map<String, dynamic>> roomTypes;
+  final int dynamicColsCount;
   final Function(Map<String, dynamic>, String) onRoomTypeChanged;
   final Function(Map<String, dynamic>) onEdit;
   final Function(Map<String, dynamic>) onSave;
-  final String Function(String) cleanHostelName;
+  final String Function(String, [String?]) cleanHostelName;
+  final int Function(String) extractCapacity;
 
   RoomDataTableSource({
     required this.rooms,
     required this.roomTypes,
+    required this.dynamicColsCount,
     required this.onRoomTypeChanged,
     required this.onEdit,
     required this.onSave,
     required this.cleanHostelName,
+    required this.extractCapacity,
   });
 
   @override
@@ -763,14 +744,81 @@ class RoomDataTableSource extends DataTableSource {
     final bool typeExists = roomTypes.any((t) => t['name'].toString() == currentType);
     final String? dropdownValue = typeExists ? currentType : null;
 
+    final String idStr = r['id']?.toString() ?? (index + 1).toString();
+    final int occupancy = int.tryParse(r['occupancy']?.toString() ?? '') ?? 1;
+    final int totalBeds = int.tryParse(r['total_beds']?.toString() ?? '') ?? occupancy;
+    final int occupiedBeds = int.tryParse(r['occupied_beds']?.toString() ?? '') ?? 0;
+    final int assignedPending = int.tryParse(r['assigned_pending']?.toString() ?? '') ?? 0;
+    final int availableBeds = int.tryParse(r['available_beds']?.toString() ?? '') ?? (totalBeds - (occupiedBeds + assignedPending));
+    final String gender = r['gender']?.toString() ?? 'Male';
+    final String amountStr = (r['amount'] != null && r['amount'].toString() != '0.00' && r['amount'].toString() != '0') 
+        ? '₹${r['amount']}' 
+        : '₹0';
+
+    final String roomCode = (r['location_code'] ?? r['room_code'] ?? '').toString();
+
+    final List<String> studentRolls = (r['students'] is List)
+        ? (r['students'] as List).map((e) => e.toString()).toList()
+        : <String>[];
+
+    final int cap = extractCapacity(r['room_type']?.toString() ?? '');
+    final int roomCapacity = cap > 0 ? cap : totalBeds;
+
+    final List<DataCell> dynamicRoomCells = List.generate(dynamicColsCount, (colIdx) {
+      if (roomCapacity > 12) {
+        if (colIdx == 0) {
+          return DataCell(
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                roomCapacity.toString(),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue),
+              ),
+            ),
+          );
+        } else {
+          return const DataCell(Text('-', style: TextStyle(fontSize: 12, color: Colors.grey)));
+        }
+      } else {
+        if (colIdx < roomCapacity) {
+          // ONLY show roll number if this bed slot is within the occupied count
+          if (colIdx < occupiedBeds && colIdx < studentRolls.length && studentRolls[colIdx].trim().isNotEmpty) {
+            final String studentRoll = studentRolls[colIdx].trim();
+            return DataCell(
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  studentRoll,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1565C0)),
+                ),
+              ),
+            );
+          } else {
+            return const DataCell(Text('-', style: TextStyle(fontSize: 12, color: Colors.grey)));
+          }
+        } else {
+          return const DataCell(Text('-', style: TextStyle(fontSize: 12, color: Colors.grey)));
+        }
+      }
+    });
+
     return DataRow(
       cells: [
+        DataCell(Text(idStr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)))),
         DataCell(Text(
-          cleanHostelName(r['location_name'] ?? ''),
+          cleanHostelName(r['location_name'] ?? '', roomCode),
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF1A2744)),
         )),
         DataCell(Text(
-          r['location_code'] ?? '',
+          roomCode,
           style: const TextStyle(fontSize: 12, color: Colors.grey, fontFamily: 'Lato'),
         )),
         DataCell(
@@ -838,6 +886,13 @@ class RoomDataTableSource extends DataTableSource {
             ),
           ),
         ),
+        DataCell(Text(totalBeds.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+        DataCell(Text(occupiedBeds.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.blue))),
+        DataCell(Text(assignedPending.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.orange))),
+        DataCell(Text(availableBeds < 0 ? '0' : availableBeds.toString(), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: availableBeds > 0 ? Colors.green : Colors.red))),
+        ...dynamicRoomCells,
+        DataCell(Text(gender, style: const TextStyle(fontSize: 12))),
+        DataCell(Text(amountStr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)))),
         DataCell(
           IconButton(
             padding: EdgeInsets.zero,

@@ -4,6 +4,7 @@ import '../../core/api_service.dart';
 import '../../core/models/room_change_request_model.dart';
 import '../../shared/user_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../widgets/warden_modals.dart';
 
 class WardenRoomChangeRequestsScreen extends StatefulWidget {
   final int wardenId;
@@ -50,71 +51,11 @@ class _WardenRoomChangeRequestsScreenState extends State<WardenRoomChangeRequest
   void _showRequestDetails(BuildContext context, RoomChangeRequest request) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Request Details', style: TextStyle(fontFamily: 'Lato', fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildInfoRow('Student', request.studentName),
-              _buildInfoRow('Reg No', request.studentRegNo),
-              _buildInfoRow('Current Room', request.currentRoom),
-              _buildInfoRow('Requested Room', request.requestedRoom),
-              _buildInfoRow('Reason', request.reason),
-              _buildInfoRow('Requested Type', request.requestedRoomType ?? 'Standard'),
-              const SizedBox(height: 16),
-              _buildInfoRow('Status', request.status.toUpperCase()),
-              _buildInfoRow('Created', _formatDate(request.createdAt)),
-              if (request.processedBy != null) ...[
-                _buildInfoRow('Processed By', 'Warden ID: ${request.processedBy}'),
-                _buildInfoRow('Processed At', _formatDate(request.updatedAt)),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-          ),
-        ],
+      builder: (context) => WardenRoomChangeDetailsModal(
+        request: request,
+        onActionComplete: _loadRequests,
       ),
     );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$label: ',
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF1A2744),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF1A2744),
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 
   Color _getStatusColor(String status) {
@@ -136,7 +77,6 @@ class _WardenRoomChangeRequestsScreenState extends State<WardenRoomChangeRequest
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: SkeuomorphicNavBar(
         title: 'Room Change Requests',
-        onBack: () => Navigator.of(context).pop(),
         rightAction: IconButton(
           icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
           onPressed: _loadRequests,

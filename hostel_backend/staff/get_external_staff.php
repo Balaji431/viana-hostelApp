@@ -39,21 +39,48 @@ $url = EXTERNAL_EMP_API_URL;
 $key = EXTERNAL_EMP_API_KEY;
 
 if (!isset($_GET['sync']) || $_GET['sync'] !== 'true') {
-    $combined_staff = [];
+    // 1. Security Users
+    $sec1 = $db->query("SELECT bio_id, employee_name as name, email, phone, department, 'Security' as designation, 'security' as role FROM security_users")->fetchAll(PDO::FETCH_ASSOC);
+    $sec2 = $db->query("SELECT username as bio_id, full_name as name, email, phone_number as phone, 'Security' as department, COALESCE(Designation, 'Security Guard') as designation, 'security' as role FROM users WHERE LOWER(role) = 'security'")->fetchAll(PDO::FETCH_ASSOC);
+    $sec3 = $db->query("SELECT bio_id, name, email, phone, dept as department, desig as designation, 'security' as role FROM staff_users WHERE LOWER(role) = 'security'")->fetchAll(PDO::FETCH_ASSOC);
 
-    // 1. Fetch Security Users (129)
-    $secStmt = $db->query("SELECT bio_id, employee_name as name, email, phone, department, department as designation, 'security' as role FROM security_users");
-    $secList = $secStmt->fetchAll(PDO::FETCH_ASSOC);
+    $secList = [];
+    $seenSec = [];
+    foreach (array_merge($sec1, $sec2, $sec3) as $s) {
+        $id = trim($s['bio_id'] ?? '');
+        if (!$id || isset($seenSec[$id])) continue;
+        $seenSec[$id] = true;
+        $secList[] = $s;
+    }
 
-    // 2. Fetch Maintenance Users (139)
-    $maintStmt = $db->query("SELECT bio_id, employee_name as name, email, phone, department, department as designation, 'maintenance' as role FROM maintenance_users");
-    $maintList = $maintStmt->fetchAll(PDO::FETCH_ASSOC);
+    // 2. Maintenance Users
+    $maint1 = $db->query("SELECT bio_id, employee_name as name, email, phone, department, 'Maintenance' as designation, 'maintenance' as role FROM maintenance_users")->fetchAll(PDO::FETCH_ASSOC);
+    $maint2 = $db->query("SELECT username as bio_id, full_name as name, email, phone_number as phone, 'Maintenance' as department, COALESCE(Designation, 'Maintenance Staff') as designation, 'maintenance' as role FROM users WHERE LOWER(role) = 'maintenance'")->fetchAll(PDO::FETCH_ASSOC);
+    $maint3 = $db->query("SELECT bio_id, name, email, phone, dept as department, desig as designation, 'maintenance' as role FROM staff_users WHERE LOWER(role) = 'maintenance'")->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Fetch Wardens from users / staff mapping
-    $wardenStmt = $db->query("SELECT username as bio_id, full_name as name, email, phone_number as phone, 'Warden' as department, 'Warden' as designation, 'warden' as role FROM users WHERE LOWER(role) = 'warden'");
-    $wardenList = $wardenStmt->fetchAll(PDO::FETCH_ASSOC);
+    $maintList = [];
+    $seenMaint = [];
+    foreach (array_merge($maint1, $maint2, $maint3) as $m) {
+        $id = trim($m['bio_id'] ?? '');
+        if (!$id || isset($seenMaint[$id])) continue;
+        $seenMaint[$id] = true;
+        $maintList[] = $m;
+    }
 
-    $combined_staff = array_merge($secList, $maintList, $wardenList);
+    // 3. Wardens
+    $ward1 = $db->query("SELECT username as bio_id, full_name as name, email, phone_number as phone, 'Warden' as department, 'Warden' as designation, 'warden' as role FROM users WHERE LOWER(role) = 'warden'")->fetchAll(PDO::FETCH_ASSOC);
+    $ward2 = $db->query("SELECT bio_id, name, email, phone, dept as department, desig as designation, 'warden' as role FROM staff_users WHERE LOWER(role) = 'warden'")->fetchAll(PDO::FETCH_ASSOC);
+
+    $wardList = [];
+    $seenWard = [];
+    foreach (array_merge($ward1, $ward2) as $w) {
+        $id = trim($w['bio_id'] ?? '');
+        if (!$id || isset($seenWard[$id])) continue;
+        $seenWard[$id] = true;
+        $wardList[] = $w;
+    }
+
+    $combined_staff = array_merge($secList, $maintList, $wardList);
 
     echo json_encode([
         'success' => true, 

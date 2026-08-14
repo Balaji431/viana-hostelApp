@@ -38,7 +38,7 @@ class ApiService {
   static String _buildUrl(String endpoint) {
     String effectiveBaseUrl = baseUrl;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && effectiveBaseUrl.contains('localhost')) {
-      effectiveBaseUrl = effectiveBaseUrl.replaceAll('localhost', '192.168.31.30');
+      effectiveBaseUrl = effectiveBaseUrl.replaceAll('localhost', '172.19.27.133');
     }
 
     final cleanBaseUrl = effectiveBaseUrl.endsWith('/')
@@ -70,7 +70,7 @@ class ApiService {
       String deviceStr = kIsWeb ? 'Web Browser' : 'Mobile Device';
 
       await http.post(
-        Uri.parse('$baseUrl/utils/report_error.php'),
+        buildUri('/utils/report_error.php'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'error_message': errorMessage,
@@ -773,9 +773,24 @@ class ApiService {
     return await getRequest(url);
   }
 
-  static Future<Map<String, dynamic>> submitRoomChangeRequest({required int studentId, required String currentRoom, required String requestedRoom, required String reason, String? requestedRoomType}) async {
-    final data = {'student_id': studentId, 'current_room': currentRoom, 'requested_room': requestedRoom, 'reason': reason};
+  static Future<Map<String, dynamic>> submitRoomChangeRequest({
+    required int studentId,
+    required String currentRoom,
+    required String requestedRoom,
+    required String reason,
+    String? requestedRoomType,
+    String? destinationHostel,
+    double? amountToPay,
+  }) async {
+    final data = {
+      'student_id': studentId,
+      'current_room': currentRoom,
+      'requested_room': requestedRoom,
+      'reason': reason,
+    };
     if (requestedRoomType != null) data['requested_room_type'] = requestedRoomType;
+    if (destinationHostel != null) data['destination_hostel'] = destinationHostel;
+    if (amountToPay != null) data['amount_to_pay'] = amountToPay;
     return await postRequest('room_change_requests/submit_request.php', data);
   }
 
@@ -996,7 +1011,7 @@ class ApiService {
     try {
       AppLogger.info("Marking messages as read: $requestId");
       final response = await http.post(
-        Uri.parse('$baseUrl/chat/mark_read.php'),
+        buildUri('/chat/mark_read.php'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'request_id': requestId,
@@ -1128,7 +1143,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'User-Agent': 'HostelApp/1.0',
+
         },
         body: jsonEncode(data),
       ).timeout(
@@ -1280,6 +1295,24 @@ class ApiService {
       return {'success': false, 'message': 'No image file provided'};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> searchWardenRoom({
+    required String wardenUsername,
+    String? roomNumber,
+  }) async {
+    try {
+      final queryParams = {
+        'warden_username': wardenUsername,
+        if (roomNumber != null && roomNumber.isNotEmpty) 'room_number': roomNumber,
+      };
+      final uri = Uri.parse(_buildUrl('warden/search_warden_room.php')).replace(queryParameters: queryParams);
+      final response = await http.get(uri);
+      return jsonDecode(response.body);
+    } catch (e) {
+      AppLogger.error("Error searching warden room: $e");
+      return {'success': false, 'message': 'Network error: $e'};
     }
   }
 }

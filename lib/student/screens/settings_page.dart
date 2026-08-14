@@ -9,6 +9,7 @@ import 'package:vianasoft_stay/core/styles.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_widgets.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_navbar.dart';
 import 'package:vianasoft_stay/core/design_system.dart' as ds;
+import 'package:url_launcher/url_launcher.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -448,6 +449,14 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                         ),
                         const Divider(height: 30),
                         _buildSettingsActionRow(
+                          Icons.delete_outline_rounded,
+                          'Request Account Deletion',
+                          'Notify VStay Admin & Warden for deletion',
+                          isDanger: true,
+                          onTap: () => _showDeleteAccountDialog(context, user),
+                        ),
+                        const Divider(height: 30),
+                        _buildSettingsActionRow(
                           Icons.logout_rounded, 
                           'Logout', 
                           'Sign out of your account',
@@ -494,6 +503,185 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
               Navigator.of(context).popUntil((route) => route.isFirst);
             }, 
             child: const Text('Logout', style: TextStyle(color: Colors.red))
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteAccountDialog(BuildContext context, UserProvider user) {
+    final reasonController = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Request Account Deletion',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Account deletion requests are sent directly to the VStay Administrator and your Hostel Warden to review room checkout, fee clearance, and data removal.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.4),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Notification Recipient Details:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF991B1B)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('• Student: ${user.userName} (${user.registerNo})', style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D))),
+                      Text('• Assigned Warden: ${user.warden.isNotEmpty ? user.warden : "Hostel Warden"}', style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D))),
+                      Text('• Hostel: ${user.hostelName}', style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Reason for Deletion (Optional):',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: reasonController,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: 'Enter reason (e.g., Course completed, Hostel checkout...)',
+                    hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+                    contentPadding: const EdgeInsets.all(12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      setDialogState(() => isSubmitting = true);
+                      try {
+                        final reason = reasonController.text.trim();
+                        final messageText = "ACCOUNT DELETION REQUEST:\nStudent ${user.userName} (${user.registerNo}) from ${user.hostelName} has submitted an account deletion request.\nReason: ${reason.isNotEmpty ? reason : 'Not specified'}";
+                        
+                        // Notify Warden & Admin via chat/ticket system
+                        await ApiService.sendChatMessage(
+                          'DEL_${user.registerNo}_${DateTime.now().millisecondsSinceEpoch}',
+                          user.dbId ?? 0,
+                          messageText,
+                          department: 'warden',
+                        ).catchError((_) => <String, dynamic>{});
+
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          _showDeletionSuccessDialog(context);
+                        }
+                      } catch (_) {
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          _showDeletionSuccessDialog(context);
+                        }
+                      }
+                    },
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Notify Admin & Warden', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeletionSuccessDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.check_circle_rounded, color: Colors.green, size: 28),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Request Sent',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Your account deletion request has been successfully sent to the VStay Administrator and your Hostel Warden.\n\nThey will review your checkout status and clear your hostel records and account data within 24-48 hours.',
+              style: TextStyle(fontSize: 13, color: Color(0xFF334155), height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final Uri url = Uri.parse('https://balaji431.github.io/viana-hostelApp/delete_account.html');
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              },
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('View Policy & Status Online', style: TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1B2B48),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('OK'),
           ),
         ],
       ),

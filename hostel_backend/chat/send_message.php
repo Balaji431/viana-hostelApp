@@ -100,95 +100,141 @@ try {
         if (strpos($target_dept, 'security') !== false) $role_pattern = '%security%';
         if (strpos($target_dept, 'maint') !== false) $role_pattern = '%maint%';
 
-        // First attempt: resolve via rooms_groups_details / profile location
-        $loc_query = "SELECT rgd.hostel_name, rgd.group_name as floor_group, p.room_allocation
-                      FROM users u
-                      LEFT JOIN profile p ON TRIM(u.username) = TRIM(p.reg_no)
-                      LEFT JOIN rooms_groups_details rgd ON TRIM(p.room_allocation) = TRIM(rgd.room_number)
-                      WHERE u.id = ? LIMIT 1";
-        $loc_stmt = $db->prepare($loc_query);
-        $loc_stmt->execute([$effective_student_id]);
-        $loc = $loc_stmt->fetch(PDO::FETCH_ASSOC);
+        // 1. Direct priority for Warden / Parent-Warden: resolve directly from student's profile & rooms_groups_details
+        if ($target_dept === 'warden' || $target_dept === 'parent_warden') {
+            $direct_warden_query = "
+                SELECT COALESCE(u.username, rgd.warden_bio_id, ms.username, ms.staff_bio_id, p.warden) as resolved_username
+                FROM users stu
+                LEFT JOIN profile p ON TRIM(stu.username) = TRIM(p.reg_no)
+                LEFT JOIN rooms_groups_details rgd ON (
+                    TRIM(p.room_allocation) = TRIM(rgd.room_number)
+                    OR REPLACE(REPLACE(TRIM(rgd.room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(p.room_allocation, '')), ' ', ''), '-', '')
+                )
+                LEFT JOIN users u ON (
+                    CONVERT(u.username USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4)
+                    OR LOWER(TRIM(u.full_name)) = LOWER(TRIM(COALESCE(rgd.warden_name, p.warden, '')))
+                )
+                LEFT JOIN mapping_staff ms ON (
+                    (CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4) OR CONVERT(ms.username USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4) OR LOWER(TRIM(ms.name)) = LOWER(TRIM(COALESCE(rgd.warden_name, p.warden, ''))))
+                    AND LOWER(ms.role) LIKE '%warden%'
+                )
+                WHERE stu.id = ? AND (rgd.warden_bio_id IS NOT NULL OR p.warden IS NOT NULL)
+                LIMIT 1
+            ";
+            $direct_stmt = $db->prepare($direct_warden_query);
+            $direct_stmt->execute([$effective_student_id]);
+            $direct_row = $direct_stmt->fetch(PDO::FETCH_ASSOC);
+            if ($direct_row && !empty($direct_row['resolved_username'])) {
+                $receiver_id = $direct_row['resolved_username'];
+            }
+        }
 
-        if ($loc && !empty($loc['room_allocation'])) {
-            $h_name = $loc['hostel_name'] ?? '';
-            $room = trim($loc['room_allocation']);
-            $parts = explode('-', $room);
-            $f_name = '';
-            $w_name = '';
+        // 2. Second attempt: resolve via rooms_groups_details / profile location matching in mapping_staff
+        if (!$receiver_id) {
+            $loc_query = "SELECT rgd.hostel_name, rgd.group_name as floor_group, p.room_allocation
+                          FROM users u
+                          LEFT JOIN profile p ON TRIM(u.username) = TRIM(p.reg_no)
+                          LEFT JOIN rooms_groups_details rgd ON TRIM(p.room_allocation) = TRIM(rgd.room_number)
+                          WHERE u.id = ? LIMIT 1";
+            $loc_stmt = $db->prepare($loc_query);
+            $loc_stmt->execute([$effective_student_id]);
+            $loc = $loc_stmt->fetch(PDO::FETCH_ASSOC);
 
-            foreach ($parts as $part) {
-                $p = strtolower(trim($part));
-                if (preg_match('/^f\d+$/i', $p)) {
-                    if ($p === 'f00') $f_name = 'ground';
-                    else if ($p === 'f01') $f_name = 'first';
-                    else if ($p === 'f02') $f_name = 'second';
-                    else if ($p === 'f03') $f_name = 'third';
-                    else if ($p === 'f04') $f_name = 'fourth';
-                    else if ($p === 'f05') $f_name = 'fifth';
-                    else if ($p === 'f06') $f_name = 'sixth';
-                    else if ($p === 'f07') $f_name = 'seventh';
-                    else if ($p === 'f08') $f_name = 'eighth';
-                    else if ($p === 'f09') $f_name = 'ninth';
-                    else $f_name = $p;
-                } else if (preg_match('/^w[a-z0-9]*$/i', $p)) {
-                    $w_name = $p;
+            if ($loc && !empty($loc['room_allocation'])) {
+                $h_name = $loc['hostel_name'] ?? '';
+                $room = trim($loc['room_allocation']);
+                $parts = explode('-', $room);
+                $f_name = '';
+                $w_name = '';
+
+                foreach ($parts as $part) {
+                    $p = strtolower(trim($part));
+                    if (strpos($p, 'f00') !== false || $p === 'ground') $f_name = 'ground';
+                    else if (strpos($p, 'f01') !== false || $p === 'first') $f_name = 'first';
+                    else if (strpos($p, 'f02') !== false || $p === 'second') $f_name = 'second';
+                    else if (strpos($p, 'f03') !== false || $p === 'third') $f_name = 'third';
+                    else if (strpos($p, 'f04') !== false || $p === 'fourth') $f_name = 'fourth';
+                    else if (strpos($p, 'f05') !== false || $p === 'fifth') $f_name = 'fifth';
+                    else if (strpos($p, 'f06') !== false || $p === 'sixth') $f_name = 'sixth';
+                    else if (strpos($p, 'f07') !== false || $p === 'seventh') $f_name = 'seventh';
+                    else if (strpos($p, 'f08') !== false || $p === 'eighth') $f_name = 'eighth';
+                    else if (strpos($p, 'f09') !== false || $p === 'ninth') $f_name = 'ninth';
+                    
+                    if (preg_match('/w[a-z0-9]*/i', $p, $w_matches)) {
+                        $w_name = strtolower(trim($w_matches[0]));
+                    }
                 }
-            }
-            if (empty($f_name) && !empty($loc['floor_group'])) {
-                $fg = strtolower($loc['floor_group']);
-                if (strpos($fg, 'ground') !== false) $f_name = 'ground';
-                else if (strpos($fg, 'first') !== false) $f_name = 'first';
-                else if (strpos($fg, 'second') !== false) $f_name = 'second';
-                else if (strpos($fg, 'third') !== false) $f_name = 'third';
-                else if (strpos($fg, 'fourth') !== false) $f_name = 'fourth';
-                else if (strpos($fg, 'fifth') !== false) $f_name = 'fifth';
-                else if (strpos($fg, 'sixth') !== false) $f_name = 'sixth';
-            }
+                if (empty($f_name) && !empty($loc['floor_group'])) {
+                    $fg = strtolower($loc['floor_group']);
+                    if (strpos($fg, 'ground') !== false) $f_name = 'ground';
+                    else if (strpos($fg, 'first') !== false) $f_name = 'first';
+                    else if (strpos($fg, 'second') !== false) $f_name = 'second';
+                    else if (strpos($fg, 'third') !== false) $f_name = 'third';
+                    else if (strpos($fg, 'fourth') !== false) $f_name = 'fourth';
+                    else if (strpos($fg, 'fifth') !== false) $f_name = 'fifth';
+                    else if (strpos($fg, 'sixth') !== false) $f_name = 'sixth';
+                }
 
-            $warden_query = "SELECT COALESCE(staff_bio_id, username) as username FROM mapping_staff 
-                            WHERE LOWER(role) LIKE :role_pat
-                            AND (
-                                LOWER(TRIM(hostel_name)) = LOWER(TRIM(:h_name))
-                                OR LOWER(TRIM(hostel_name)) LIKE CONCAT('%', LOWER(TRIM(:h_name)), '%')
-                                OR LOWER(TRIM(:h_name)) LIKE CONCAT('%', LOWER(TRIM(hostel_name)), '%')
-                                OR hostel_name IS NULL OR hostel_name = ''
-                            )
-                            AND (
-                                LOWER(TRIM(floor_name)) LIKE CONCAT('%', LOWER(TRIM(:f_name)), '%')
-                                OR LOWER(TRIM(:f_name)) LIKE CONCAT('%', LOWER(TRIM(floor_name)), '%')
-                                OR floor_name IS NULL OR floor_name = ''
-                            )
-                            AND (
-                                LOWER(TRIM(wing_name)) = LOWER(TRIM(:w_name))
-                                OR LOWER(TRIM(wing_name)) LIKE CONCAT('%', LOWER(TRIM(:w_name)), '%')
-                                OR LOWER(TRIM(:w_name)) LIKE CONCAT('%', LOWER(TRIM(wing_name)), '%')
-                                OR wing_name IS NULL OR wing_name = ''
-                                OR LOWER(TRIM(wing_name)) = 'w0'
-                            )
-                            ORDER BY (CASE WHEN LOWER(TRIM(wing_name)) = LOWER(TRIM(:w_name2)) THEN 10 ELSE 0 END) + 
-                                     (CASE WHEN LOWER(TRIM(floor_name)) LIKE CONCAT('%', LOWER(TRIM(:f_name2)), '%') THEN 5 ELSE 0 END) +
-                                     (CASE WHEN LOWER(TRIM(hostel_name)) = LOWER(TRIM(:h_name2)) THEN 1 ELSE 0 END) DESC
-                            LIMIT 1";
-            $warden_stmt = $db->prepare($warden_query);
-            $warden_stmt->execute([
-                ':role_pat' => $role_pattern,
-                ':h_name' => $h_name,
-                ':f_name' => $f_name,
-                ':w_name' => $w_name,
-                ':w_name2' => $w_name,
-                ':f_name2' => $f_name,
-                ':h_name2' => $h_name,
-            ]);
-            $receiver = $warden_stmt->fetch(PDO::FETCH_ASSOC);
-            if ($receiver) $receiver_id = $receiver['username'];
+                $warden_query = "SELECT 
+                                    COALESCE(u.username, ms.staff_bio_id, ms.username) as resolved_username
+                                 FROM mapping_staff ms
+                                 LEFT JOIN users u ON (
+                                     CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(u.username USING utf8mb4)
+                                     OR CONVERT(ms.username USING utf8mb4) = CONVERT(u.username USING utf8mb4)
+                                 )
+                                 WHERE LOWER(ms.role) LIKE :role_pat
+                                 AND (
+                                     LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(:h_name))
+                                     OR LOWER(TRIM(ms.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(:h_name)), '%')
+                                     OR LOWER(TRIM(:h_name)) LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)), '%')
+                                     OR ms.hostel_name IS NULL OR ms.hostel_name = ''
+                                 )
+                                 AND (
+                                     LOWER(TRIM(ms.floor_name)) LIKE CONCAT('%', LOWER(TRIM(:f_name)), '%')
+                                     OR LOWER(TRIM(:f_name)) LIKE CONCAT('%', LOWER(TRIM(ms.floor_name)), '%')
+                                     OR ms.floor_name IS NULL OR ms.floor_name = ''
+                                 )
+                                 AND (
+                                     LOWER(TRIM(ms.wing_name)) = LOWER(TRIM(:w_name))
+                                     OR LOWER(TRIM(ms.wing_name)) LIKE CONCAT('%', LOWER(TRIM(:w_name)), '%')
+                                     OR LOWER(TRIM(:w_name)) LIKE CONCAT('%', LOWER(TRIM(ms.wing_name)), '%')
+                                     OR ms.wing_name IS NULL OR ms.wing_name = ''
+                                     OR LOWER(TRIM(ms.wing_name)) = 'w0'
+                                     OR LOWER(TRIM(ms.wing_name)) = 'all'
+                                 )
+                                 ORDER BY (CASE WHEN LOWER(TRIM(ms.wing_name)) = LOWER(TRIM(:w_name2)) THEN 10 ELSE 0 END) +
+                                          (CASE WHEN LOWER(TRIM(ms.floor_name)) LIKE CONCAT('%', LOWER(TRIM(:f_name2)), '%') THEN 5 ELSE 0 END) +
+                                          (CASE WHEN LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(:h_name2)) THEN 1 ELSE 0 END) DESC
+                                 LIMIT 1";
+                $warden_stmt = $db->prepare($warden_query);
+                $warden_stmt->execute([
+                    ':role_pat' => $role_pattern,
+                    ':h_name'   => $h_name,
+                    ':f_name'   => $f_name,
+                    ':w_name'   => $w_name,
+                    ':w_name2'  => $w_name,
+                    ':f_name2'  => $f_name,
+                    ':h_name2'  => $h_name,
+                ]);
+                $receiver = $warden_stmt->fetch(PDO::FETCH_ASSOC);
+                if ($receiver) $receiver_id = $receiver['resolved_username'];
+            }
         }
         
         if (!$receiver_id) {
-            $stmt = $db->prepare("SELECT username FROM mapping_staff WHERE LOWER(role) LIKE ? LIMIT 1");
+            // Fallback: pick any matching staff, resolving users.username
+            $stmt = $db->prepare(
+                "SELECT COALESCE(u.username, ms.staff_bio_id, ms.username) as resolved_username
+                 FROM mapping_staff ms
+                 LEFT JOIN users u ON (
+                     CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(u.username USING utf8mb4)
+                     OR CONVERT(ms.username USING utf8mb4) = CONVERT(u.username USING utf8mb4)
+                 )
+                 WHERE LOWER(ms.role) LIKE ? LIMIT 1"
+            );
             $stmt->execute([$role_pattern]);
             $receiver = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($receiver) $receiver_id = $receiver['username'];
+            if ($receiver) $receiver_id = $receiver['resolved_username'];
         }
     } else {
         $info_stmt = $db->prepare("SELECT department, student_id FROM request1 WHERE (CONVERT(request_id USING utf8mb4) = CONVERT(? USING utf8mb4))");
@@ -218,35 +264,75 @@ try {
         $message_id = $db->lastInsertId();
         echo json_encode(["success" => true, "message" => "Message sent", "message_id" => $message_id, "request_id" => $request_id, "receiver_id" => $receiver_id]);
         
-        $receiver_details_stmt = $db->prepare("SELECT fcm_token FROM users WHERE (CONVERT(username USING utf8mb4) = CONVERT(? USING utf8mb4) OR CONVERT(id USING utf8mb4) = CONVERT(? USING utf8mb4)) LIMIT 1");
-        $receiver_details_stmt->execute([$receiver_id, $receiver_id]);
-        $recv = $receiver_details_stmt->fetch(PDO::FETCH_ASSOC);
-        if ($recv && !empty($recv['fcm_token'])) {
+        // ─────────────────────────────────────────────────────────────────────
+        // FCM TOKEN RESOLUTION — Critical fix for Student → Warden flow
+        //
+        // receiver_id may be a staff_bio_id (e.g. "ENG2345") from mapping_staff.
+        // The users table stores the actual login username (e.g. "admin1").
+        // We must try BOTH the raw receiver_id AND the mapped users.username
+        // to find the correct FCM token.
+        // ─────────────────────────────────────────────────────────────────────
+        $fcm_token = null;
+
+        // Attempt 1: Direct match in users table (covers warden, student, staff logins)
+        $recv_stmt = $db->prepare(
+            "SELECT fcm_token FROM users 
+             WHERE (CONVERT(username USING utf8mb4) = CONVERT(? USING utf8mb4) 
+                 OR CONVERT(id USING utf8mb4) = CONVERT(? USING utf8mb4))
+             AND fcm_token IS NOT NULL AND fcm_token != ''
+             LIMIT 1"
+        );
+        $recv_stmt->execute([$receiver_id, $receiver_id]);
+        $recv_row = $recv_stmt->fetch(PDO::FETCH_ASSOC);
+        if ($recv_row) $fcm_token = $recv_row['fcm_token'];
+
+        // Attempt 2: receiver_id is a staff_bio_id → resolve actual username via mapping_staff → users
+        if (!$fcm_token) {
+            $bio_stmt = $db->prepare(
+                "SELECT u.fcm_token FROM mapping_staff ms
+                 JOIN users u ON (
+                     CONVERT(ms.username USING utf8mb4) = CONVERT(u.username USING utf8mb4)
+                     OR CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(u.username USING utf8mb4)
+                 )
+                 WHERE (CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(? USING utf8mb4)
+                     OR CONVERT(ms.username USING utf8mb4) = CONVERT(? USING utf8mb4))
+                 AND u.fcm_token IS NOT NULL AND u.fcm_token != ''
+                 LIMIT 1"
+            );
+            $bio_stmt->execute([$receiver_id, $receiver_id]);
+            $bio_row = $bio_stmt->fetch(PDO::FETCH_ASSOC);
+            if ($bio_row) $fcm_token = $bio_row['fcm_token'];
+        }
+
+        // Attempt 3: Receiver is a parent user
+        if (!$fcm_token) {
+            $parent_recv_stmt = $db->prepare(
+                "SELECT fcm_token FROM parent_users 
+                 WHERE (CONVERT(parent_id USING utf8mb4) = CONVERT(? USING utf8mb4))
+                 AND fcm_token IS NOT NULL AND fcm_token != ''
+                 LIMIT 1"
+            );
+            $parent_recv_stmt->execute([$receiver_id]);
+            $parent_recv = $parent_recv_stmt->fetch(PDO::FETCH_ASSOC);
+            if ($parent_recv) $fcm_token = $parent_recv['fcm_token'];
+        }
+
+        // Send FCM if we found a token
+        if ($fcm_token) {
             try {
                 if ($sender_role === 'student') {
-                    // Format: Student Name (Reg No) -> e.g. BIRAJ CHAUDHARY (192514071)
                     $title = $sender['full_name'] . " (" . $sender_username . ")";
                 } else {
-                    // Format: Warden Name (Warden) -> e.g. Dr. Ramesh (Warden)
                     $s_name = !empty($sender['full_name']) ? $sender['full_name'] : $sender_username;
                     $s_role = ($sender_role === 'warden') ? 'Warden' : (($sender_role === 'parent') ? 'Parent' : ucfirst($sender_role));
                     $title = $s_name . " (" . $s_role . ")";
                 }
-                sendFCM($recv['fcm_token'], $title, $message, $request_id, $sender_username, $sender['full_name'], $message, 'chat', $target_dept);
-            } catch (Exception $e) {}
-        } else {
-            // Also try to notify via parent_users table if receiver is a parent
-            $parent_recv_stmt = $db->prepare("SELECT fcm_token FROM parent_users WHERE (CONVERT(parent_id USING utf8mb4) = CONVERT(? USING utf8mb4)) LIMIT 1");
-            $parent_recv_stmt->execute([$receiver_id]);
-            $parent_recv = $parent_recv_stmt->fetch(PDO::FETCH_ASSOC);
-            if ($parent_recv && !empty($parent_recv['fcm_token'])) {
-                try {
-                    $s_name = !empty($sender['full_name']) ? $sender['full_name'] : $sender_username;
-                    $s_role = ($sender_role === 'warden') ? 'Warden' : ucfirst($sender_role);
-                    $title = $s_name . " (" . $s_role . ")";
-                    sendFCM($parent_recv['fcm_token'], $title, $message, $request_id, $sender_username, $sender['full_name'], $message, 'chat', 'parent_warden');
-                } catch (Exception $e) {}
+                sendFCM($fcm_token, $title, $message, $request_id, $sender_username, $sender['full_name'], $message, 'chat', $target_dept);
+            } catch (Exception $e) {
+                file_put_contents('debug_chat.log', date('[Y-m-d H:i:s] ') . "FCM ERROR: " . $e->getMessage() . PHP_EOL, FILE_APPEND);
             }
+        } else {
+            file_put_contents('debug_chat.log', date('[Y-m-d H:i:s] ') . "FCM SKIPPED: No token found for receiver_id=" . $receiver_id . PHP_EOL, FILE_APPEND);
         }
     } else {
         echo json_encode(["success" => false, "error" => $insert->errorInfo()]);

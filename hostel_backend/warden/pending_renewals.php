@@ -30,7 +30,7 @@ try {
             SELECT DISTINCT p.reg_no 
             FROM profile p
             JOIN mapping_staff ms ON (TRIM(ms.username) = ?)
-            WHERE (TRIM(p.hostel_name) LIKE CONCAT('%', TRIM(ms.hostel_name), '%'))
+            WHERE (LOWER(TRIM(p.hostel_name)) = LOWER(TRIM(ms.hostel_name)))
               AND (ms.role = 'Warden' OR ms.role = 'Security' OR ms.role = 'Maintenance' OR ms.role = (SELECT role FROM users WHERE username = ? LIMIT 1))
         )";
         $params[] = $warden_username;
