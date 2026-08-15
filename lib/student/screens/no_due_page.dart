@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../core/api_service.dart';
+import '../../core/styles.dart';
 import '../../shared/user_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 
@@ -590,40 +591,42 @@ class _NoDuePageState extends State<NoDuePage> {
     final user = context.watch<UserProvider>();
     final latestRequest = _requests.isNotEmpty ? _requests.first : <String, dynamic>{};
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFE8E4DB),
-      appBar: const SkeuomorphicNavBar(
-        title: 'No Due',
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // WALLET SECTION (Temporarily hidden for production release)
-              // _buildWalletSection(),
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: const SkeuomorphicNavBar(
+          title: 'No Due',
+        ),
+        body: RefreshIndicator(
+          onRefresh: _loadData,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // WALLET SECTION (Temporarily hidden for production release)
+                // _buildWalletSection(),
 
-              const SizedBox(height: 20),
-
-              // STUDENT ROOM ALLOCATION CARD
-              _buildExistingRoomCard(user),
-
-              // REQUESTED ROOM TRANSFER CARD (If student submitted a transfer request)
-              if (_isLoading)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(20),
-                    child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
-                  ),
-                )
-              else if (latestRequest.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                _buildRequestedTransferCard(latestRequest),
+
+                // STUDENT ROOM ALLOCATION CARD
+                _buildExistingRoomCard(user),
+
+                // REQUESTED ROOM TRANSFER CARD (If student submitted a transfer request)
+                if (_isLoading)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                    ),
+                  )
+                else if (latestRequest.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _buildRequestedTransferCard(latestRequest),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -737,21 +740,26 @@ class _NoDuePageState extends State<NoDuePage> {
         children: [
           // Header Row: Icon + Room Type + Paid Badge (Image 1)
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const Icon(Icons.king_bed_outlined, color: Color(0xFF1A2744), size: 22),
               const SizedBox(width: 8),
-              Text(
-                roomType,
-                style: GoogleFonts.lato(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1A2744),
+              Expanded(
+                child: Text(
+                  roomType,
+                  style: GoogleFonts.lato(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1A2744),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               // Light Green "Paid" Badge (Image 1)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 decoration: BoxDecoration(
                   color: const Color(0xFF059669),
                   borderRadius: BorderRadius.circular(16),
@@ -775,12 +783,16 @@ class _NoDuePageState extends State<NoDuePage> {
             children: [
               const Icon(Icons.location_on_outlined, color: Colors.grey, size: 16),
               const SizedBox(width: 4),
-              Text(
-                '$hostel · Thandalam Campus',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
+              Expanded(
+                child: Text(
+                  '$hostel · Thandalam Campus',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -799,12 +811,16 @@ class _NoDuePageState extends State<NoDuePage> {
                   color: Color(0xFF1A2744),
                 ),
               ),
-              Text(
-                roomNo,
-                style: GoogleFonts.lato(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF10B981),
+              Expanded(
+                child: Text(
+                  roomNo,
+                  style: GoogleFonts.lato(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF10B981),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -816,26 +832,31 @@ class _NoDuePageState extends State<NoDuePage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Total Fee',
-                    style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '₹${NumberFormat('#,##,###').format(user.totalFee.toInt())}',
-                    style: GoogleFonts.lato(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF1A2744),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Total Fee',
+                      style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 2),
+                    Text(
+                      '₹${NumberFormat('#,##,###').format(user.totalFee.toInt())}',
+                      style: GoogleFonts.lato(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1A2744),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 10),
               Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Text(
                     'Additional EB Charges',
@@ -873,6 +894,8 @@ class _NoDuePageState extends State<NoDuePage> {
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF1A2744),
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -883,9 +906,9 @@ class _NoDuePageState extends State<NoDuePage> {
           Row(
             children: [
               Expanded(child: _buildInfoBox('Amount', '₹${NumberFormat('#,##,###').format(user.roomAmount.toInt())}')),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(child: _buildInfoBox('Food', '₹${NumberFormat('#,##,###').format(user.roomFood.toInt())}')),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(child: _buildInfoBox('Caution', '₹${NumberFormat('#,##,###').format(user.roomCaution.toInt())}')),
             ],
           ),
@@ -896,7 +919,7 @@ class _NoDuePageState extends State<NoDuePage> {
 
   Widget _buildInfoBox(String label, String amount) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
         color: const Color(0xFFF9F6F0),
         borderRadius: BorderRadius.circular(14),
@@ -908,14 +931,20 @@ class _NoDuePageState extends State<NoDuePage> {
           Text(
             label,
             style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w500),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
-          Text(
-            amount,
-            style: GoogleFonts.lato(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF1A2744),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              amount,
+              style: GoogleFonts.lato(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF1A2744),
+              ),
             ),
           ),
         ],

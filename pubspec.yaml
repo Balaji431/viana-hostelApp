@@ -2,7 +2,7 @@ name: vianasoft_stay
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+21
+version: 1.0.0+22
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

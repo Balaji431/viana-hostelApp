@@ -679,45 +679,39 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                // Logo Section
-                                Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFFE8D48A), Color(0xFFD4AF37), Color(0xFFB8962E)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: const Color(0xFF8B7025), width: 2),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.4),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(40),
-                                    child: Image.asset(
-                                      'assets/images/favicon.png',
-                                      width: 80,
-                                      height: 80,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) => const Center(
-                                        child: Icon(
-                                          Icons.apartment,
-                                          color: Color(0xFF3D2E0A),
-                                          size: 40,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                 const SizedBox(height: 15),
-                                 const SizedBox(height: 15),
+                                 // Logo Section
+                                 Container(
+                                   width: 84,
+                                   height: 84,
+                                   decoration: BoxDecoration(
+                                     color: Colors.white,
+                                     shape: BoxShape.circle,
+                                     boxShadow: [
+                                       BoxShadow(
+                                         color: Colors.black.withOpacity(0.25),
+                                         blurRadius: 12,
+                                         offset: const Offset(0, 4),
+                                       ),
+                                     ],
+                                   ),
+                                   child: ClipRRect(
+                                     borderRadius: BorderRadius.circular(42),
+                                     child: Image.asset(
+                                       'assets/images/favicon.png',
+                                       width: 84,
+                                       height: 84,
+                                       fit: BoxFit.cover,
+                                       errorBuilder: (context, error, stackTrace) => const Center(
+                                         child: Icon(
+                                           Icons.apartment,
+                                           color: Color(0xFF1B2B48),
+                                           size: 40,
+                                         ),
+                                       ),
+                                     ),
+                                   ),
+                                 ),
+                                 const SizedBox(height: 18),
                                  const Text(
                                   'SIMATS VSTAY',
                                   style: TextStyle(
