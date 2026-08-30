@@ -6,6 +6,7 @@ import '../widgets/warden_widgets.dart';
 import '../../shared/widgets/calendar_modal.dart';
 import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../core/api_service.dart';
 import '../../shared/category_provider.dart';
 import '../../shared/chat/request_details_screen.dart';
@@ -262,15 +263,22 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     }).toList();
 
     final user = context.watch<UserProvider>();
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     final showInternalAppBar = true;
 
     if (_isLoading) {
-      return const LinenBackground(
-        child: Center(child: CircularProgressIndicator()),
+      return LinenBackground(
+        child: Center(
+          child: CircularProgressIndicator(
+            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+          ),
+        ),
       );
     }
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: showInternalAppBar 
           ? const SkeuomorphicNavBar(
               title: 'Reports',
@@ -283,10 +291,10 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
             SliverToBoxAdapter(
               child: Column(
                 children: [
-                  _buildDashboardSummary(),
+                  _buildDashboardSummary(isDark),
                   const SizedBox(height: 20),
-                  _buildFiltersSection(user, filteredReports.length),
-                  _buildResultsList(filteredReports),
+                  _buildFiltersSection(user, filteredReports.length, isDark),
+                  _buildResultsList(filteredReports, isDark),
                 ],
               ),
             ),
@@ -296,7 +304,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     );
   }
 
-  Widget _buildDashboardSummary() {
+  Widget _buildDashboardSummary(bool isDark) {
     final user = context.watch<UserProvider>();
     final isWarden1 = user.username == 'warden1';
 
@@ -318,20 +326,16 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
       final maintenanceTotal = maintenanceReports.length;
       final maintenancePending = maintenanceReports.where((r) => r['status'] == 'PENDING').length;
 
-
-
       return Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF1A2744), Color(0xFF2A3A5C)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.only(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+          gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
+          borderRadius: const BorderRadius.only(
             bottomLeft: Radius.circular(24),
             bottomRight: Radius.circular(24),
           ),
+          border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))) : null,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
         child: Column(
@@ -346,6 +350,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                     gradientColors: [const Color(0xFFFFD54F), const Color(0xFFFFA000)],
                     isSelected: _selectedCategory == 'Maintenance',
                     onTap: () => setState(() => _selectedCategory = 'Maintenance'),
+                    isDark: isDark,
                   ),
                 ),
                 const SizedBox(width: 15),
@@ -357,6 +362,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                     gradientColors: [const Color(0xFFEF9A9A), const Color(0xFFE53935)],
                     isSelected: _selectedCategory == 'Security',
                     onTap: () => setState(() => _selectedCategory = 'Security'),
+                    isDark: isDark,
                   ),
                 ),
               ],
@@ -372,6 +378,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                     gradientColors: [const Color(0xFFA5D6A7), const Color(0xFF66BB6A)],
                     isSelected: _selectedCategory == 'Warden',
                     onTap: () => setState(() => _selectedCategory = 'Warden'),
+                    isDark: isDark,
                   ),
                 ),
                 const SizedBox(width: 15),
@@ -383,6 +390,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                     gradientColors: [const Color(0xFFE8D48A), const Color(0xFFD4AF37)],
                     isSelected: _selectedCategory == 'Renewals',
                     onTap: () => setState(() => _selectedCategory = 'Renewals'),
+                    isDark: isDark,
                   ),
                 ),
               ],
@@ -435,16 +443,14 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
 
       return Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF1A2744), Color(0xFF2A3A5C)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.only(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+          gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
+          borderRadius: const BorderRadius.only(
             bottomLeft: Radius.circular(24),
             bottomRight: Radius.circular(24),
           ),
+          border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))) : null,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
         child: Row(
@@ -455,7 +461,8 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                 count.toString(), 
                 pending.toString(), 
                 cardColor, 
-                () => setState(() => _selectedCategory = cardTitle[0].toUpperCase() + cardTitle.substring(1).toLowerCase())
+                () => setState(() => _selectedCategory = cardTitle[0].toUpperCase() + cardTitle.substring(1).toLowerCase()),
+                isDark: isDark,
               ),
             ),
           ],
@@ -471,6 +478,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     required List<Color> gradientColors,
     required bool isSelected,
     required VoidCallback onTap,
+    bool isDark = false,
   }) {
     final int completionPercent = total > 0 ? ((pending / total) * 100).round() : 0;
     final double progress = total > 0 ? pending / total : 0.0;
@@ -481,15 +489,15 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1B2B48),
+          color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : const Color(0xFF1B2B48),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? gradientColors[1] : Colors.white12,
+            color: isSelected ? gradientColors[1] : (isDark ? Colors.white.withOpacity(0.12) : Colors.white12),
             width: isSelected ? 2.0 : 1.0,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withOpacity(isDark ? 0.35 : 0.2),
               blurRadius: 8,
               offset: const Offset(0, 4),
             )
@@ -603,15 +611,16 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     );
   }
 
-  Widget _buildModernSummaryCard(String label, String active, String updated, Color color, VoidCallback onTap) {
+  Widget _buildModernSummaryCard(String label, String active, String updated, Color color, VoidCallback onTap, {bool isDark = false}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF1B2B48),
+          color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : const Color(0xFF1B2B48),
           borderRadius: BorderRadius.circular(20),
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))],
+          border: isDark ? Border.all(color: Colors.white.withOpacity(0.12)) : null,
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.35 : 0.26), blurRadius: 8, offset: const Offset(0, 4))],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -675,7 +684,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     );
   }
 
-  Widget _buildFiltersSection(UserProvider user, int filteredCount) {
+  Widget _buildFiltersSection(UserProvider user, int filteredCount, bool isDark) {
     final isWarden1 = user.username == 'warden1';
 
     String getCategoryDisplay(String? category) {
@@ -697,13 +706,13 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
         children: [
           // "FILTERS" Row
           Row(
-            children: const [
-              Icon(Icons.filter_alt_outlined, size: 14, color: Color(0xFF8A7A6A)),
-              SizedBox(width: 6),
+            children: [
+              Icon(Icons.filter_alt_outlined, size: 14, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF8A7A6A)),
+              const SizedBox(width: 6),
               Text(
                 'FILTERS',
                 style: TextStyle(
-                  color: Color(0xFF8A7A6A),
+                  color: isDark ? Colors.white70 : const Color(0xFF8A7A6A),
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 1.1,
@@ -724,17 +733,20 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                     child: CompositedTransformTarget(
                       link: _categoryLayerLink,
                       child: GestureDetector(
-                        onTap: isWarden1 ? _toggleCategoryDropdown : null,
+                        onTap: isWarden1 ? () => _toggleCategoryDropdown(isDark) : null,
                         child: Container(
                           height: 42,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFAF7F2),
+                            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFAF7F2),
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFD0C8BC), width: 1.0),
+                            border: Border.all(
+                              color: isDark ? Colors.white24 : const Color(0xFFD0C8BC),
+                              width: 1.0,
+                            ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.04),
+                                color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
                                 blurRadius: 3,
                                 offset: const Offset(0, 1.5),
                               ),
@@ -750,16 +762,16 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                                     fontFamily: 'Lato',
                                     fontSize: 12,
                                     fontWeight: _selectedCategory != null ? FontWeight.bold : FontWeight.normal,
-                                    color: const Color(0xFF1B2B48),
+                                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               if (isWarden1)
-                              const Icon(
+                              Icon(
                                 Icons.keyboard_arrow_down,
                                 size: 16,
-                                color: Color(0xFF7A6F62),
+                                color: isDark ? Colors.white60 : const Color(0xFF7A6F62),
                               ),
                             ],
                           ),
@@ -777,15 +789,17 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                         height: 42,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFAF7F2),
+                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFAF7F2),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: _startDate != null ? const Color(0xFFD4AF37) : const Color(0xFFD0C8BC),
+                            color: _startDate != null 
+                                ? const Color(0xFFD4AF37) 
+                                : (isDark ? Colors.white24 : const Color(0xFFD0C8BC)),
                             width: 1.0,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
+                              color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
                               blurRadius: 3,
                               offset: const Offset(0, 1.5),
                             ),
@@ -803,15 +817,17 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                                   fontFamily: 'Lato',
                                   fontSize: 12,
                                   fontWeight: _startDate != null ? FontWeight.bold : FontWeight.normal,
-                                  color: _startDate != null ? const Color(0xFF1B2B48) : const Color(0xFFA09080),
+                                  color: _startDate != null 
+                                      ? (isDark ? Colors.white : const Color(0xFF1B2B48)) 
+                                      : (isDark ? Colors.white38 : const Color(0xFFA09080)),
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const Icon(
+                            Icon(
                               Icons.calendar_today,
                               size: 14,
-                              color: Colors.black87,
+                              color: isDark ? const Color(0xFFD4AF37) : Colors.black87,
                             ),
                           ],
                         ),
@@ -828,15 +844,17 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                         height: 42,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFAF7F2),
+                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFAF7F2),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: _endDate != null ? const Color(0xFFD4AF37) : const Color(0xFFD0C8BC),
+                            color: _endDate != null 
+                                ? const Color(0xFFD4AF37) 
+                                : (isDark ? Colors.white24 : const Color(0xFFD0C8BC)),
                             width: 1.0,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
+                              color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
                               blurRadius: 3,
                               offset: const Offset(0, 1.5),
                             ),
@@ -854,15 +872,17 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                                   fontFamily: 'Lato',
                                   fontSize: 12,
                                   fontWeight: _endDate != null ? FontWeight.bold : FontWeight.normal,
-                                  color: _endDate != null ? const Color(0xFF1B2B48) : const Color(0xFFA09080),
+                                  color: _endDate != null 
+                                      ? (isDark ? Colors.white : const Color(0xFF1B2B48)) 
+                                      : (isDark ? Colors.white38 : const Color(0xFFA09080)),
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const Icon(
+                            Icon(
                               Icons.calendar_today,
                               size: 14,
-                              color: Colors.black87,
+                              color: isDark ? const Color(0xFFD4AF37) : Colors.black87,
                             ),
                           ],
                         ),
@@ -902,7 +922,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     );
   }
 
-  void _toggleCategoryDropdown() {
+  void _toggleCategoryDropdown([bool isDark = false]) {
     if (_categoryOverlayEntry != null) {
       _closeCategoryDropdown();
       return;
@@ -930,12 +950,15 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                 width: _categoryDropdownWidth,
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFAF7F2),
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFAF7F2),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFD0C8BC), width: 1.0),
+                  border: Border.all(
+                    color: isDark ? Colors.white24 : const Color(0xFFD0C8BC),
+                    width: 1.0,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
+                      color: Colors.black.withOpacity(isDark ? 0.35 : 0.12),
                       blurRadius: 10,
                       offset: const Offset(0, 5),
                     ),
@@ -944,11 +967,11 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildDropdownItem(null, 'All'),
-                    _buildDropdownItem('Maintenance', 'Maintenance'),
-                    _buildDropdownItem('Security', 'Security'),
-                    _buildDropdownItem('Warden', 'Warden'),
-                    _buildDropdownItem('Renewals', 'Renewals'),
+                    _buildDropdownItem(null, 'All', isDark),
+                    _buildDropdownItem('Maintenance', 'Maintenance', isDark),
+                    _buildDropdownItem('Security', 'Security', isDark),
+                    _buildDropdownItem('Warden', 'Warden', isDark),
+                    _buildDropdownItem('Renewals', 'Renewals', isDark),
                   ],
                 ),
               ),
@@ -970,7 +993,7 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     }
   }
 
-  Widget _buildDropdownItem(String? value, String label) {
+  Widget _buildDropdownItem(String? value, String label, [bool isDark = false]) {
     final isSelected = (_selectedCategory == value) || (_selectedCategory == null && value == null);
 
     return InkWell(
@@ -983,31 +1006,44 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        color: isSelected ? const Color(0xFFE2DDD5) : Colors.transparent,
+        color: isSelected 
+            ? (isDark ? Colors.white12 : const Color(0xFFE2DDD5)) 
+            : Colors.transparent,
         child: Text(
           label,
           style: TextStyle(
             fontFamily: 'Lato',
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            color: const Color(0xFF1B2B48),
+            color: isDark ? Colors.white : const Color(0xFF1B2B48),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildResultsList(List<Map<String, dynamic>> reports) {
+  Widget _buildResultsList(List<Map<String, dynamic>> reports, [bool isDark = false]) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (reports.isEmpty)
-             const Padding(padding: EdgeInsets.only(top: 40), child: Center(child: Column(children: [Icon(Icons.bar_chart, size: 48, color: Colors.grey), SizedBox(height: 10), Text('No items match your filters', style: TextStyle(color: Colors.grey))]))),
+             Padding(
+               padding: const EdgeInsets.only(top: 40), 
+               child: Center(
+                 child: Column(
+                   children: [
+                     Icon(Icons.bar_chart, size: 48, color: isDark ? Colors.white38 : Colors.grey),
+                     const SizedBox(height: 10),
+                     Text('No items match your filters', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+                   ],
+                 ),
+               ),
+             ),
           ...reports.map((r) => GestureDetector(
             onTap: () => _openRequestDetails(r),
-            child: _buildReportCard(r)
+            child: _buildReportCard(r, isDark),
           )),
           const SizedBox(height: 100),
         ],
@@ -1015,11 +1051,24 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
     );
   }
 
-  Widget _buildReportCard(Map<String, dynamic> report) {
+  Widget _buildReportCard(Map<String, dynamic> report, [bool isDark = false]) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1031,7 +1080,16 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
                   children: [
                     Icon(_getReportIcon(report['type']), size: 16, color: _getReportColor(report['type'])),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(report['sub'], style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                    Expanded(
+                      child: Text(
+                        report['sub'], 
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                        ), 
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1040,18 +1098,47 @@ class _WardenReportsTabState extends State<WardenReportsTab> with AutomaticKeepA
             ],
           ),
           const SizedBox(height: 10),
-          Text(report['id'], style: const TextStyle(fontFamily: 'Lato', fontSize: 10, color: Colors.blueGrey)),
+          Text(
+            report['id'], 
+            style: TextStyle(
+              fontFamily: 'Lato', 
+              fontSize: 10, 
+              color: isDark ? const Color(0xFFD4AF37) : Colors.blueGrey,
+            ),
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
-              Container(width: 32, height: 32, decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SkeuomorphicColors.goldGlossyGradient), child: Center(child: Text(report['student'][0], style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)))),
+              Container(
+                width: 32, height: 32, 
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle, 
+                  gradient: SkeuomorphicColors.goldGlossyGradient,
+                ), 
+                child: Center(
+                  child: Text(
+                    report['student'][0], 
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${report['student']} (${report['room']})', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    Text(DateFormat('dd MMM yyyy').format(DateTime.parse(report['date'])), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text(
+                      '${report['student']} (${report['room']})', 
+                      style: TextStyle(
+                        fontSize: 13, 
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      DateFormat('dd MMM yyyy').format(DateTime.parse(report['date'])), 
+                      style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey),
+                    ),
                   ],
                 ),
               ),

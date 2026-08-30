@@ -10,6 +10,7 @@ import '../dialogs/add_hostel_dialog.dart';
 import 'hostel_detail_screen.dart';
 import 'package:vianasoft_stay/core/models/hierarchical_hostel_model.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../../shared/wallpaper_provider.dart';
 
 class AdminHostelManagerScreen extends StatefulWidget {
   final void Function(HierarchicalHostel hostel)? onHostelSelected;
@@ -288,31 +289,45 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
   }
 
   Widget _buildHostelList() {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return Column(
       children: [
         Container(
           margin: const EdgeInsets.all(16),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDark ? const Color(0xFF1E293B).withOpacity(0.85) : Colors.white.withOpacity(0.92),
             borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.12) : const Color(0xFFD4AF37).withOpacity(0.25),
+              width: 1.2,
+            ),
             boxShadow: [
-              BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: const Color(0xFFD4AF37).withValues(alpha: 0.1), shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD4AF37).withOpacity(isDark ? 0.2 : 0.12),
+                  shape: BoxShape.circle,
+                ),
                 child: const Icon(Icons.apartment, color: Color(0xFFD4AF37), size: 28),
               ),
               const SizedBox(width: 16),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Total Hostels', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                  Text('${_hostels.length}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+                  Text('Total Hostels', style: TextStyle(fontSize: 13, color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                  Text('${_hostels.length}', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
                 ],
               ),
             ],
@@ -345,8 +360,32 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
   ];
 
   Widget _buildAddNewHostelButton() {
+    final isDesktop = MediaQuery.of(context).size.width > 900;
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return GestureDetector(
       onTap: () async {
+        if (!isDesktop) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Access Restricted'),
+              content: const Text(
+                'Add New Hostel is available only on Desktop/Laptop.\n\nPlease use a desktop browser to access this feature.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+
         final result = await showDialog<bool>(
           context: context,
           builder: (context) => const AddHostelDialog(),
@@ -357,10 +396,10 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
         margin: const EdgeInsets.only(top: 4, bottom: 20),
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: const Color(0xFFEEF3FB), 
+          color: isDark ? const Color(0xFF1E293B).withOpacity(0.7) : const Color(0xFFEEF3FB), 
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: const Color(0xFF2A4A8C).withValues(alpha: 0.5),
+            color: isDark ? const Color(0xFF60A5FA).withOpacity(0.4) : const Color(0xFF2A4A8C).withOpacity(0.4),
             width: 1.5,
           ),
         ),
@@ -370,21 +409,36 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
             Container(
               width: 36,
               height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xFF2A4A8C),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF3B82F6) : const Color(0xFF2A4A8C),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.add, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 14),
-            const Text(
-              'Add New Hostel',
-              style: TextStyle(
-                color: Color(0xFF2A4A8C),
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-                fontFamily: 'Lato',
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Add New Hostel',
+                  style: TextStyle(
+                    color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF2A4A8C),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    fontFamily: 'Lato',
+                  ),
+                ),
+                if (!isDesktop)
+                  const Text(
+                    'Desktop Only',
+                    style: TextStyle(
+                      color: Color(0xFFE57373),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
@@ -399,22 +453,23 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
         : '${hostel.name} Hostel';
     final campus = hostel.campus.isNotEmpty ? hostel.campus : 'Main Campus';
 
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(0.08), width: 1),
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.92) : Colors.white.withOpacity(0.94),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.12) : const Color(0xFFD4AF37).withOpacity(0.25),
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.07),
-            blurRadius: 12,
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
+            blurRadius: 14,
             offset: const Offset(0, 5),
-          ),
-          BoxShadow(
-            color: Colors.white.withOpacity(0.8),
-            blurRadius: 1,
-            offset: const Offset(0, -1),
           ),
         ],
       ),
@@ -427,12 +482,18 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
               onTap: () => _navigateToDetail(hostel),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF1A2744), Color(0xFF2D4A7A)],
-                  ),
+                decoration: BoxDecoration(
+                  gradient: isDark
+                      ? const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+                        )
+                      : const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF1A2744), Color(0xFF2D4A7A)],
+                        ),
                 ),
                 child: Row(
                   children: [
@@ -486,30 +547,41 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
               ),
             ),
             // ── Footer with Type Badge and Actions ──────────────────
-            Padding(
+            Container(
+              color: isDark ? const Color(0xFF1E293B).withOpacity(0.65) : Colors.white.withOpacity(0.95),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFD4AF37).withOpacity(0.15),
+                      color: const Color(0xFFD4AF37).withOpacity(isDark ? 0.2 : 0.15),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4)),
+                      border: Border.all(color: const Color(0xFFD4AF37).withOpacity(isDark ? 0.6 : 0.4)),
                     ),
                     child: Text(
                       'Type: ${hostel.type.isNotEmpty ? hostel.type : 'Mixed'}',
                       style: GoogleFonts.outfit(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1A2744),
+                        color: isDark ? const Color(0xFFF1C40F) : const Color(0xFF1A2744),
                       ),
                     ),
                   ),
                   const Spacer(),
-                  _buildCompactAction(Icons.edit_outlined, 'Edit', const Color(0xFF2D4A7A), () => _editHostel(hostel)),
+                  _buildCompactAction(
+                    Icons.edit_outlined, 
+                    'Edit', 
+                    isDark ? const Color(0xFF60A5FA) : const Color(0xFF2D4A7A), 
+                    () => _editHostel(hostel)
+                  ),
                   const SizedBox(width: 16),
-                  _buildCompactAction(Icons.delete_outline, 'Delete', Colors.red, () => _deleteHostel(hostel)),
+                  _buildCompactAction(
+                    Icons.delete_outline, 
+                    'Delete', 
+                    isDark ? const Color(0xFFF87171) : Colors.red.shade700, 
+                    () => _deleteHostel(hostel)
+                  ),
                 ],
               ),
             ),
@@ -636,14 +708,28 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Hostel'),
-        content: const Text('Are you sure you want to delete this hostel? All associated rooms will also be deleted.'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 24),
+            SizedBox(width: 8),
+            Text('Delete Hostel'),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to delete "${hostel.name}"?\n\n'
+          '• If no students are assigned, this hostel and its empty rooms will be deleted immediately.\n'
+          '• If students are currently allotted to this hostel, deletion will be blocked.',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(context, true), 
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete')
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirm Delete'),
           ),
         ],
       ),
@@ -667,7 +753,10 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
       if (success) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Hostel deleted successfully'), backgroundColor: Colors.green),
+            SnackBar(
+              content: Text('Hostel "${hostel.name}" deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
           );
         }
         _loadHostels();
@@ -675,8 +764,9 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(provider.error ?? 'Failed to delete hostel'),
+              content: Text(provider.error ?? 'Failed to delete hostel. Students might be assigned to this hostel.'),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
             ),
           );
         }

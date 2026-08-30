@@ -9,6 +9,7 @@ import 'package:vianasoft_stay/core/styles.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_widgets.dart';
 import 'package:vianasoft_stay/shared/widgets/skeuomorphic_navbar.dart';
 import 'package:vianasoft_stay/core/design_system.dart' as ds;
+import 'package:vianasoft_stay/shared/screens/privacy_policy_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -91,24 +92,28 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
     setState(() => _isScrolling = false);
   }
 
-  DateTime? _getInitialPaymentDate() {
-    if (_payments.isEmpty) return null;
+  DateTime? _getInitialPaymentDate(UserProvider user) {
+    if (_payments.isNotEmpty) {
+      final sorted = List<Map<String, dynamic>>.from(_payments)
+        ..sort((a, b) {
+          final aDate = DateTime.tryParse(a['paid_at'] ?? a['booking_date'] ?? a['created_at'] ?? '') ?? DateTime.now();
+          final bDate = DateTime.tryParse(b['paid_at'] ?? b['booking_date'] ?? b['created_at'] ?? '') ?? DateTime.now();
+          return aDate.compareTo(bDate);
+        });
 
-    // Sort by date (oldest first)
-    final sorted = List<Map<String, dynamic>>.from(_payments)
-      ..sort((a, b) {
-        final aDate = DateTime.tryParse(a['booking_date'] ?? '') ?? DateTime.now();
-        final bDate = DateTime.tryParse(b['booking_date'] ?? '') ?? DateTime.now();
-        return aDate.compareTo(bDate);
-      });
+      final firstDate = DateTime.tryParse(sorted.first['paid_at'] ?? sorted.first['booking_date'] ?? sorted.first['created_at'] ?? '');
+      if (firstDate != null) return firstDate;
+    }
 
-    return DateTime.tryParse(sorted.first['booking_date'] ?? '');
+    if (user.checkInDate != null) return user.checkInDate;
+    return DateTime(2026, 8, 9);
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final user = context.watch<UserProvider>();
+    final wallpaper = context.watch<WallpaperProvider>();
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
@@ -177,11 +182,11 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                         physics: const NeverScrollableScrollPhysics(),
                                         child: Text(
                                           user.userName,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontFamily: 'Lato',
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold,
-                                            color: Color(0xFF1B2B48),
+                                            color: wallpaper.isDarkTheme ? Colors.white : const Color(0xFF1B2B48),
                                           ),
                                         ),
                                       ),
@@ -189,17 +194,27 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                   ),
                                   Text(
                                     user.role == UserRole.student ? 'ID: ${user.registerNo}' : 'ID: ${user.username}',
-                                    style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: wallpaper.isDarkTheme ? Colors.white70 : Colors.grey,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     user.email,
-                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: wallpaper.isDarkTheme ? Colors.white70 : Colors.grey,
+                                    ),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     '${user.institution} • Hostel: ${user.hostelName}',
-                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: wallpaper.isDarkTheme ? Colors.white60 : Colors.grey.shade500,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -209,20 +224,26 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                         if (user.role == UserRole.student) ...[
                           const SizedBox(height: 20),
                           _buildDetailRow(Icons.badge_outlined, 'Registration No', user.registerNo),
-                          const Divider(height: 20),
+                          Divider(height: 20, color: wallpaper.isDarkTheme ? Colors.white12 : Colors.grey.shade200),
                           _buildDetailRow(Icons.email_outlined, 'Email Address', user.email),
-                          const Divider(height: 20),
+                          Divider(height: 20, color: wallpaper.isDarkTheme ? Colors.white12 : Colors.grey.shade200),
                           _buildDetailRow(Icons.phone_outlined, 'Personal Phone', user.phone.isNotEmpty ? user.phone : 'Not provided'),
-                          const Divider(height: 20),
+                          Divider(height: 20, color: wallpaper.isDarkTheme ? Colors.white12 : Colors.grey.shade200),
                           Row(
                             children: [
-                              const Icon(Icons.home_outlined, color: Colors.grey, size: 24),
+                              Icon(Icons.home_outlined, color: wallpaper.isDarkTheme ? Colors.white70 : Colors.grey, size: 24),
                               const SizedBox(width: 15),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Room Allocation', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                    Text(
+                                      'Room Allocation',
+                                      style: TextStyle(
+                                        color: wallpaper.isDarkTheme ? Colors.white60 : Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                     if (user.roomAllocation.isNotEmpty || user.roomNumber.isNotEmpty) ...[
                                       const SizedBox(height: 4),
                                       Row(
@@ -230,7 +251,11 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                           Flexible(
                                             child: Text(
                                               user.fullRoomDetails,
-                                              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontSize: 16),
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: wallpaper.isDarkTheme ? Colors.white : const Color(0xFF1B2B48),
+                                                fontSize: 16,
+                                              ),
                                             ),
                                           ),
                                           const SizedBox(width: 8),
@@ -246,7 +271,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                               style: const TextStyle(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.bold,
-                                                color: Color(0xFFB8860B),
+                                                color: Color(0xFFEBC15B),
                                               ),
                                             ),
                                           ),
@@ -267,19 +292,19 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                                 ? user.roleName
                                 : user.role.name.toUpperCase(),
                           ),
-                          const Divider(height: 20),
+                          Divider(height: 20, color: wallpaper.isDarkTheme ? Colors.white12 : Colors.grey.shade200),
                           _buildDetailRow(
                             Icons.email_outlined,
                             'Email Address',
                             user.email.isNotEmpty ? user.email : 'Not set',
                           ),
-                          const Divider(height: 20),
+                          Divider(height: 20, color: wallpaper.isDarkTheme ? Colors.white12 : Colors.grey.shade200),
                           _buildDetailRow(
                             Icons.phone_outlined,
                             'Phone Number',
                             user.phone.isNotEmpty ? user.phone : 'Not set',
                           ),
-                          const Divider(height: 20),
+                          Divider(height: 20, color: wallpaper.isDarkTheme ? Colors.white12 : Colors.grey.shade200),
                           _buildDetailRow(
                             Icons.badge_outlined,
                             'User ID',
@@ -287,7 +312,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                           ),
                           if (user.institution.isNotEmpty &&
                               user.institution != 'N/A') ...[
-                            const Divider(height: 20),
+                            Divider(height: 20, color: wallpaper.isDarkTheme ? Colors.white12 : Colors.grey.shade200),
                             _buildDetailRow(
                               Icons.school_outlined,
                               'Institution',
@@ -317,12 +342,20 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
+                                Text(
                                   'Conduct Status',
-                                  style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontSize: 16),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: wallpaper.isDarkTheme ? Colors.white : const Color(0xFF1B2B48),
+                                    fontSize: 16,
+                                  ),
                                 ),
-                                Text(user.conductRemarks.isNotEmpty ? user.conductRemarks : '${user.conduct} standing', 
-                                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                                Text(
+                                  user.conductRemarks.isNotEmpty ? user.conductRemarks : '${user.conduct} standing', 
+                                  style: TextStyle(
+                                    color: wallpaper.isDarkTheme ? Colors.white70 : Colors.grey,
+                                    fontSize: 13,
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                   maxLines: 1,
                                 ),
@@ -353,12 +386,25 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                     ),
                     const SizedBox(height: 15),
                     Row(
-                      children: const [
-                        Icon(Icons.receipt_long_outlined, size: 18, color: Colors.grey),
-                        SizedBox(width: 8),
+                      children: [
+                        Icon(Icons.receipt_long_outlined, size: 18, color: wallpaper.headerIconColor),
+                        const SizedBox(width: 8),
                         Text(
                           'Payment History',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D)),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: wallpaper.headingColor,
+                            shadows: wallpaper.isDarkTheme
+                                ? const [
+                                    Shadow(
+                                      color: Colors.black54,
+                                      offset: Offset(0, 1),
+                                      blurRadius: 3,
+                                    )
+                                  ]
+                                : null,
+                          ),
                         ),
                       ],
                     ),
@@ -391,12 +437,25 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                     if (!user.isGuest) ...[
                       const SizedBox(height: 25),
                       Row(
-                        children: const [
-                          Icon(Icons.history_outlined, size: 18, color: Colors.grey),
-                          SizedBox(width: 8),
+                        children: [
+                          Icon(Icons.history_outlined, size: 18, color: wallpaper.headerIconColor),
+                          const SizedBox(width: 8),
                           Text(
                             'Renewal Timeline',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D)),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: wallpaper.headingColor,
+                              shadows: wallpaper.isDarkTheme
+                                  ? const [
+                                      Shadow(
+                                        color: Colors.black54,
+                                        offset: Offset(0, 1),
+                                        blurRadius: 3,
+                                      )
+                                    ]
+                                  : null,
+                            ),
                           ),
                         ],
                       ),
@@ -406,16 +465,15 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                         child: Column(
                           children: [
                             _buildTimelineNode(
-                              'Initial Renew',
-                              _getInitialPaymentDate() != null
-                                  ? DateFormat('d MMM yyyy').format(_getInitialPaymentDate()!)
-                                  : 'N/A',
+                              'Initial Allocation / Check-in',
+                              DateFormat('d MMM yyyy').format(_getInitialPaymentDate(user)!),
                               isCompleted: true,
                             ),
                             ..._payments.where((p) => (p['payment_type'] ?? '').toString().toLowerCase().contains('renewal')).map((p) {
-                              final dateStr = p['booking_date'] ?? DateTime.now().toString();
+                              final dateStr = p['paid_at'] ?? p['booking_date'] ?? p['created_at'] ?? DateTime.now().toString();
                               final date = DateTime.tryParse(dateStr) ?? DateTime.now();
-                              return _buildTimelineNode('Renewed (${p['payment_type']})', DateFormat('d MMM yyyy').format(date), isCompleted: true);
+                              final amt = p['amount'] != null ? ' · ₹${NumberFormat('#,##,###').format((double.tryParse(p['amount'].toString()) ?? 120000).toInt())}' : '';
+                              return _buildTimelineNode('Renewed (Stay Extended$amt)', DateFormat('d MMM yyyy, hh:mm a').format(date), isCompleted: true);
                             }),
                             _buildTimelineNode('Current Period Ends', DateFormat('d MMM yyyy').format(user.renewalDate), isCurrent: true, isLast: true),
                           ],
@@ -427,12 +485,25 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                   _buildWallpaperSection(context),
                   const SizedBox(height: 15),
                   Row(
-                    children: const [
-                      Icon(Icons.security_outlined, size: 18, color: Colors.grey),
-                      SizedBox(width: 8),
+                    children: [
+                      Icon(Icons.security_outlined, size: 18, color: wallpaper.headerIconColor),
+                      const SizedBox(width: 8),
                       Text(
                         'Security & Privacy',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D)),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: wallpaper.headingColor,
+                          shadows: wallpaper.isDarkTheme
+                              ? const [
+                                  Shadow(
+                                    color: Colors.black54,
+                                    offset: Offset(0, 1),
+                                    blurRadius: 3,
+                                  )
+                                ]
+                              : null,
+                        ),
                       ),
                     ],
                   ),
@@ -441,6 +512,21 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                     padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
+                        _buildSettingsActionRow(
+                          Icons.privacy_tip_outlined, 
+                          'Privacy Policy', 
+                          'Read our institutional data & privacy policy',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                settings: const RouteSettings(name: '/privacy-policy'),
+                                builder: (_) => const PrivacyPolicyScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                        const Divider(height: 30),
                         _buildSettingsActionRow(
                           Icons.lock_reset_outlined, 
                           'Change Login Password', 
@@ -488,21 +574,48 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   }
 
   void _showLogoutDialog(BuildContext context, UserProvider user) {
+    final wallpaper = Provider.of<WallpaperProvider>(context, listen: false);
+    final isDark = wallpaper.isDarkTheme;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: isDark ? BorderSide(color: Colors.white.withOpacity(0.15)) : BorderSide.none,
+        ),
+        title: Text(
+          'Logout',
+          style: TextStyle(
+            color: isDark ? Colors.white : const Color(0xFF1B2B48),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          'Are you sure you want to logout?',
+          style: TextStyle(
+            color: isDark ? Colors.white70 : const Color(0xFF475569),
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
             onPressed: () {
               Navigator.pop(ctx);
               context.read<AllocationProvider>().reset();
               user.logout();
               Navigator.of(context).popUntil((route) => route.isFirst);
             }, 
-            child: const Text('Logout', style: TextStyle(color: Colors.red))
+            child: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -512,20 +625,39 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   void _showDeleteAccountDialog(BuildContext context, UserProvider user) {
     final reasonController = TextEditingController();
     bool isSubmitting = false;
+    final wallpaper = Provider.of<WallpaperProvider>(context, listen: false);
+    final isDark = wallpaper.isDarkTheme;
+
+    final isStaffOrAdmin = user.role == UserRole.admin ||
+        user.role == UserRole.warden ||
+        user.role == UserRole.maintenance ||
+        user.role == UserRole.security ||
+        user.role == UserRole.staff;
+
+    final isParent = user.role == UserRole.parent;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: isDark ? const Color(0xFF131D2E) : const Color(0xFFFAF7F2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: isDark ? BorderSide(color: Colors.white.withOpacity(0.18)) : BorderSide.none,
+          ),
           title: Row(
-            children: const [
-              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
-              SizedBox(width: 10),
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Request Account Deletion',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  isStaffOrAdmin ? 'Request Account Deactivation' : 'Request Account Deletion',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                    fontFamily: 'Lato',
+                  ),
                 ),
               ),
             ],
@@ -535,46 +667,93 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Account deletion requests are sent directly to the VStay Administrator and your Hostel Warden to review room checkout, fee clearance, and data removal.',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.4),
+                Text(
+                  isStaffOrAdmin
+                      ? 'Staff and administrator account deactivation requests are forwarded to the SIMATS Super Administrator & University IT Authority for access revocation and security clearance.'
+                      : (isParent
+                          ? 'Parent account deletion requests are submitted to the VStay Administration for verification and profile removal.'
+                          : 'Account deletion requests are sent directly to the VStay Administrator and your Hostel Warden to review room checkout, fee clearance, and data removal.'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white70 : const Color(0xFF475569),
+                    height: 1.4,
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                    color: isDark ? const Color(0xFF3B1219).withOpacity(0.6) : const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark ? const Color(0xFFF87171).withOpacity(0.4) : const Color(0xFFFCA5A5),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Notification Recipient Details:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF991B1B)),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: isDark ? const Color(0xFFFCA5A5) : const Color(0xFF991B1B),
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      Text('• Student: ${user.userName} (${user.registerNo})', style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D))),
-                      Text('• Assigned Warden: ${user.warden.isNotEmpty ? user.warden : "Hostel Warden"}', style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D))),
-                      Text('• Hostel: ${user.hostelName}', style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D))),
+                      const SizedBox(height: 6),
+                      if (isStaffOrAdmin) ...[
+                        Text('• Account: ${user.userName} (${user.username})', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                        Text('• Role: ${user.role.name.toUpperCase()}', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                        Text('• Authority: SIMATS IT & Super Administrator', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                      ] else if (isParent) ...[
+                        Text('• Parent: ${user.userName}', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                        Text('• Linked Student: ${user.linkedStudentName} (${user.linkedStudentUsername})', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                        Text('• Authority: VStay Administrator', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                      ] else ...[
+                        Text('• Student: ${user.userName} (${user.registerNo})', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                        if (user.warden.isNotEmpty && user.warden != 'Kanita K')
+                          Text('• Assigned Warden: ${user.warden}', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                        if (user.hostelName.isNotEmpty && user.hostelName != 'N/A')
+                          Text('• Hostel: ${user.hostelName}', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                        Text('• Authority: Hostel Warden & Administrator', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF7F1D1D))),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Text(
+                Text(
                   'Reason for Deletion (Optional):',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                  ),
                 ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: reasonController,
                   maxLines: 3,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
                   decoration: InputDecoration(
-                    hintText: 'Enter reason (e.g., Course completed, Hostel checkout...)',
-                    hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    hintText: isStaffOrAdmin
+                        ? 'Enter reason (e.g., Transfer, Resignation, Role change...)'
+                        : 'Enter reason (e.g., Course completed, Hostel checkout...)',
+                    hintStyle: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.grey),
                     contentPadding: const EdgeInsets.all(12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)),
+                    ),
                   ),
                 ),
               ],
@@ -583,11 +762,11 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
           actions: [
             TextButton(
               onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
+                backgroundColor: Colors.redAccent,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
@@ -597,11 +776,18 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                       setDialogState(() => isSubmitting = true);
                       try {
                         final reason = reasonController.text.trim();
-                        final messageText = "ACCOUNT DELETION REQUEST:\nStudent ${user.userName} (${user.registerNo}) from ${user.hostelName} has submitted an account deletion request.\nReason: ${reason.isNotEmpty ? reason : 'Not specified'}";
-                        
-                        // Notify Warden & Admin via chat/ticket system
+                        final String messageText;
+                        if (isStaffOrAdmin) {
+                          messageText = "STAFF ACCOUNT DEACTIVATION REQUEST:\nStaff ${user.userName} (${user.username}, Role: ${user.role.name.toUpperCase()}) has requested account deactivation.\nReason: ${reason.isNotEmpty ? reason : 'Not specified'}";
+                        } else if (isParent) {
+                          messageText = "PARENT ACCOUNT DELETION REQUEST:\nParent ${user.userName} (Linked Student: ${user.linkedStudentUsername}) has requested account deletion.\nReason: ${reason.isNotEmpty ? reason : 'Not specified'}";
+                        } else {
+                          messageText = "STUDENT ACCOUNT DELETION REQUEST:\nStudent ${user.userName} (${user.registerNo}) from ${user.hostelName} has submitted an account deletion request.\nReason: ${reason.isNotEmpty ? reason : 'Not specified'}";
+                        }
+
+                        // Notify Admin/Warden via ticket system
                         await ApiService.sendChatMessage(
-                          'DEL_${user.registerNo}_${DateTime.now().millisecondsSinceEpoch}',
+                          'DEL_${user.username}_${DateTime.now().millisecondsSinceEpoch}',
                           user.dbId ?? 0,
                           messageText,
                           department: 'warden',
@@ -624,7 +810,12 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
-                  : const Text('Notify Admin & Warden', style: TextStyle(fontWeight: FontWeight.bold)),
+                  : Text(
+                      isStaffOrAdmin
+                          ? 'Notify Super Admin'
+                          : (isParent ? 'Notify Administrator' : 'Notify Admin & Warden'),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
             ),
           ],
         ),
@@ -633,10 +824,17 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   }
 
   void _showDeletionSuccessDialog(BuildContext context) {
+    final wallpaper = Provider.of<WallpaperProvider>(context, listen: false);
+    final isDark = wallpaper.isDarkTheme;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: isDark ? BorderSide(color: Colors.white.withOpacity(0.18)) : BorderSide.none,
+        ),
         title: Row(
           children: const [
             Icon(Icons.check_circle_rounded, color: Colors.green, size: 28),
@@ -653,9 +851,13 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Your account deletion request has been successfully sent to the VStay Administrator and your Hostel Warden.\n\nThey will review your checkout status and clear your hostel records and account data within 24-48 hours.',
-              style: TextStyle(fontSize: 13, color: Color(0xFF334155), height: 1.4),
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.white70 : const Color(0xFF334155),
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
@@ -665,9 +867,13 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                   await launchUrl(url, mode: LaunchMode.externalApplication);
                 }
               },
-              icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('View Policy & Status Online', style: TextStyle(fontSize: 12)),
+              icon: Icon(Icons.open_in_new, size: 16, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)),
+              label: Text(
+                'View Policy & Status Online',
+                style: TextStyle(fontSize: 12, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)),
+              ),
               style: OutlinedButton.styleFrom(
+                side: BorderSide(color: isDark ? const Color(0xFFD4AF37).withOpacity(0.5) : Colors.grey.shade400),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
@@ -677,11 +883,11 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1B2B48),
-              foregroundColor: Colors.white,
+              backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+              foregroundColor: isDark ? const Color(0xFF1B2B48) : Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('OK'),
+            child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -694,6 +900,8 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
     final confirmPasswordController = TextEditingController();
     bool isLoading = false;
     String? errorMessage;
+    final wallpaper = Provider.of<WallpaperProvider>(context, listen: false);
+    final isDark = wallpaper.isDarkTheme;
 
     showModalBottomSheet(
       context: context,
@@ -707,12 +915,13 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
             right: 20,
             top: 20,
           ),
-          decoration: const BoxDecoration(
-            color: Color(0xFFF9F6F0),
-            borderRadius: BorderRadius.only(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF131D2E) : const Color(0xFFF9F6F0),
+            borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(30),
               topRight: Radius.circular(30),
             ),
+            border: isDark ? Border(top: BorderSide(color: Colors.white.withOpacity(0.16))) : null,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -723,25 +932,25 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: isDark ? Colors.white30 : Colors.grey.shade300,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
               const SizedBox(height: 25),
-              const Text(
+              Text(
                 'Change Password',
                 style: TextStyle(
                   fontFamily: 'Lato',
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF1B2B48),
+                  color: isDark ? Colors.white : const Color(0xFF1B2B48),
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 'Enter your current password and a new one to update.',
-                style: TextStyle(color: Colors.grey, fontSize: 14),
+                style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 14),
               ),
               const SizedBox(height: 25),
               
@@ -750,25 +959,26 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
+                    color: Colors.red.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.withOpacity(0.3)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                      const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                        child: Text(errorMessage!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
                       ),
                     ],
                   ),
                 ),
 
-              _buildPasswordField('Current Password', oldPasswordController),
+              _buildPasswordField('Current Password', oldPasswordController, isDark),
               const SizedBox(height: 15),
-              _buildPasswordField('New Password', newPasswordController),
+              _buildPasswordField('New Password', newPasswordController, isDark),
               const SizedBox(height: 15),
-              _buildPasswordField('Confirm New Password', confirmPasswordController),
+              _buildPasswordField('Confirm New Password', confirmPasswordController, isDark),
               const SizedBox(height: 30),
               
               SizedBox(
@@ -815,13 +1025,21 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1B2B48),
+                    backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+                    foregroundColor: isDark ? const Color(0xFF1B2B48) : Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                     elevation: 5,
                   ),
                   child: isLoading 
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Update Password', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    ? CircularProgressIndicator(color: isDark ? const Color(0xFF1B2B48) : Colors.white)
+                    : Text(
+                        'Update Password',
+                        style: TextStyle(
+                          color: isDark ? const Color(0xFF1B2B48) : Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                 ),
               ),
               const SizedBox(height: 10),
@@ -832,37 +1050,45 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
     );
   }
 
-  Widget _buildPasswordField(String label, TextEditingController controller) {
+  Widget _buildPasswordField(String label, TextEditingController controller, [bool isDark = false]) {
     bool obscureText = true;
     return StatefulBuilder(
       builder: (context, setFieldState) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48))),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : const Color(0xFF1B2B48),
+            ),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: controller,
             obscureText: obscureText,
+            style: TextStyle(color: isDark ? Colors.white : const Color(0xFF1B2B48), fontSize: 14),
             decoration: InputDecoration(
               filled: true,
-              fillColor: Colors.white,
+              fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
               hintText: 'Enter $label',
-              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade400, fontSize: 14),
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF1B2B48), width: 1.5),
+                borderSide: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), width: 1.5),
               ),
               suffixIcon: IconButton(
-                icon: Icon(obscureText ? Icons.visibility_off : Icons.visibility, color: Colors.grey, size: 20),
+                icon: Icon(obscureText ? Icons.visibility_off : Icons.visibility, color: isDark ? Colors.white54 : Colors.grey, size: 20),
                 onPressed: () => setFieldState(() => obscureText = !obscureText),
               ),
             ),
@@ -873,28 +1099,51 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   }
 
   void _showSuccessDialog(BuildContext context, UserProvider user) {
+    final wallpaper = Provider.of<WallpaperProvider>(context, listen: false);
+    final isDark = wallpaper.isDarkTheme;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: isDark ? BorderSide(color: Colors.white.withOpacity(0.18)) : BorderSide.none,
+        ),
         title: Row(
-          children: const [
-            Icon(Icons.check_circle, color: Colors.green, size: 28),
-            SizedBox(width: 10),
-            Text('Success'),
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 28),
+            const SizedBox(width: 10),
+            Text(
+              'Success',
+              style: TextStyle(
+                color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ],
         ),
-        content: const Text('Your password has been changed successfully. Please login again with your new password.'),
+        content: Text(
+          'Your password has been changed successfully. Please login again with your new password.',
+          style: TextStyle(
+            color: isDark ? Colors.white70 : const Color(0xFF475569),
+          ),
+        ),
         actions: [
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
               context.read<AllocationProvider>().reset();
               user.logout();
               Navigator.of(context).popUntil((route) => route.isFirst);
             }, 
-            child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold))
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+              foregroundColor: isDark ? const Color(0xFF1B2B48) : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -902,19 +1151,29 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   }
 
   Widget _buildDetailRow(IconData icon, String label, String value) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Row(
       children: [
-        Icon(icon, color: Colors.grey, size: 24),
+        Icon(icon, color: isDark ? Colors.white70 : Colors.grey, size: 24),
         const SizedBox(width: 15),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+              Text(label, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 11)),
               const SizedBox(height: 4),
               Text(
                 value,
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontSize: 14),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                  fontSize: 14,
+                ),
               ),
             ],
           ),
@@ -924,6 +1183,12 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   }
 
   Widget _buildHistoryRow(String title, String subtitle, String amount, {String status = 'Paid', VoidCallback? onTap}) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Row(
@@ -947,10 +1212,19 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                  ),
                 ),
                 const SizedBox(height: 4),
-                Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white70 : Colors.grey,
+                  ),
+                ),
               ],
             ),
           ),
@@ -959,7 +1233,11 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
             children: [
               Text(
                 amount,
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontSize: 16),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? const Color(0xFFFDE047) : const Color(0xFF1B2B48),
+                  fontSize: 16,
+                ),
               ),
               const SizedBox(height: 4),
               GestureDetector(
@@ -1131,19 +1409,41 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   }
 
   Widget _buildReceiptRow(String label, String value) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 14))),
-          Expanded(child: Text(value, textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontSize: 14))),
+          Expanded(child: Text(label, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 14))),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                fontSize: 14,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildTimelineNode(String title, String date, {bool isCompleted = false, bool isCurrent = false, bool isLast = false}) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1169,7 +1469,7 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                 width: 2,
                 height: 45,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: isDark ? Colors.white24 : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(1),
                 ),
               ),
@@ -1188,12 +1488,12 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
                       title,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: isCurrent ? const Color(0xFFC5A358) : const Color(0xFF1B2B48),
+                        color: isCurrent ? const Color(0xFFC5A358) : (isDark ? Colors.white : const Color(0xFF1B2B48)),
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Text(date, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text(date, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey)),
                   ],
                 ),
               ),
@@ -1248,15 +1548,24 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          children: const [
-            Icon(Icons.wallpaper_outlined, size: 18, color: Colors.grey),
-            SizedBox(width: 8),
+          children: [
+            Icon(Icons.wallpaper_outlined, size: 18, color: wallpaper.headerIconColor),
+            const SizedBox(width: 8),
             Text(
               'App Background & Wallpaper',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF5D5D5D),
+                color: wallpaper.headingColor,
+                shadows: wallpaper.isDarkTheme
+                    ? const [
+                        Shadow(
+                          color: Colors.black54,
+                          offset: Offset(0, 1),
+                          blurRadius: 3,
+                        )
+                      ]
+                    : null,
               ),
             ),
           ],

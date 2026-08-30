@@ -1,0 +1,25 @@
+# Disable browser caching for web app files in Apache / XAMPP
+<IfModule mod_headers.c>
+    # Disable cache for HTML, JS, JSON, WASM, CSS
+    <FilesMatch "\.(html|htm|js|json|css|wasm)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0, post-check=0, pre-check=0"
+        Header set Pragma "no-cache"
+        Header set Expires "Wed, 11 Jan 1984 05:00:00 GMT"
+    </FilesMatch>
+
+    # Disable service worker file caching
+    <FilesMatch "flutter_service_worker\.js$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+</IfModule>
+
+# Fallback routing for Flutter Web single-page application
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.html [L]
+</IfModule>

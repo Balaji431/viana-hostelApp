@@ -52,7 +52,11 @@ class _HostelExplorerScreenState extends State<HostelExplorerScreen> {
     });
 
     try {
-      final response = await ApiService.getAvailableRooms(vacantOnly: false);
+      final user = context.read<UserProvider>();
+      final response = await ApiService.getAvailableRooms(
+        vacantOnly: false,
+        registerNo: user.registerNo,
+      );
       AppLogger.info("HostelExplorer: Received response: $response");
       
       if (response['status'] == 'success') {
@@ -89,8 +93,12 @@ class _HostelExplorerScreenState extends State<HostelExplorerScreen> {
 
   Future<void> _fetchHostelsFromAlternative() async {
     try {
+      final user = context.read<UserProvider>();
       AppLogger.info("HostelExplorer: Attempting alternative fetch from get_hostels.php");
-      final response = await ApiService.getRequest('student/get_hostels.php');
+      final url = user.registerNo.isNotEmpty 
+          ? 'student/get_hostels.php?register_no=${Uri.encodeComponent(user.registerNo)}'
+          : 'student/get_hostels.php';
+      final response = await ApiService.getRequest(url);
       if (response['status'] == 'success' && response['data'] != null) {
         setState(() {
           List<dynamic> rawHostels = response['data']['all_hostels'] ?? [];
@@ -604,7 +612,7 @@ class _HostelDetailSheetState extends State<_HostelDetailSheet> {
     final bool isReserved = isFull && physicalAvailable > 0;
     
     final String roomNo = room['room_no'] ?? 'N/A';
-    final String type = room['facility'] ?? 'Standard';
+    final String type = room['room_type'] ?? room['type'] ?? room['facility'] ?? 'Standard';
 
     return GestureDetector(
       onTap: isFull ? null : () => _confirmApplication(room),

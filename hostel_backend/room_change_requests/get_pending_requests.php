@@ -71,8 +71,44 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
 /**
  * Helper to fetch the floorwise warden for the requested room code
  */
-function getWardenForRequestedRoom($conn, $requested_room_code) {
-    // 1. Get requested room's location details
+function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '') {
+    if (empty($requested_room_code)) {
+        return 'warden1';
+    }
+
+    // 1. Direct check in rooms_groups_details (live physical rooms sync table)
+    $rgd_stmt = $conn->prepare("
+        SELECT hostel_name, warden_bio_id, warden_name 
+        FROM rooms_groups_details 
+        WHERE TRIM(room_number) = TRIM(?) 
+           OR REPLACE(REPLACE(TRIM(room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(?), ' ', ''), '-', '')
+        LIMIT 1
+    ");
+    $rgd_stmt->bind_param("ss", $requested_room_code, $requested_room_code);
+    $rgd_stmt->execute();
+    $rgd_res = $rgd_stmt->get_result()->fetch_assoc();
+    
+    if ($rgd_res) {
+        if (!empty($rgd_res['warden_bio_id'])) {
+            return trim($rgd_res['warden_bio_id']);
+        }
+        if (!empty($rgd_res['warden_name'])) {
+            $wname = trim($rgd_res['warden_name']);
+            $staff_w = $conn->query("SELECT COALESCE(staff_bio_id, username) as uname FROM mapping_staff WHERE LOWER(TRIM(name)) LIKE '%" . strtolower($conn->real_escape_string($wname)) . "%' LIMIT 1");
+            if ($staff_w && $sw_row = $staff_w->fetch_assoc()) {
+                return $sw_row['uname'];
+            }
+        }
+        if (!empty($rgd_res['hostel_name'])) {
+            $hname = trim($rgd_res['hostel_name']);
+            $staff_h = $conn->query("SELECT COALESCE(staff_bio_id, username) as uname FROM mapping_staff WHERE LOWER(role) = 'warden' AND LOWER(TRIM(hostel_name)) LIKE '%" . strtolower($conn->real_escape_string($hname)) . "%' LIMIT 1");
+            if ($staff_h && $sh_row = $staff_h->fetch_assoc()) {
+                return $sh_row['uname'];
+            }
+        }
+    }
+
+    // 2. Check room_master table
     $query = "SELECT rm.location_name as hostel_name, rm.floor_no as floor, rm.building_code as wing_code 
               FROM room_master rm 
               WHERE rm.room_code = ? LIMIT 1";
@@ -82,15 +118,21 @@ function getWardenForRequestedRoom($conn, $requested_room_code) {
     $stmt->execute();
     $location = $stmt->get_result()->fetch_assoc();
     
-    if (!$location) {
-        return 'warden1'; // If room not found, falls back to chief warden warden1
-    }
-    
     $h_name = strtolower(trim($location['hostel_name'] ?? ''));
     $f_name = strtolower(trim($location['floor'] ?? ''));
     $w_name = strtolower(trim($location['wing_code'] ?? ''));
+
+    // Extract hostel name from reason if location not found
+    if (empty($h_name) && !empty($reason_text)) {
+        if (stripos($reason_text, 'Ponni') !== false) $h_name = 'ponni';
+        else if (stripos($reason_text, 'Porunai') !== false) $h_name = 'porunai';
+        else if (stripos($reason_text, 'Vaigai') !== false) $h_name = 'vaigai';
+        else if (stripos($reason_text, 'Bhavani') !== false) $h_name = 'bhavani';
+        else if (stripos($reason_text, 'Kaveri') !== false) $h_name = 'kaveri';
+        else if (stripos($reason_text, 'Krishna') !== false) $h_name = 'krishna';
+    }
     
-    // 2. Fetch all wardens from mapping_staff (joining unified users table to get synchronized names)
+    // 3. Fetch matching warden from mapping_staff
     $staff_res = $conn->query("SELECT COALESCE(su.full_name, ms.name) as name, ms.role, COALESCE(su.phone_number, ms.phone) as phone, COALESCE(ms.staff_bio_id, ms.username) as username, ms.hostel_name, ms.floor_name, ms.wing_name 
                                FROM mapping_staff ms
                                LEFT JOIN users su ON ms.staff_bio_id COLLATE utf8mb4_general_ci = su.username COLLATE utf8mb4_general_ci
@@ -121,7 +163,6 @@ function getWardenForRequestedRoom($conn, $requested_room_code) {
         $f_name_norm = $f_name;
         $ms_f_norm = $ms_f;
         
-        // Normalize floor values
         if ($f_name === 'f00' || $f_name === 'ground' || $f_name === 'ground floor') $f_name_norm = 'ground';
         if ($f_name === 'f01' || $f_name === '1st floor') $f_name_norm = '1st floor';
         if ($f_name === 'f02' || $f_name === '2nd floor') $f_name_norm = '2nd floor';
@@ -134,28 +175,20 @@ function getWardenForRequestedRoom($conn, $requested_room_code) {
         if ($ms_f === 'f03' || $ms_f === '3rd floor') $ms_f_norm = '3rd floor';
         if ($ms_f === 'f04' || $ms_f === '4th floor') $ms_f_norm = '4th floor';
         
-        if ($ms_f_norm === $f_name_norm || empty($ms_f)) {
+        if ($ms_f_norm === $f_name_norm || empty($ms_f) || empty($f_name)) {
             $floor_match = true;
         }
         
         if (!$floor_match) continue;
         
-        // Match wing
-        if ($ms_w !== $w_name && !empty($ms_w)) {
+        if ($ms_w !== $w_name && !empty($ms_w) && !empty($w_name)) {
             continue;
         }
         
-        // Calculate score exactly like get_assigned_staff.php
         $score = 0;
-        if ($ms_w === $w_name) {
-            $score += 10;
-        }
-        if ($ms_f_norm === $f_name_norm) {
-            $score += 5;
-        }
-        if ($ms_h === $h_name) {
-            $score += 1;
-        }
+        if ($ms_w === $w_name && !empty($w_name)) $score += 10;
+        if ($ms_f_norm === $f_name_norm && !empty($f_name)) $score += 5;
+        if ($ms_h === $h_name && !empty($h_name)) $score += 1;
         
         $staff['score'] = $score;
         $staff_list[] = $staff;
@@ -165,7 +198,6 @@ function getWardenForRequestedRoom($conn, $requested_room_code) {
         return 'warden1'; // Fallback
     }
     
-    // Sort by score desc
     usort($staff_list, function($a, $b) {
         return $b['score'] <=> $a['score'];
     });
@@ -243,23 +275,15 @@ try {
                     }
                 }
                 if (!$is_match) {
-                    $assigned_warden = getWardenForRequestedRoom($conn, $row['requested_room']);
+                    $assigned_warden = getWardenForRequestedRoom($conn, $row['requested_room'], $row['reason'] ?? '');
                     if ($assigned_warden !== $warden_username && $assigned_warden !== 'warden1') {
                         continue;
                     }
                 }
             }
         }
-        $amt = (float)$row['amount_to_pay'];
+        $amt = (float)($row['amount_to_pay'] ?? 0.0);
         $rtype = $row['requested_room_type'] ?? 'Standard';
-        
-        // Lazy fix for existing requests with 0 amount
-        if (($row['status'] == 'pre_approved' || $row['status'] == 'approved') && $amt <= 0) {
-            $amt = getFeeForRoomType($conn, $rtype, $row['request_id']);
-            if ($amt > 0) {
-                $conn->query("UPDATE room_change_requests SET amount_to_pay = $amt WHERE request_id = '" . $row['request_id'] . "'");
-            }
-        }
 
         $requests[] = [
             'request_id' => $row['request_id'],

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../../core/styles.dart';
+import '../wallpaper_provider.dart';
 
 class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -88,24 +90,43 @@ class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget 
   @override
   Widget build(BuildContext context) {
     final processedRightAction = _processRightAction(rightAction);
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
+
     return Container(
-      decoration: const BoxDecoration(
-        gradient: SkeuomorphicColors.royalHeaderGradient,
+      decoration: BoxDecoration(
+        gradient: isDark
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFF18253B).withOpacity(0.95),
+                  const Color(0xFF0F1726).withOpacity(0.95),
+                ],
+              )
+            : SkeuomorphicColors.royalHeaderGradient,
         border: Border(
-          bottom: BorderSide(color: Color(0xFF1A2744), width: 1),
+          bottom: BorderSide(
+            color: isDark
+                ? const Color(0xFFD4AF37).withOpacity(0.4)
+                : const Color(0xFF1A2744),
+            width: 1,
+          ),
         ),
-        boxShadow: [
-          // Inset highlight on top (rgba(255,255,255,0.2) 0px 1px 0px 0px)
+        boxShadow: const [
           BoxShadow(
-            color: Color.fromRGBO(255, 255, 255, 0.2),
+            color: Color.fromRGBO(255, 255, 255, 0.15),
             offset: Offset(0, 1),
             blurRadius: 0,
             spreadRadius: 0,
           ),
-          // Drop shadow below
           BoxShadow(
-            color: Colors.black26,
-            blurRadius: 4,
+            color: Colors.black38,
+            blurRadius: 6,
             offset: Offset(0, 2),
           ),
         ],

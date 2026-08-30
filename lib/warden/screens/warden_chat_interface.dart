@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../shared/category_provider.dart';
 import 'package:flutter/services.dart';
 import '../../core/api_service.dart';
@@ -73,7 +74,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
       if (mounted) {
         if (_activeConversation == null) {
           _fetchConversations(silent: true);
@@ -320,6 +321,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return PopScope(
       canPop: _activeConversation == null,
       onPopInvokedWithResult: (didPop, result) {
@@ -386,7 +390,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                         ],
                       ),
               ),
-          body: _activeConversation == null ? _buildConversationListBody() : _buildIndividualChatBody(),
+          body: _activeConversation == null 
+              ? _buildConversationListBody(isDark) 
+              : _buildIndividualChatBody(isDark),
         ),
       ),
     );
@@ -428,7 +434,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     }
   }
 
-  Widget _buildConversationListBody() {
+  Widget _buildConversationListBody(bool isDark) {
     final filteredConversations = _conversations.where((conv) {
       if (_searchQuery.isEmpty) return true;
       final query = _searchQuery.toLowerCase();
@@ -444,21 +450,21 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: TextField(
             onChanged: (val) => setState(() => _searchQuery = val),
-            style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 14),
+            style: TextStyle(color: isDark ? Colors.white : const Color(0xFF1B2B48), fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search student by name, reg no, room...',
-              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-              prefixIcon: const Icon(Icons.search, color: Color(0xFF1B2B48), size: 20),
+              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade400, fontSize: 13),
+              prefixIcon: Icon(Icons.search, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 20),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
               contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(15),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(15),
-                borderSide: BorderSide(color: Colors.grey.shade200),
+                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade200),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(15),
@@ -469,20 +475,20 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
         ),
         Expanded(
           child: _isLoading 
-            ? const Center(child: CircularProgressIndicator())
+            ? Center(child: CircularProgressIndicator(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)))
             : filteredConversations.isEmpty
-              ? const Center(child: Text("No conversations found"))
+              ? Center(child: Text("No conversations found", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)))
               : ListView.builder(
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   itemCount: filteredConversations.length,
-                  itemBuilder: (context, index) => _buildConversationCard(filteredConversations[index]),
+                  itemBuilder: (context, index) => _buildConversationCard(filteredConversations[index], isDark),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildConversationCard(Map<String, dynamic> conv) {
+  Widget _buildConversationCard(Map<String, dynamic> conv, bool isDark) {
     final String name = conv['name']?.toString() ?? "Student";
     final String timeStr = _formatTimestampForTime(conv['last_time']);
     final int unread = int.tryParse(conv['unread_count']?.toString() ?? "0") ?? 0;
@@ -497,9 +503,13 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: Card(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        elevation: isDark ? 0 : 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+          side: BorderSide(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+        ),
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
           onTap: () {
@@ -559,13 +569,18 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
               Expanded(
                 child: Text(
                   name, 
-                  style: const TextStyle(fontFamily: 'Lato', fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  style: TextStyle(
+                    fontFamily: 'Lato', 
+                    fontSize: 16, 
+                    fontWeight: FontWeight.bold, 
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                  ),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),
               ),
               const SizedBox(width: 10),
-              Text(timeStr, style: const TextStyle(fontSize: 11, color: Colors.grey), textAlign: TextAlign.right),
+              Text(timeStr, style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey), textAlign: TextAlign.right),
             ],
           ),
           subtitle: Column(
@@ -581,8 +596,8 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                 style: TextStyle(
                   fontSize: 12,
                   color: (conv['last_msg']?.toString() ?? '').isEmpty || conv['last_msg']?.toString() == 'New Request'
-                      ? Colors.grey.shade400
-                      : const Color(0xFF5D6D7E),
+                      ? (isDark ? Colors.white38 : Colors.grey.shade400)
+                      : (isDark ? Colors.white70 : const Color(0xFF5D6D7E)),
                   fontStyle: (conv['last_msg']?.toString() ?? '').isEmpty || conv['last_msg']?.toString() == 'New Request'
                       ? FontStyle.italic
                       : FontStyle.normal,
@@ -593,7 +608,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
               const SizedBox(height: 2),
               Row(
                 children: [
-                  const Icon(Icons.meeting_room_outlined, size: 10, color: Colors.blueGrey),
+                  Icon(Icons.meeting_room_outlined, size: 10, color: isDark ? const Color(0xFFD4AF37) : Colors.blueGrey),
                   const SizedBox(width: 3),
                   Text(
                     () {
@@ -601,7 +616,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                       if (room.isEmpty || room == 'null' || room == 'unallocated') return 'Room not assigned';
                       return room;
                     }(),
-                    style: const TextStyle(fontSize: 10, color: Colors.blueGrey, fontWeight: FontWeight.w500),
+                    style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.blueGrey, fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
@@ -617,7 +632,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                   decoration: const BoxDecoration(color: Color(0xFFC62828), shape: BoxShape.circle), 
                   child: Text('$unread', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))
                 ),
-              const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+              Icon(Icons.chevron_right, color: isDark ? Colors.white60 : Colors.grey, size: 20),
             ],
           ),
         ),
@@ -625,18 +640,18 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     );
   }
 
-  Widget _buildIndividualChatBody() {
+  Widget _buildIndividualChatBody(bool isDark) {
     return Column(
       children: [
-        _buildRoomBanner(),
-        _buildFilterChips(),
-        Expanded(child: _buildMessagesArea()),
-        _buildChatInputArea(),
+        _buildRoomBanner(isDark),
+        _buildFilterChips(isDark),
+        Expanded(child: _buildMessagesArea(isDark)),
+        _buildChatInputArea(isDark),
       ],
     );
   }
 
-  Widget _buildFilterChips() {
+  Widget _buildFilterChips(bool isDark) {
     final catProvider = context.read<CategoryProvider>();
     final String deptName = widget.channel == 'parent_warden' ? 'Warden' : (widget.channel.toLowerCase() == 'warden' ? 'Warden' : widget.channel);
     
@@ -650,7 +665,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     return Container(
       height: 50,
       padding: const EdgeInsets.symmetric(vertical: 8),
-      color: const Color(0xFFF0EDE5),
+      color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF0EDE5),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 15),
@@ -672,22 +687,34 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
               margin: const EdgeInsets.only(right: 10),
               padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF1B2B48) : Colors.white,
+                color: isSelected 
+                    ? (isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)) 
+                    : (isDark ? const Color(0xFF0F1520) : Colors.white),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: isSelected ? Colors.transparent : Colors.black.withOpacity(0.1)),
+                border: Border.all(
+                  color: isSelected ? Colors.transparent : (isDark ? Colors.white24 : Colors.black.withOpacity(0.1)),
+                ),
                 boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
               ),
               child: Row(
                 children: [
-                  Icon(icon, size: 14, color: isSelected ? Colors.white : Colors.grey),
+                  Icon(
+                    icon, 
+                    size: 14, 
+                    color: isSelected 
+                        ? (isDark ? const Color(0xFF1B2B48) : Colors.white) 
+                        : (isDark ? Colors.white60 : Colors.grey),
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     filter, 
                     style: TextStyle(
                       fontSize: 12, 
                       fontWeight: FontWeight.bold, 
-                      color: isSelected ? Colors.white : const Color(0xFF5D5D5D)
-                    )
+                      color: isSelected 
+                          ? (isDark ? const Color(0xFF1B2B48) : Colors.white) 
+                          : (isDark ? Colors.white70 : const Color(0xFF5D5D5D)),
+                    ),
                   ),
                 ],
               ),
@@ -698,13 +725,13 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     );
   }
 
-  Widget _buildRoomBanner() {
+  Widget _buildRoomBanner([bool isDark = false]) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
         color: Colors.transparent,
-        border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05))),
+        border: Border(bottom: BorderSide(color: isDark ? Colors.white12 : Colors.black.withOpacity(0.05))),
       ),
       child: Column(
         children: [
@@ -718,7 +745,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                     fontWeight: FontWeight.w900,
                     fontSize: 10,
                     letterSpacing: 1.0,
-                    color: const Color(0xFF8C7A5E),
+                    color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF8C7A5E),
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -730,7 +757,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     );
   }
 
-  Widget _buildMessagesArea() {
+  Widget _buildMessagesArea([bool isDark = false]) {
     final filtered = _filteredMessages;
     return ListView.builder(
       controller: _scrollController,
@@ -746,9 +773,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
         final currDate = _formatTimestampForDate(msg['timestamp']);
         List<Widget> children = [];
         if (nextDate == null || nextDate != currDate) {
-          children.add(_buildDateSeparator(currDate));
+          children.add(_buildDateSeparator(currDate, isDark));
         }
-        children.add(_buildMessageBubble(msg));
+        children.add(_buildMessageBubble(msg, isDark));
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: children,
@@ -757,7 +784,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     );
   }
 
-  Widget _buildMessageBubble(Map<String, dynamic> msg) {
+  Widget _buildMessageBubble(Map<String, dynamic> msg, [bool isDark = false]) {
     final user = context.read<UserProvider>();
     final myUsername = user.username.toString();
     final myDbId = user.dbId?.toString() ?? "";
@@ -773,7 +800,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 20),
            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
            decoration: BoxDecoration(
-             color: Colors.black.withOpacity(0.08), 
+             color: isDark ? Colors.white12 : Colors.black.withOpacity(0.08), 
              borderRadius: BorderRadius.circular(20)
            ),
            child: Text(
@@ -781,7 +808,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
              textAlign: TextAlign.center,
              style: TextStyle(
                fontSize: 11, 
-               color: Colors.black.withOpacity(0.5), 
+               color: isDark ? Colors.white70 : Colors.black.withOpacity(0.5), 
                fontWeight: FontWeight.w500
              )
            ),
@@ -797,13 +824,16 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
           constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
           padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
           decoration: BoxDecoration(
-            color: isMe ? const Color(0xFFDCF8C6) : Colors.white,
+            color: isMe 
+                ? (isDark ? const Color(0xFF1E3A2F) : const Color(0xFFDCF8C6)) 
+                : (isDark ? const Color(0xFF1E293B) : Colors.white),
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(10),
               topRight: const Radius.circular(10),
               bottomLeft: Radius.circular(isMe ? 10 : 2),
               bottomRight: Radius.circular(isMe ? 2 : 10),
             ),
+            border: isDark ? Border.all(color: Colors.white12) : null,
             boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
           ),
           child: IntrinsicWidth(
@@ -814,14 +844,18 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                 Flexible(
                   child: Text(
                     msg['message']?.toString() ?? "", 
-                    style: const TextStyle(fontSize: 14, height: 1.2, color: Colors.black87),
+                    style: TextStyle(
+                      fontSize: 14, 
+                      height: 1.2, 
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(timeStr, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                    Text(timeStr, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 10)),
                     if (isMe) ...[
                       const SizedBox(width: 4),
                       _getStatusIcon(msg['status']?.toString() ?? 'sent'),
@@ -877,25 +911,33 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     );
   }
 
-  Widget _buildChatInputArea() {
+  Widget _buildChatInputArea([bool isDark = false]) {
     return Container(
       padding: const EdgeInsets.fromLTRB(15, 10, 15, 30),
-      decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.black12))),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white, 
+        border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12)),
+      ),
       child: Row(
         children: [
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25), border: Border.all(color: Colors.grey.shade300)),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F1520) : Colors.white, 
+                borderRadius: BorderRadius.circular(25), 
+                border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300),
+              ),
               child: TextField(
                 controller: _messageController,
-                decoration: const InputDecoration(
+                style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                decoration: InputDecoration(
                   border: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   filled: false,
                   hintText: 'Type a message',
-                  hintStyle: TextStyle(color: Colors.black, fontSize: 14),
+                  hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black54, fontSize: 14),
                 ),
                 onSubmitted: (_) => _sendMessage(),
               ),
@@ -910,12 +952,12 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: (_isTyping && !_isSending) ? Colors.blue : Colors.grey.shade200,
+                  color: (_isTyping && !_isSending) ? Colors.blue : (isDark ? Colors.white12 : Colors.grey.shade200),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.send,
-                  color: (_isTyping && !_isSending) ? Colors.white : Colors.grey,
+                  color: (_isTyping && !_isSending) ? Colors.white : (isDark ? Colors.white38 : Colors.grey),
                   size: 20,
                 ),
               ),
@@ -926,13 +968,23 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     );
   }
 
-  Widget _buildDateSeparator(String text) {
+  Widget _buildDateSeparator(String text, [bool isDark = false]) {
     return Center(
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 20),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        decoration: BoxDecoration(color: Colors.black.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
-        child: Text(text.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white12 : Colors.black.withOpacity(0.05), 
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          text.toUpperCase(), 
+          style: TextStyle(
+            fontSize: 10, 
+            fontWeight: FontWeight.bold, 
+            color: isDark ? Colors.white70 : Colors.grey,
+          ),
+        ),
       ),
     );
   }

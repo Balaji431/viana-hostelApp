@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import 'payment_screens.dart';
 import '../../shared/user_provider.dart';
@@ -24,7 +26,9 @@ import '../widgets/temporary_stay_dialog.dart';
 import '../widgets/room_transfer_modal.dart';
 import 'student_wallet_screen.dart';
 import 'no_due_page.dart';
+import '../../core/top_notification.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({super.key});
@@ -49,6 +53,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   Map<String, dynamic>? _latestRoomRequest;
   bool _showRoomHistory = false;
   bool _showRenewTransferNotice = false;
+  bool _hasShownRoomChangeApprovalToast = false;
 
   void _updateOverlayState({
     bool? showRoomOptionsModal,
@@ -101,8 +106,19 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
     _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
     context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
+
+    // Periodic auto-refresh for guest/temporary stay status updates
+    _tempStayPollingTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (mounted) {
+        final u = context.read<UserProvider>();
+        if (u.isGuest || u.temporaryStayRequest != null || u.username.startsWith('TEMP_')) {
+          u.refreshUserData();
+        }
+      }
+    });
   }
 
+  Timer? _tempStayPollingTimer;
   int _lastRefreshTick = 0;
 
   void _handleGlobalRefreshListener() {
@@ -118,14 +134,11 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     _fetchAnnouncements();
     _fetchPayments();
     _fetchRoomChangeStatus();
+    if (!mounted) return;
     final user = context.read<UserProvider>();
-    user.refreshUserData().then((_) {
-      if (mounted) {
-        context.read<CategoryProvider>().fetchCounts(
-          studentUsername: user.isParent ? user.linkedStudentUsername : user.username,
-        );
-      }
-    });
+    context.read<CategoryProvider>().fetchCounts(
+      studentUsername: user.isParent ? user.linkedStudentUsername : user.username,
+    );
     final int? fetchId = user.isParent ? user.linkedStudentId : user.dbId;
     if (fetchId != null) {
       context.read<CategoryProvider>().fetchAssignedStaff(fetchId);
@@ -144,6 +157,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
   @override
   void dispose() {
+    _tempStayPollingTimer?.cancel();
     context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
     _nameScrollController.dispose();
     super.dispose();
@@ -231,10 +245,43 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
            });
            
             if (mounted) {
+              final latest = studentRequests.first;
+              final status = (latest['status'] ?? 'none').toString().toLowerCase();
+              final payStatus = (latest['payment_status'] ?? '').toString().toLowerCase();
+              final double amt = double.tryParse((latest['amount_to_pay'] ?? latest['amount'] ?? 0).toString()) ?? 0.0;
+              
               setState(() {
-                _latestRoomRequest = studentRequests.first;
-                _roomChangeStatus = _latestRoomRequest?['status'] ?? 'none';
+                _latestRoomRequest = latest;
+                _roomChangeStatus = status;
               });
+
+              // Notify student once when room change approval is accepted
+              if (!_hasShownRoomChangeApprovalToast && (status == 'approved' || status == 'completed') && (amt <= 0 || payStatus == 'paid')) {
+                final reqId = latest['request_id']?.toString() ?? latest['id']?.toString() ?? '';
+                if (reqId.isNotEmpty) {
+                  SharedPreferences.getInstance().then((prefs) {
+                    final hasSeenKey = 'seen_room_change_notif_${user.username}_$reqId';
+                    final alreadySeen = prefs.getBool(hasSeenKey) ?? false;
+                    if (!alreadySeen) {
+                      prefs.setBool(hasSeenKey, true);
+                      _hasShownRoomChangeApprovalToast = true;
+                      final targetRoom = latest['requested_room'] ?? latest['room_code'] ?? 'New Room';
+                      final targetType = (latest['requested_room_type'] ?? '').toString();
+                      if (mounted) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) {
+                            TopNotification.showSuccess(
+                              context,
+                              title: 'Room Change Approved! 🎉',
+                              message: 'Your room change request has been accepted. You are now allocated to $targetRoom' + (targetType.isNotEmpty ? ' ($targetType)' : '') + '.',
+                            );
+                          }
+                        });
+                      }
+                    }
+                  });
+                }
+              }
             }
         } else {
            if (mounted) setState(() => _roomChangeStatus = 'none');
@@ -292,7 +339,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   children: [
                     _buildProfileHeader(user),
                     const SizedBox(height: 10),
-                    if (user.isRoomAllocated || isTempStayPaid) ...[
+                    if (isTempStayPaid) ...[
+                      // Once paid & allocated, show standard Room Allocation Card with days remaining
+                      _buildAllocationCard(context, user),
+                    ] else if (user.isGuest || user.temporaryStayRequest != null || user.username.startsWith('TEMP_')) ...[
+                      // Temporary / Short stay student — show live lifecycle progress & status stepper
+                      _buildTemporaryStayCard(context, user),
+                    ] else if (user.isRoomAllocated) ...[
                       // Student has a room — show ONLY the room allocation card
                       _buildAllocationCard(context, user),
                     ] else if (!user.isParent) ...[
@@ -381,11 +434,21 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildRoomOptionsModal(BuildContext context, UserProvider user) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     final statusLower = _roomChangeStatus.toLowerCase();
+    final double reqAmount = double.tryParse((_latestRoomRequest?['amount_to_pay'] ?? _latestRoomRequest?['amount'] ?? 0).toString()) ?? 0.0;
+    final reqPaymentStatus = (_latestRoomRequest?['payment_status'] ?? '').toString().toLowerCase();
+    final bool isUpgradePaymentPending = (statusLower == 'approved' || statusLower == 'pre_approved') && reqAmount > 0 && reqPaymentStatus != 'paid';
     final hasActiveOrPendingRequest = _roomChangeStatus.isNotEmpty &&
         statusLower != 'none' &&
         statusLower != 'completed' &&
-        statusLower != 'rejected';
+        statusLower != 'rejected' &&
+        isUpgradePaymentPending;
     final roomType = user.roomType.isNotEmpty ? user.roomType : (user.roomTypeDisplay.isNotEmpty ? user.roomTypeDisplay : "Standard Room");
     final hostel = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
     final roomNo = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
@@ -397,12 +460,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFFF9F6F0),
-              borderRadius: BorderRadius.only(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF9F6F0),
+              borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(24),
                 topRight: Radius.circular(24),
               ),
+              border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -410,27 +474,27 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                 // Header Bar
                 Container(
                   padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF9F6F0),
-                    borderRadius: BorderRadius.only(
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF9F6F0),
+                    borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(24),
                       topRight: Radius.circular(24),
                     ),
                     border: Border(
                       bottom: BorderSide(
-                        color: Color(0xFFE0D8CC),
+                        color: isDark ? Colors.white.withOpacity(0.12) : const Color(0xFFE0D8CC),
                         width: 1,
                       ),
                     ),
                   ),
                   child: Row(
                     children: [
-                      const Text(
+                      Text(
                         'Manage Room',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF1A2744),
+                          color: isDark ? Colors.white : const Color(0xFF1A2744),
                           fontFamily: 'Lato',
                         ),
                       ),
@@ -444,11 +508,11 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           width: 36,
                           height: 36,
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
+                            color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade100,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.close, 
-                                       size: 18, color: Colors.grey),
+                          child: Icon(Icons.close, 
+                                       size: 18, color: isDark ? Colors.white70 : Colors.grey),
                         ),
                       ),
                     ],
@@ -457,20 +521,21 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                 
                 // Content Body
                 Container(
-                  color: const Color(0xFFF9F6F0),
+                  color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF9F6F0),
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      // Image 1 Layout: Existing Room Allotted Card
+                      // Existing Room Allotted Card
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
                           borderRadius: BorderRadius.circular(20),
+                          border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
+                              color: Colors.black.withOpacity(isDark ? 0.3 : 0.04),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -480,49 +545,37 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(Icons.king_bed_outlined, color: Color(0xFF1A2744), size: 20),
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Icon(Icons.king_bed_outlined, color: isDark ? const Color(0xFFEBC15B) : const Color(0xFF1A2744), size: 20),
+                                ),
                                 const SizedBox(width: 8),
-                                Text(
-                                  roomType,
-                                  style: GoogleFonts.lato(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF1A2744),
+                                Expanded(
+                                  child: Text(
+                                    roomType,
+                                    style: GoogleFonts.lato(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark ? Colors.white : const Color(0xFF1A2744),
+                                    ),
                                   ),
                                 ),
-                                const Spacer(),
-                                // Light Green Paid Badge (Image 1)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF059669),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: const Text(
-                                      'Active',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF059669),
+                                    borderRadius: BorderRadius.circular(14),
                                   ),
-                              ],
-                            ),
-
-                            const SizedBox(height: 4),
-
-                            Row(
-                              children: [
-                                const Icon(Icons.location_on_outlined, color: Colors.grey, size: 14),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '$hostel · Thandalam Campus',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                    fontWeight: FontWeight.w500,
+                                  child: const Text(
+                                    'Active',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -532,20 +585,43 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
                             Row(
                               children: [
-                                const Text(
+                                Icon(Icons.location_on_outlined, color: isDark ? Colors.white60 : Colors.grey, size: 14),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    '$hostel · Thandalam Campus',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark ? Colors.white70 : Colors.grey.shade600,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 6),
+
+                            Row(
+                              children: [
+                                Text(
                                   'Room No: ',
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1A2744),
+                                    color: isDark ? Colors.white70 : const Color(0xFF1A2744),
                                   ),
                                 ),
-                                Text(
-                                  roomNo,
-                                  style: GoogleFonts.lato(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF10B981),
+                                Expanded(
+                                  child: Text(
+                                    roomNo,
+                                    style: GoogleFonts.lato(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark ? const Color(0xFF34D399) : const Color(0xFF10B981),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ],
@@ -559,17 +635,31 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Total Fee', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    Text('Total Fee', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
                                     const SizedBox(height: 2),
-                                    Text('₹${NumberFormat('#,##,###').format(user.totalFee.toInt())}', style: GoogleFonts.lato(fontSize: 15, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+                                    Text(
+                                      '₹${NumberFormat('#,##,###').format(user.totalFee.toInt())}',
+                                      style: GoogleFonts.lato(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : const Color(0xFF1A2744),
+                                      ),
+                                    ),
                                   ],
                                 ),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Additional EB Charges', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    Text('Additional EB Charges', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
                                     const SizedBox(height: 2),
-                                    Text('Yes', style: GoogleFonts.lato(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+                                    Text(
+                                      'Yes',
+                                      style: GoogleFonts.lato(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : const Color(0xFF1A2744),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ],
@@ -580,9 +670,16 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Renewal Date', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                Text('Renewal Date', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
                                 const SizedBox(height: 2),
-                                Text(renewalDateStr, style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+                                Text(
+                                  renewalDateStr,
+                                  style: GoogleFonts.lato(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? Colors.white : const Color(0xFF1A2744),
+                                  ),
+                                ),
                               ],
                             ),
 
@@ -590,11 +687,11 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
                             Row(
                               children: [
-                                Expanded(child: _buildModalInfoBox('Amount', '₹${NumberFormat('#,##,###').format(user.roomAmount.toInt())}')),
+                                Expanded(child: _buildModalInfoBox('Amount', '₹${NumberFormat('#,##,###').format(user.roomAmount.toInt())}', isDark)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _buildModalInfoBox('Food', '₹${NumberFormat('#,##,###').format(user.roomFood.toInt())}')),
+                                Expanded(child: _buildModalInfoBox('Food', '₹${NumberFormat('#,##,###').format(user.roomFood.toInt())}', isDark)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _buildModalInfoBox('Caution', '₹${NumberFormat('#,##,###').format(user.roomCaution.toInt())}')),
+                                Expanded(child: _buildModalInfoBox('Caution', '₹${NumberFormat('#,##,###').format(user.roomCaution.toInt())}', isDark)),
                               ],
                             ),
                           ],
@@ -610,7 +707,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                             margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFEF2F2),
+                              color: isDark ? const Color(0xFF7F1D1D).withOpacity(0.3) : const Color(0xFFFEF2F2),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.4)),
                             ),
@@ -624,7 +721,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFF991B1B),
+                                      color: Color(0xFFEF4444),
                                     ),
                                   ),
                                 ),
@@ -633,12 +730,11 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                           ),
                         ],
                         if (statusLower == 'pending') ...[
-                          // Pending Transfer Request Card
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFEF3C7),
+                              color: isDark ? const Color(0xFF78350F).withOpacity(0.3) : const Color(0xFFFEF3C7),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: const Color(0xFFD97706).withOpacity(0.4)),
                             ),
@@ -655,7 +751,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
-                                          color: Color(0xFFB45309),
+                                          color: Color(0xFFF59E0B),
                                         ),
                                       ),
                                       SizedBox(height: 2),
@@ -663,7 +759,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                         'Your transfer request is under review by Warden Manoj A. Only 1 request allowed at a time.',
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: Color(0xFF92400E),
+                                          color: Color(0xFFFDE68A),
                                           height: 1.3,
                                         ),
                                       ),
@@ -673,8 +769,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                               ],
                             ),
                           ),
-                        ] else if (statusLower == 'approved' || statusLower == 'pre_approved') ...[
-                          // Approved State: Full-width Pay Now button (Renew button temporarily hidden for production release)
+                        ] else if (isUpgradePaymentPending) ...[
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
@@ -696,7 +791,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                 ),
                               ),
                               child: Text(
-                                'Pay Now',
+                                'Pay Upgrade Fee (₹${NumberFormat('#,##,###').format(reqAmount.toInt())})',
                                 style: GoogleFonts.lato(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
@@ -706,7 +801,90 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                             ),
                           ),
                         ] else ...[
-                          // Renew and Transfer buttons temporarily hidden for current release
+                          Row(
+                            children: [
+                              // Renew Button (Blue)
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    _updateOverlayState(showRoomOptionsModal: false);
+                                    _showRenewBookingModal(context, user);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2563EB),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    elevation: 2,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.sync, size: 18, color: Colors.white),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          'Renew ₹${NumberFormat('#,##,###').format(user.renewAmount > 0 ? user.renewAmount.toInt() : 120000)}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.lato(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              // Transfer Button
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    _updateOverlayState(showRoomOptionsModal: false);
+                                    StudentRoomTransferModal.show(
+                                      context,
+                                      initialStep: 2,
+                                      onSubmitted: () {
+                                        _fetchRoomChangeStatus();
+                                      },
+                                    );
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    backgroundColor: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
+                                    foregroundColor: isDark ? Colors.white : const Color(0xFF1E293B),
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    side: BorderSide(
+                                      color: isDark ? Colors.white.withOpacity(0.2) : const Color(0xFFCBD5E1),
+                                      width: 1.5,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.location_on_outlined, size: 18, color: isDark ? Colors.white : const Color(0xFF1E293B)),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Room Change',
+                                        style: GoogleFonts.lato(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ] else ...[
                         Padding(
@@ -715,7 +893,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                             'Temporary Stay allocations cannot be renewed.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: Colors.grey.shade700,
+                              color: isDark ? Colors.white70 : Colors.grey.shade700,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -733,33 +911,368 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     );
   }
 
-  Widget _buildModalInfoBox(String label, String amount) {
+  Widget _buildModalInfoBox(String label, String amount, [bool isDark = false]) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9F6F0),
+        color: isDark ? Colors.white.withOpacity(0.08) : const Color(0xFFF9F6F0),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w500)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark ? Colors.white60 : Colors.grey,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(amount, style: GoogleFonts.lato(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF1A2744))),
+          Text(
+            amount,
+            style: GoogleFonts.lato(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : const Color(0xFF1A2744),
+            ),
+          ),
         ],
       ),
     );
   }
 
   void _showRenewBookingModal(BuildContext context, UserProvider user) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => PaymentPage(
-          renewAmount: user.renewAmount,
-        ),
-      ),
+    final hostelName = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
+    final campus = user.institution.isNotEmpty ? "Thandalam Campus" : "Thandalam Campus";
+    final roomType = user.roomTypeDisplay.isNotEmpty ? user.roomTypeDisplay : "4 IN 1 AC";
+    final roomNumber = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
+
+    final double roomRent = user.roomAmount > 0 ? user.roomAmount : 70000.0;
+    final double food = user.roomFood > 0 ? user.roomFood : 50000.0;
+    final double renewalTotal = user.renewAmount > 0 ? user.renewAmount : (roomRent + food);
+
+    final rentFormatted = NumberFormat('#,##,###').format(roomRent.toInt());
+    final foodFormatted = NumberFormat('#,##,###').format(food.toInt());
+    final totalFormatted = NumberFormat('#,##,###').format(renewalTotal.toInt());
+    final walletFormatted = NumberFormat('#,##,###.##').format(user.walletBalance);
+    final bool hasEnoughBalance = user.walletBalance >= renewalTotal;
+    final double shortage = renewalTotal - user.walletBalance;
+    final shortageFormatted = NumberFormat('#,##,###.##').format(shortage > 0 ? shortage : 0);
+
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 6,
+          backgroundColor: const Color(0xFFF1F3F5),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header: Icon + Title + Close Button
+                Row(
+                  children: [
+                    const Icon(Icons.sync_rounded, size: 20, color: Color(0xFF1E293B)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Renew Hostel Booking',
+                      style: GoogleFonts.lato(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
+                    const Spacer(),
+                    InkWell(
+                      onTap: () => Navigator.pop(ctx),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE2E8F0),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.close, size: 18, color: Color(0xFF64748B)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // Card 1: Existing Room Details
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE9ECEF),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFDEE2E6)),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Hostel', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                          Text('$hostelName · $campus', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Room Type', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                          Text(roomType, style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Room Number', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                          Text(roomNumber, style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Card 2: Fee Breakdown
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE9ECEF),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFDEE2E6)),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Room Rent', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                          Text('₹$rentFormatted', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Food', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                          Text('₹$foodFormatted', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Caution Deposit', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                          Text('Not re-charged', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(color: Color(0xFFCED4DA), height: 1),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Renewal Total', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                          Text('₹$totalFormatted', style: GoogleFonts.lato(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Card 3: Wallet Balance Status
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: hasEnoughBalance ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: hasEnoughBalance ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        hasEnoughBalance ? Icons.account_balance_wallet_rounded : Icons.warning_amber_rounded,
+                        size: 20,
+                        color: hasEnoughBalance ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Wallet Balance: ₹$walletFormatted',
+                              style: GoogleFonts.outfit(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: hasEnoughBalance ? const Color(0xFF065F46) : const Color(0xFF991B1B),
+                              ),
+                            ),
+                            Text(
+                              hasEnoughBalance
+                                  ? 'Sufficient funds available for auto-debit.'
+                                  : 'Shortage: ₹$shortageFormatted. Top up via Razorpay.',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: hasEnoughBalance ? const Color(0xFF047857) : const Color(0xFFB91C1C),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Buttons: Cancel & Confirm & Pay
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: SizedBox(
+                        height: 44,
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: const Color(0xFFDEE2E6),
+                            foregroundColor: const Color(0xFF1E293B),
+                            side: const BorderSide(color: Color(0xFFCED4DA)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 4,
+                      child: SizedBox(
+                        height: 44,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            // Check wallet balance first before proceeding
+                            if (!hasEnoughBalance) {
+                              Navigator.pop(ctx);
+                              TopNotification.showInsufficientBalance(
+                                context,
+                                currentBalance: user.walletBalance,
+                                requiredAmount: renewalTotal,
+                                onTopUp: () => _navigateToStudentWallet(context, user),
+                              );
+                              return;
+                            }
+                            _handleHostelRenewal(ctx, renewalTotal, user);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.sync, size: 16, color: Colors.white),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  'Confirm & Pay ₹$totalFormatted',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  void _navigateToStudentWallet(BuildContext context, UserProvider user) {
+    final mainResponsive = context.findAncestorStateOfType<MainResponsiveLayoutState>();
+    if (mainResponsive != null) {
+      mainResponsive.setSelectedIndex(user.role == UserRole.guest ? 1 : 2);
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const StudentWalletScreen()),
+      );
+    }
+  }
+
+  Future<void> _handleHostelRenewal(BuildContext ctx, double totalAmount, UserProvider user) async {
+    Navigator.pop(ctx);
+    final regNo = user.username.isNotEmpty ? user.username : user.studentId;
+    final email = user.email.isNotEmpty ? user.email : (regNo.contains('@') ? regNo : '$regNo.simats@saveetha.com');
+    final studentId = user.dbId ?? 0;
+
+    try {
+      final res = await ApiService.renewHostelWithWallet(
+        regNo: regNo,
+        email: email,
+        studentId: studentId,
+        amount: totalAmount,
+      );
+
+      if (!mounted) return;
+
+      if (res['success'] == true) {
+        await user.refreshUserData();
+        TopNotification.showSuccess(
+          context,
+          title: 'Stay Extended! 🎉',
+          message: res['message'] ?? 'Renewal successful! Stay extended by 1 year.',
+        );
+      } else {
+        final double curBal = (res['current_balance'] != null)
+            ? (double.tryParse(res['current_balance'].toString()) ?? user.walletBalance)
+            : user.walletBalance;
+        final double reqAmt = (res['required_amount'] != null)
+            ? (double.tryParse(res['required_amount'].toString()) ?? totalAmount)
+            : totalAmount;
+
+        TopNotification.showInsufficientBalance(
+          context,
+          currentBalance: curBal,
+          requiredAmount: reqAmt,
+          onTopUp: () => _navigateToStudentWallet(context, user),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        TopNotification.showInsufficientBalance(
+          context,
+          currentBalance: user.walletBalance,
+          requiredAmount: totalAmount,
+          onTopUp: () => _navigateToStudentWallet(context, user),
+        );
+      }
+    }
   }
 
   Widget _buildRenewDetailRow(String label, String value, {bool isBold = false, bool isGrey = false, bool isTotal = false}) {
@@ -787,6 +1300,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildProfileHeader(UserProvider user) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     String initials = "AK";
     if (user.userName.isNotEmpty) {
       final parts = user.userName.trim().split(' ');
@@ -800,8 +1319,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-      decoration: const BoxDecoration(
-        gradient: SkeuomorphicColors.royalContentGradient,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+        gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
+        border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))) : null,
       ),
       child: Row(
         children: [
@@ -867,7 +1388,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     fontFamily: 'Lato',
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: SkeuomorphicColors.residenceMutedText,
+                    color: isDark ? Colors.white70 : SkeuomorphicColors.residenceMutedText,
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -1269,7 +1790,19 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildAllocationCard(BuildContext context, UserProvider user) {
-    final int daysRemaining = user.renewalDate.difference(DateTime.now()).inDays;
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+    final isTemp = user.temporaryStayRequest != null;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final renewDay = DateTime(user.renewalDate.year, user.renewalDate.month, user.renewalDate.day);
+    final int rawDays = renewDay.difference(today).inDays;
+    final int daysRemaining = rawDays > 0 ? rawDays : (user.renewalDate.isAfter(now) ? 1 : 0);
+    final String displayRoom = user.isParent
+        ? user.linkedStudentRoom
+        : (user.roomAllocation.isNotEmpty
+            ? user.roomAllocation
+            : user.roomNumber);
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -1295,12 +1828,15 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         child: Container(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 15),
           decoration: BoxDecoration(
-            color: const Color(0xFFF9F6F0),
+            color: isDark ? const Color(0xF0141C2B) : const Color(0xFFF9F6F0),
             borderRadius: BorderRadius.circular(20),
+            border: isDark
+                ? Border.all(color: Colors.white.withOpacity(0.12), width: 1.2)
+                : null,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 10,
+                color: isDark ? Colors.black.withOpacity(0.45) : Colors.black.withOpacity(0.08),
+                blurRadius: isDark ? 18 : 10,
                 offset: const Offset(0, 4),
               ),
             ],
@@ -1326,30 +1862,30 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Room Allocation',
-                            style: TextStyle(
-                              fontFamily: 'Lato',
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1B2B48),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            (user.isParent ? user.linkedStudentRoom : user.roomNumber)
-                                .replaceAll(' - ', '-')
-                                .replaceAll('- ', '-')
-                                .replaceAll(' ', '')
-                                .replaceAll('T-32', 'T32')
-                                .trim(),
-                            style: TextStyle(
-                              fontSize: 13, 
-                              color: Colors.grey.shade600, 
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                            children: [
+                              Text(
+                                'Room Allocation',
+                                style: TextStyle(
+                                  fontFamily: 'Lato',
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                displayRoom
+                                    .replaceAll(' - ', '-')
+                                    .replaceAll('- ', '-')
+                                    .replaceAll(' ', '')
+                                    .replaceAll('T-32', 'T32')
+                                    .trim(),
+                                style: TextStyle(
+                                  fontSize: 13, 
+                                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600, 
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1360,7 +1896,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     offset: const Offset(0, -10),
                     child: _buildStatusPill(
                       daysRemaining,
-                      isTemporary: user.temporaryStayRequest != null,
+                      isTemporary: isTemp,
                     ),
                   ),
                 ],
@@ -1368,24 +1904,24 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               const SizedBox(height: 20),
               Row(
                 children: [
-                  _buildDateBox('Check-in', user.checkInDate, Icons.calendar_today_outlined),
+                  _buildDateBox('Check-in', user.checkInDate, Icons.calendar_today_outlined, isDark: isDark),
                   const SizedBox(width: 12),
-                  _buildDateBox('Renewal Due', user.renewalDate, Icons.calendar_month_outlined),
+                  _buildDateBox(isTemp ? 'Valid Till' : 'Renewal Due', user.renewalDate, Icons.calendar_month_outlined, isDark: isDark),
                 ],
               ),
               const SizedBox(height: 20),
-              Divider(height: 1, color: Colors.grey.withOpacity(0.15)),
+              Divider(height: 1, color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.withOpacity(0.15)),
               const SizedBox(height: 15),
               Row(
                 children: [
                   const SizedBox(width: 8),
                   Text(
                     '${daysRemaining > 0 ? daysRemaining : 0}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Lato',
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFFC5A358), 
+                      color: isDark ? const Color(0xFFFDE047) : const Color(0xFFC5A358), 
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1393,7 +1929,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     'days remaining',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey.shade600,
+                      color: isDark ? const Color(0xFFCBD5E1) : Colors.grey.shade600,
                       fontWeight: FontWeight.w600,
                       fontFamily: 'Lato',
                     ),
@@ -1411,9 +1947,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF43A047).withOpacity(0.12),
+                            color: isDark ? const Color(0xFF10B981).withOpacity(0.2) : const Color(0xFF43A047).withOpacity(0.12),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFF43A047).withOpacity(0.4), width: 1),
+                            border: Border.all(
+                              color: isDark ? const Color(0xFF34D399).withOpacity(0.6) : const Color(0xFF43A047).withOpacity(0.4), 
+                              width: 1,
+                            ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -1431,10 +1970,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                                   : 'Proceed to Payment'))),
                                   textAlign: TextAlign.right,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w900,
-                                    color: Color(0xFF2E7D32),
+                                    color: isDark ? const Color(0xFF34D399) : const Color(0xFF2E7D32),
                                     fontFamily: 'Lato',
                                   ),
                                 ),
@@ -1454,32 +1993,42 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     );
   }
 
-  Widget _buildDateBox(String label, DateTime date, IconData icon) {
+  Widget _buildDateBox(String label, DateTime date, IconData icon, {bool isDark = false}) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFFDF9F0), 
+          color: isDark ? const Color(0xFF1E293B).withOpacity(0.9) : const Color(0xFFFDF9F0), 
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE8E0D5), width: 1), 
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFE8E0D5), 
+            width: 1,
+          ), 
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(icon, size: 14, color: const Color(0xFF8E8E8E)),
+                Icon(icon, size: 14, color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF8E8E8E)),
                 const SizedBox(width: 6),
-                Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E8E), fontWeight: FontWeight.w500)),
+                Text(
+                  label, 
+                  style: TextStyle(
+                    fontSize: 12, 
+                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF8E8E8E), 
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
               DateFormat('d MMM yyyy').format(date),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF003366), 
+                color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF003366), 
                 fontFamily: 'Lato',
               ),
             ),
@@ -1490,19 +2039,34 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildQuickActionsHeader() {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final headingColor = wallpaper.sectionHeaderColor;
+    final subColor = wallpaper.subHeadingColor;
+    final iconColor = wallpaper.headerIconColor;
+    final borderColor = wallpaper.headerBorderColor;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 16, 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
+          Text(
             'Quick Actions',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF666666),
+              color: headingColor,
               fontFamily: 'Lato',
               letterSpacing: 0.2,
+              shadows: wallpaper.isDarkTheme
+                  ? const [
+                      Shadow(
+                        color: Colors.black54,
+                        offset: Offset(0, 1),
+                        blurRadius: 3,
+                      )
+                    ]
+                  : null,
             ),
           ),
           if (context.read<UserProvider>().dbId != null)
@@ -1518,28 +2082,28 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.transparent,
+                  color: wallpaper.isDarkTheme ? Colors.white.withOpacity(0.12) : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: const Color(0xFFCCCCCC),
+                    color: borderColor,
                     width: 1,
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.history,
                       size: 13,
-                      color: Color(0xFF888888),
+                      color: iconColor,
                     ),
                     const SizedBox(width: 4),
-                    const Text(
+                    Text(
                       'View History',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF888888),
+                        color: subColor,
                         fontFamily: 'Lato',
                       ),
                     ),
@@ -1726,37 +2290,62 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildAnnouncementsHeader() {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final headingColor = wallpaper.sectionHeaderColor;
+    final iconColor = wallpaper.headerIconColor;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 16, 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
+          Text(
             'Announcements',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF666666),
+              color: headingColor,
               fontFamily: 'Lato',
               letterSpacing: 0.2,
+              shadows: wallpaper.isDarkTheme
+                  ? const [
+                      Shadow(
+                        color: Colors.black54,
+                        offset: Offset(0, 1),
+                        blurRadius: 3,
+                      )
+                    ]
+                  : null,
             ),
           ),
-          Icon(Icons.notifications_none_outlined, size: 20, color: Colors.grey.shade500),
+          Icon(Icons.notifications_none_outlined, size: 20, color: iconColor),
         ],
       ),
     );
   }
 
   Widget _buildAnnouncements() {
+    final wallpaper = context.watch<WallpaperProvider>();
+
     if (_isLoadingAnnouncements) {
-      return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: CircularProgressIndicator(color: wallpaper.isDarkTheme ? Colors.white : const Color(0xFFD4AF37)),
+        ),
+      );
     }
     
     if (_announcements.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(20),
-          child: Text("No announcements yet", style: TextStyle(color: Colors.grey.shade600)),
+          child: Text(
+            "No announcements yet",
+            style: TextStyle(
+              color: wallpaper.isDarkTheme ? Colors.white70 : Colors.grey.shade600,
+            ),
+          ),
         ),
       );
     }
@@ -1771,20 +2360,26 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   Widget _buildAnnouncementCard({required String title, required String date, required String description}) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       padding: const EdgeInsets.all(12), 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xF0141C2B) : Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 8,
+            color: isDark ? Colors.black.withOpacity(0.35) : Colors.black.withOpacity(0.06),
+            blurRadius: isDark ? 10 : 8,
             offset: const Offset(0, 3),
           ),
         ],
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.05),
+          width: 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1792,24 +2387,34 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700, 
-                  fontSize: 13, 
-                  color: Color(0xFF1B2B48)
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700, 
+                    fontSize: 13, 
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 date, 
-                style: const TextStyle(fontSize: 11, color: Colors.grey) 
+                style: TextStyle(
+                  fontSize: 11, 
+                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
             description, 
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.4) 
+            style: TextStyle(
+              fontSize: 12, 
+              color: isDark ? const Color(0xFFCBD5E1) : Colors.grey.shade600, 
+              height: 1.4,
+            ),
           ),
         ],
       ),
@@ -2189,70 +2794,96 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     final req = user.temporaryStayRequest;
     if (req == null) return const SizedBox.shrink();
 
-    final status = req['status'] ?? 'pending';
-    final paymentStatus = req['payment_status'] ?? 'unpaid';
-    final double amount = (req['amount'] != null) ? double.tryParse(req['amount'].toString()) ?? 0.0 : 0.0;
-    final String amountStr = amount > 0 ? '₹${amount.toStringAsFixed(2)}' : 'Calculating...';
+    final status = (req['status'] ?? 'pending').toString().toLowerCase();
+    final paymentStatus = (req['payment_status'] ?? 'unpaid').toString().toLowerCase();
+    final double rawAmount = (req['amount'] != null) ? double.tryParse(req['amount'].toString()) ?? 0.0 : 0.0;
+    final int roundedAmt = (rawAmount / 50.0).round() * 50;
+    final String amountStr = roundedAmt > 0 ? '₹${NumberFormat('#,##,###').format(roundedAmt)}' : (rawAmount > 0 ? '₹${rawAmount.toInt()}' : 'Calculating...');
     final String roomCodeDisplay = (req['room_code'] != null && req['room_code'].toString().isNotEmpty)
         ? req['room_code']
         : (req['room_no'] ?? 'N/A');
+    final String wardenName = req['warden_name'] ?? 'Assigned Room Warden';
+    final int holdRemainingSeconds = int.tryParse(req['hold_remaining_seconds']?.toString() ?? '0') ?? 0;
+
+    int currentStep = 1;
+    if (status == 'approved' && paymentStatus != 'paid') {
+      currentStep = 3;
+    } else if (status == 'allocated' || paymentStatus == 'paid') {
+      currentStep = 4;
+    } else if (status == 'rejected' || status == 'timed_out') {
+      currentStep = 2;
+    } else {
+      currentStep = 2; // pending warden review
+    }
 
     IconData statusIcon = Icons.hourglass_top_rounded;
-    Color statusColor = Colors.amber;
-    String statusTitle = 'Suggested Room Allocation';
-    String statusSubtitle = 'Pending Admin Approval';
-    Color bannerBg = const Color(0xFFFFF8E1);
+    Color statusColor = const Color(0xFFD97706);
+    String statusTitle = 'Application Submitted';
+    String statusSubtitle = 'Pending Warden Approval';
+    Color bannerBg = const Color(0xFFFEF3C7);
 
     if (status == 'approved' && paymentStatus != 'paid') {
-      statusIcon = Icons.verified_rounded;
-      statusColor = const Color(0xFF2E7D32);
-      statusTitle = 'Temporary Stay Approved! 🎉';
+      statusIcon = Icons.timer_outlined;
+      statusColor = const Color(0xFF0288D1);
+      statusTitle = 'Approved — Room on 24h Hold';
       statusSubtitle = 'Payment Required to Allocate Room';
-      bannerBg = const Color(0xFFE8F5E9);
+      bannerBg = const Color(0xFFE0F2FE);
     } else if (status == 'allocated' || paymentStatus == 'paid') {
       statusIcon = Icons.vpn_key_rounded;
-      statusColor = const Color(0xFF1B2B48);
-      statusTitle = 'Room Allocated & Confirmed! 🔑';
+      statusColor = const Color(0xFF10B981);
+      statusTitle = 'Room Allocated & Confirmed!';
       statusSubtitle = 'Temporary Stay Active';
-      bannerBg = const Color(0xFFE3F2FD);
+      bannerBg = const Color(0xFFD1FAE5);
     } else if (status == 'rejected') {
-      statusIcon = Icons.cancel_rounded;
-      statusColor = Colors.red;
-      statusTitle = 'Application Rejected ❌';
-      statusSubtitle = req['admin_notes'] ?? 'Administrative Decision';
-      bannerBg = const Color(0xFFFFEBEE);
+      statusIcon = Icons.cancel_outlined;
+      statusColor = const Color(0xFFEF4444);
+      statusTitle = 'Application Rejected';
+      statusSubtitle = req['admin_notes'] ?? 'Rejected by Hostel Administration';
+      bannerBg = const Color(0xFFFEE2E2);
+    } else if (status == 'timed_out') {
+      statusIcon = Icons.timer_off_outlined;
+      statusColor = const Color(0xFF6B7280);
+      statusTitle = 'Hold Period Expired';
+      statusSubtitle = '24-hour payment window timed out';
+      bannerBg = const Color(0xFFF3F4F6);
     }
+
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xF0141C2B) : Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: isDark ? Colors.black.withOpacity(0.4) : Colors.black.withOpacity(0.06),
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.12) : statusColor.withOpacity(0.3), 
+          width: 1.2,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row
+          // 1. Header Row with Badge
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: bannerBg,
-                  borderRadius: BorderRadius.circular(14),
+                  color: isDark ? statusColor.withOpacity(0.2) : bannerBg,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(statusIcon, color: statusColor, size: 26),
+                child: Icon(statusIcon, color: isDark ? const Color(0xFF38BDF8) : statusColor, size: 24),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2262,7 +2893,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       style: GoogleFonts.outfit(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1B2B48),
+                        color: isDark ? Colors.white : const Color(0xFF1B2B48),
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -2271,37 +2902,54 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: statusColor,
+                        color: isDark ? const Color(0xFF94A3B8) : statusColor,
                       ),
                     ),
                   ],
                 ),
               ),
+              if (status == 'approved' && holdRemainingSeconds > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE65100),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${holdRemainingSeconds ~/ 3600}h left',
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
 
-          // Details Box (matching photo)
+          // 2. Visual 4-Step Stepper Progress Bar
+          _buildLifecycleStepper(status, paymentStatus),
+          const SizedBox(height: 16),
+
+          // 3. Details Box
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
+              color: isDark ? const Color(0xFF1E293B).withOpacity(0.85) : const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              border: Border.all(color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFE2E8F0)),
             ),
             child: Column(
               children: [
-                _tempCardRow('Hostel Name', req['hostel_name'] ?? 'N/A'),
-                const Divider(height: 14),
-                _tempCardRow('Suggested Room', roomCodeDisplay),
-                const Divider(height: 14),
-                _tempCardRow('Stay Duration', '${req['duration_value']} ${req['duration_type']} (${req['from_date']} to ${req['to_date']})', fontSize: 10.5),
-                const Divider(height: 14),
-                _tempCardRow('Calculated Fee', amountStr),
+                _tempCardRow('Hostel & Room', '${req['hostel_name'] ?? 'Hostel'} • $roomCodeDisplay', isDark: isDark),
+                Divider(height: 14, color: isDark ? Colors.white.withOpacity(0.08) : null),
+                _tempCardRow('Room Warden', wardenName, isDark: isDark),
+                Divider(height: 14, color: isDark ? Colors.white.withOpacity(0.08) : null),
+                _tempCardRow('Stay Duration', '${req['duration_value']} ${req['duration_type']} (${req['from_date']} to ${req['to_date']})', fontSize: 11, isDark: isDark),
+                Divider(height: 14, color: isDark ? Colors.white.withOpacity(0.08) : null),
+                _tempCardRow('Total Stay Fee', amountStr, isDark: isDark),
               ],
             ),
           ),
 
+          // 4. Action Buttons based on status
           if (status == 'approved' && paymentStatus != 'paid') ...[
             const SizedBox(height: 16),
             SizedBox(
@@ -2309,33 +2957,20 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               height: 46,
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
+                  backgroundColor: const Color(0xFF0288D1),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   elevation: 2,
                 ),
-                icon: const Icon(Icons.payment, size: 20),
+                icon: const Icon(Icons.account_balance_wallet, size: 20),
                 label: Text(
-                  'Pay Now & Allocate Room ($amountStr)',
+                  'Go to Wallet & Pay ($amountStr)',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
-                onPressed: () async {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (ctx) => PaymentPage(
-                        requestId: req['request_id'],
-                        customAmount: amount,
-                        requestedRoom: roomCodeDisplay,
-                        isTemporaryStay: true,
-                      ),
-                    ),
-                  ).then((_) {
-                    if (mounted) setState(() {});
-                  });
-                },
+                onPressed: () => _navigateToStudentWallet(context, user),
               ),
             ),
-          ] else if (status == 'rejected') ...[
+          ] else if (status == 'rejected' || status == 'timed_out') ...[
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -2357,28 +2992,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                     context: context,
                     builder: (ctx) => TemporaryStayDialog(
                       googleEmail: user.email,
-                      googleName: user.displayName,
+                      googleName: user.userName,
                     ),
-                  ).then((_) async {
-                    final checkRes = await ApiService.checkTemporaryStayEmail(user.email);
-                    if (checkRes['has_request'] == true && checkRes['request_details'] != null) {
-                      final updatedReq = Map<String, dynamic>.from(checkRes['request_details']);
-                      final freshUserData = {
-                        'id': updatedReq['id'] ?? 0,
-                        'username': updatedReq['email'] ?? user.email,
-                        'full_name': updatedReq['full_name'] ?? user.displayName,
-                        'email': user.email,
-                        'role': 'guest',
-                        'hostel_name': updatedReq['hostel_name'] ?? '',
-                        'room_no': updatedReq['room_no'] ?? '',
-                        'room_code': updatedReq['room_code'] ?? updatedReq['room_no'] ?? '',
-                        'temporary_stay_request': updatedReq,
-                      };
-                      if (context.mounted) {
-                        await user.login(freshUserData);
-                        setState(() {});
-                      }
-                    }
+                  ).then((_) {
+                    user.refreshUserData();
                   });
                 },
               ),
@@ -2389,11 +3006,84 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     );
   }
 
-  Widget _tempCardRow(String label, String value, {double fontSize = 12.5}) {
+  Widget _buildLifecycleStepper(String status, String paymentStatus) {
+    bool isAppliedDone = true;
+    bool isWardenDone = status == 'approved' || status == 'allocated' || paymentStatus == 'paid';
+    bool isWardenPending = status == 'pending';
+    bool isPaymentDone = status == 'allocated' || paymentStatus == 'paid';
+    bool isPaymentActive = status == 'approved' && paymentStatus != 'paid';
+    bool isAllocatedDone = status == 'allocated' || paymentStatus == 'paid';
+
+    return Row(
+      children: [
+        _stepperNode('Applied', isDone: isAppliedDone, isActive: false),
+        _stepperLine(isDone: isWardenDone),
+        _stepperNode('Warden', isDone: isWardenDone, isActive: isWardenPending),
+        _stepperLine(isDone: isPaymentDone),
+        _stepperNode('Payment', isDone: isPaymentDone, isActive: isPaymentActive),
+        _stepperLine(isDone: isAllocatedDone),
+        _stepperNode('Allocated', isDone: isAllocatedDone, isActive: false),
+      ],
+    );
+  }
+
+  Widget _stepperNode(String label, {required bool isDone, required bool isActive}) {
+    Color bg = const Color(0xFFE2E8F0);
+    Color fg = const Color(0xFF64748B);
+    IconData icon = Icons.circle;
+
+    if (isDone) {
+      bg = const Color(0xFF10B981);
+      fg = Colors.white;
+      icon = Icons.check;
+    } else if (isActive) {
+      bg = const Color(0xFF0288D1);
+      fg = Colors.white;
+      icon = Icons.hourglass_bottom;
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: bg,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Icon(icon, color: fg, size: 14),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 9.5,
+            fontWeight: isDone || isActive ? FontWeight.bold : FontWeight.normal,
+            color: isDone ? const Color(0xFF10B981) : (isActive ? const Color(0xFF0288D1) : const Color(0xFF94A3B8)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepperLine({required bool isDone}) {
+    return Expanded(
+      child: Container(
+        height: 2,
+        margin: const EdgeInsets.only(bottom: 14),
+        color: isDone ? const Color(0xFF10B981) : const Color(0xFFCBD5E1),
+      ),
+    );
+  }
+
+  Widget _tempCardRow(String label, String value, {double fontSize = 12.5, bool isDark = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12.5)),
+        Text(label, style: TextStyle(color: isDark ? const Color(0xFF94A3B8) : Colors.grey, fontSize: 12.5)),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -2402,7 +3092,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             style: TextStyle(
               fontWeight: FontWeight.bold, 
               fontSize: fontSize, 
-              color: const Color(0xFF1B2B48),
+              color: isDark ? Colors.white : const Color(0xFF1B2B48),
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -2437,6 +3127,9 @@ class _HoverButtonState extends State<_HoverButton> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => isHovering = true),
@@ -2449,12 +3142,15 @@ class _HoverButtonState extends State<_HoverButton> {
           curve: Curves.easeOut,
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDark ? const Color(0xF0141C2B) : Colors.white,
             borderRadius: BorderRadius.circular(15),
+            border: isDark
+                ? Border.all(color: Colors.white.withOpacity(0.12), width: 1)
+                : null,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 10,
+                color: isDark ? Colors.black.withOpacity(0.4) : Colors.black.withOpacity(0.06),
+                blurRadius: isDark ? 14 : 10,
                 offset: const Offset(0, 4),
               ),
             ],
@@ -2524,10 +3220,10 @@ class _HoverButtonState extends State<_HoverButton> {
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF4A4A4A),
+                    fontWeight: isDark ? FontWeight.w600 : FontWeight.w500,
+                    color: isDark ? Colors.white : const Color(0xFF4A4A4A),
                     fontFamily: 'Lato',
                   ),
                 ),

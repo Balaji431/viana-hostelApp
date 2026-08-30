@@ -74,11 +74,9 @@ class SkeuomorphicColors {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0xFF5B7FBF),
-      Color(0xFF3D5A96),
-      Color(0xFF2D4A7A),
+      Color(0xFF1A2744),
+      Color(0xFF2A3A5C),
     ],
-    stops: [0.0, 0.5, 1.0],
   );
 
   static const Gradient royalHeaderGradient = navyAppBarGradient;
@@ -87,11 +85,9 @@ class SkeuomorphicColors {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0xFF5B7FBF),
-      Color(0xFF3D5A96),
-      Color(0xFF2D4A7A),
+      Color(0xFF1A2744),
+      Color(0xFF2A3A5C),
     ],
-    stops: [0.0, 0.5, 1.0],
   );
 
   static const Gradient royalContentGradient = LinearGradient(
@@ -198,50 +194,62 @@ class LinenGridBackground extends StatelessWidget {
       }
     } catch (_) {}
 
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
     final customPath = wallpaper?.customFilePath;
     final assetPath = wallpaper?.assetPath;
+    final baseColor = isDark ? const Color(0xFF0F1520) : (isWhite ? Colors.white : const Color(0xFFF5F0E8));
 
-    return Stack(
-      children: [
-        if (customPath != null)
-          Positioned.fill(
-            child: Image.file(
-              File(customPath),
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.high,
-              isAntiAlias: true,
-              errorBuilder: (_, __, ___) => _buildLinenBase(isWhite),
+    return Container(
+      color: baseColor,
+      child: Stack(
+        children: [
+          if (customPath != null)
+            Positioned.fill(
+              child: Image.file(
+                File(customPath),
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                isAntiAlias: true,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) => _buildLinenBase(isWhite, isDark),
+              ),
+            )
+          else if (assetPath != null)
+            Positioned.fill(
+              child: Image.asset(
+                assetPath,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                isAntiAlias: true,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) => _buildLinenBase(isWhite, isDark),
+              ),
+            )
+          else
+            Positioned.fill(child: _buildLinenBase(isWhite, isDark)),
+          // Overlay the subtle linen grid texture on top for texture depth
+          if (customPath != null || assetPath != null)
+            Positioned.fill(
+              child: Container(
+                color: Colors.white.withValues(alpha: 0.08),
+              ),
+            )
+          else
+            Positioned.fill(
+              child: CustomPaint(painter: LinenGridPainter()),
             ),
-          )
-        else if (assetPath != null)
-          Positioned.fill(
-            child: Image.asset(
-              assetPath,
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.high,
-              isAntiAlias: true,
-              errorBuilder: (_, __, ___) => _buildLinenBase(isWhite),
-            ),
-          )
-        else
-          Positioned.fill(child: _buildLinenBase(isWhite)),
-        // Overlay the subtle linen grid texture on top for texture depth
-        if (customPath != null || assetPath != null)
-          Positioned.fill(
-            child: Container(
-              color: Colors.white.withValues(alpha: 0.08),
-            ),
-          )
-        else
-          Positioned.fill(
-            child: CustomPaint(painter: LinenGridPainter()),
-          ),
-        child,
-      ],
+          child,
+        ],
+      ),
     );
   }
 
-  Widget _buildLinenBase(bool isWhite) {
+  Widget _buildLinenBase(bool isWhite, bool isDark) {
+    if (isDark) {
+      return Container(
+        color: const Color(0xFF0F1520),
+      );
+    }
     return Container(
       decoration: BoxDecoration(
         color: isWhite ? Colors.white : const Color(0xFFF5F0E8),
@@ -277,6 +285,47 @@ class SkeuomorphicStyles {
     ],
   );
 
+  static BoxDecoration adaptiveCard(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = Provider.of<WallpaperProvider>(context, listen: false);
+    } catch (_) {}
+
+    if (wallpaper != null && wallpaper.isDarkTheme) {
+      return BoxDecoration(
+        color: const Color(0xFF131D2E).withOpacity(0.72),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.18),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      );
+    }
+
+    return BoxDecoration(
+      color: Colors.white.withOpacity(0.95),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: const Color(0xFFD4AF37).withOpacity(0.35),
+        width: 1,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.06),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
+    );
+  }
+
   // Restored glossyButton method
   static BoxDecoration glossyButton(Gradient gradient) => BoxDecoration(
         gradient: gradient,
@@ -292,9 +341,89 @@ class SkeuomorphicStyles {
       );
 }
 
+/// A reusable adaptive card with optional backdrop blur, dynamic borders, and high contrast styling
+class AdaptiveGlassCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
+  final double borderRadius;
+  final VoidCallback? onTap;
+  final Color? customFillColor;
+  final Border? customBorder;
+
+  const AdaptiveGlassCard({
+    super.key,
+    required this.child,
+    this.padding,
+    this.margin,
+    this.borderRadius = 16.0,
+    this.onTap,
+    this.customFillColor,
+    this.customBorder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
+    final fillColor = customFillColor ??
+        (isDark
+            ? const Color(0xFF131D2E).withOpacity(0.72)
+            : Colors.white.withOpacity(0.95));
+    final border = customBorder ??
+        Border.all(
+          color: isDark
+              ? Colors.white.withOpacity(0.18)
+              : const Color(0xFFD4AF37).withOpacity(0.35),
+          width: 1,
+        );
+
+    final cardWidget = Container(
+      margin: margin,
+      padding: padding ?? const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: fillColor,
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: border,
+        boxShadow: isDark
+            ? [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+      ),
+      child: child,
+    );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: cardWidget,
+      );
+    }
+
+    return cardWidget;
+  }
+}
+
 extension StringExtension on String {
   String capitalize() {
     if (isEmpty) return this;
     return "${this[0].toUpperCase()}${substring(1).toLowerCase()}";
   }
 }
+

@@ -7,6 +7,7 @@ import '../core/models/mapping_model.dart';
 import 'package:vianasoft_stay/core/models/hierarchical_hostel_model.dart';
 import '../core/api_service.dart';
 import '../core/styles.dart';
+import '../shared/wallpaper_provider.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 
 class StaffMappingManagerScreen extends StatefulWidget {
@@ -131,16 +132,16 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     return result;
   }
 
-  Widget _buildNoSearchResultsState() {
+  Widget _buildNoSearchResultsState(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.search_off_outlined, size: 64, color: Colors.grey.withValues(alpha: 0.4)),
+          Icon(Icons.search_off_outlined, size: 64, color: isDark ? Colors.white30 : Colors.grey.withValues(alpha: 0.4)),
           const SizedBox(height: 16),
           Text(
             'No Mappings Found',
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade700, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 18, color: isDark ? Colors.white : Colors.grey.shade700, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Padding(
@@ -148,7 +149,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             child: Text(
               'No hostel, floor, wing, or warden matched "$_searchQuery"',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 13),
             ),
           ),
         ],
@@ -244,6 +245,8 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     final mappingProvider = context.watch<MappingProvider>();
     final hostelProvider = context.watch<HierarchicalHostelProvider>();
     final filteredMappings = _getFilteredMappings(mappingProvider.mappings, mappingProvider);
@@ -270,19 +273,19 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
           : null,
 
         body: mappingProvider.isLoading || hostelProvider.isLoading
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
+            ? Center(child: CircularProgressIndicator(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)))
             : Column(
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.black.withValues(alpha: 0.12), width: 1.5),
+                        border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withValues(alpha: 0.12), width: 1.5),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.06),
+                            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
@@ -295,14 +298,14 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                             _searchQuery = val.trim();
                           });
                         },
-                        style: const TextStyle(fontSize: 14, color: Color(0xFF1A2744)),
+                        style: TextStyle(fontSize: 14, color: isDark ? Colors.white : const Color(0xFF1A2744)),
                         decoration: InputDecoration(
                           hintText: 'Search hostel, floor, wing, or warden name...',
-                          hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-                          prefixIcon: const Icon(Icons.search, color: Color(0xFF1A2744), size: 20),
+                          hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade500, fontSize: 13),
+                          prefixIcon: Icon(Icons.search, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), size: 20),
                           suffixIcon: _searchQuery.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 18),
+                                  icon: Icon(Icons.clear, color: isDark ? Colors.white60 : Colors.grey, size: 18),
                                   onPressed: () {
                                     _searchController.clear();
                                     setState(() {
@@ -319,17 +322,17 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                   ),
                   Expanded(
                     child: mappingProvider.mappings.isEmpty
-                        ? _buildEmptyState()
+                        ? _buildEmptyState(isDark)
                         : filteredMappings.isEmpty
-                            ? _buildNoSearchResultsState()
+                            ? _buildNoSearchResultsState(isDark)
                             : ListView.builder(
                                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 120), 
                                 itemCount: filteredMappings.length + 1,
                                 itemBuilder: (context, index) {
                                   if (index < filteredMappings.length) {
-                                    return _buildEnhancedMappingCard(filteredMappings[index]);
+                                    return _buildEnhancedMappingCard(filteredMappings[index], isDark);
                                   } else {
-                                    return _buildAddNewMappingCard();
+                                    return _buildAddNewMappingCard(isDark);
                                   }
                                 },
                               ),
@@ -341,24 +344,24 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
   }
 
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.map_outlined, size: 100, color: Colors.grey.withValues(alpha: 0.2)),
+          Icon(Icons.map_outlined, size: 100, color: isDark ? Colors.white24 : Colors.grey.withValues(alpha: 0.2)),
           const SizedBox(height: 20),
           Text(
             'Ready to Map Staff?',
-            style: TextStyle(fontSize: 20, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 20, color: isDark ? Colors.white : Colors.grey.shade600, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 10),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 40),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(
               'Link wardens, security, and maintenance staff to specific hostels or wings.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: isDark ? Colors.white60 : Colors.grey),
             ),
           ),
           const SizedBox(height: 30),
@@ -370,8 +373,8 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('Add New Mapping'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1A2744),
-              foregroundColor: Colors.white,
+              backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+              foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
@@ -381,26 +384,21 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     );
   }
 
-  Widget _buildEnhancedMappingCard(LocationMapping mapping) {
+  Widget _buildEnhancedMappingCard(LocationMapping mapping, bool isDark) {
     final mappingProvider = context.read<MappingProvider>();
     final path = mappingProvider.getLocationLabel(mapping);
     
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.12), width: 1.5),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withValues(alpha: 0.12), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
             blurRadius: 12,
             offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: Colors.white.withValues(alpha: 0.8),
-            blurRadius: 1,
-            offset: const Offset(0, -1),
           ),
         ],
       ),
@@ -412,18 +410,18 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF1A2744).withValues(alpha: 0.03),
-                border: Border(bottom: BorderSide(color: Colors.black.withValues(alpha: 0.08), width: 1)),
+                color: isDark ? const Color(0xFF0F1520) : const Color(0xFF1A2744).withValues(alpha: 0.03),
+                border: Border(bottom: BorderSide(color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.08), width: 1)),
               ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1A2744),
+                      color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.location_on, color: Colors.white, size: 18),
+                    child: Icon(Icons.location_on, color: isDark ? const Color(0xFF1A2744) : Colors.white, size: 18),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -432,7 +430,11 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                       children: [
                         Text(
                           path,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1A2744)),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold, 
+                            fontSize: 16, 
+                            color: isDark ? Colors.white : const Color(0xFF1A2744),
+                          ),
                         ),
                         const SizedBox(height: 4),
                         FittedBox(
@@ -440,18 +442,18 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                           alignment: Alignment.centerLeft,
                           child: Row(
                             children: [
-                              Icon(Icons.meeting_room_outlined, size: 13, color: Colors.grey.shade600),
+                              Icon(Icons.meeting_room_outlined, size: 13, color: isDark ? Colors.white60 : Colors.grey.shade600),
                               const SizedBox(width: 4),
                               Text(
                                 '${mapping.roomCount ?? 0} Rooms',
-                                style: TextStyle(color: Colors.grey.shade600, fontSize: 11, fontWeight: FontWeight.w500),
+                                style: TextStyle(color: isDark ? Colors.white60 : Colors.grey.shade600, fontSize: 11, fontWeight: FontWeight.w500),
                               ),
                               const SizedBox(width: 10),
-                              Icon(Icons.people_outline, size: 13, color: Colors.grey.shade600),
+                              Icon(Icons.people_outline, size: 13, color: isDark ? Colors.white60 : Colors.grey.shade600),
                               const SizedBox(width: 4),
                               Text(
                                 '${mapping.assignedStaff.length} Staff',
-                                style: TextStyle(color: Colors.grey.shade600, fontSize: 11, fontWeight: FontWeight.w500),
+                                style: TextStyle(color: isDark ? Colors.white60 : Colors.grey.shade600, fontSize: 11, fontWeight: FontWeight.w500),
                               ),
                             ],
                           ),
@@ -463,12 +465,12 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.edit_outlined, color: Color(0xFF2D4A7A), size: 20),
+                        icon: Icon(Icons.edit_outlined, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF2D4A7A), size: 20),
                         onPressed: () => _navigateToEditMapping(context, mapping),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                        onPressed: () => _confirmDelete(mapping),
+                        icon: Icon(Icons.delete_outline, color: isDark ? const Color(0xFFFF6B6B) : Colors.redAccent, size: 20),
+                        onPressed: () => _confirmDelete(mapping, isDark),
                       ),
                     ],
                   ),
@@ -476,13 +478,13 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
               ),
             ),
             
-            ...mapping.assignedStaff.map((staff) => _buildStaffItem(staff)),
+            ...mapping.assignedStaff.map((staff) => _buildStaffItem(staff, isDark)),
             
             if (mapping.assignedStaff.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(20),
+              Padding(
+                padding: const EdgeInsets.all(20),
                 child: Center(
-                  child: Text('No staff assigned yet', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                  child: Text('No staff assigned yet', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontStyle: FontStyle.italic)),
                 ),
               ),
           ],
@@ -491,19 +493,19 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     );
   }
 
-  Widget _buildStaffItem(Staff staff) {
+  Widget _buildStaffItem(Staff staff, bool isDark) {
     final roleColor = _getRoleColor(staff.role);
     
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 0.8)),
+        border: Border(bottom: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200, width: 0.8)),
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 20,
-            backgroundColor: roleColor.withValues(alpha: 0.1),
+            backgroundColor: roleColor.withValues(alpha: isDark ? 0.25 : 0.1),
             child: Icon(_getRoleIcon(staff.role), color: roleColor, size: 20),
           ),
           const SizedBox(width: 16),
@@ -513,12 +515,12 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
               children: [
                 Row(
                   children: [
-                    Text(staff.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    Text(staff.name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isDark ? Colors.white : Colors.black87)),
                     const SizedBox(width: 8),
                     if (staff.username.isNotEmpty)
                       Text(
                         '@${staff.username}',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12, fontWeight: FontWeight.w500),
+                        style: TextStyle(color: isDark ? Colors.white60 : Colors.grey.shade500, fontSize: 12, fontWeight: FontWeight.w500),
                       ),
                   ],
                 ),
@@ -528,7 +530,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: roleColor.withValues(alpha: 0.1),
+                        color: roleColor.withValues(alpha: isDark ? 0.25 : 0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -537,11 +539,11 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Icon(Icons.phone_outlined, size: 12, color: Colors.grey.shade600),
+                    Icon(Icons.phone_outlined, size: 12, color: isDark ? Colors.white60 : Colors.grey.shade600),
                     const SizedBox(width: 4),
                     Text(
                       staff.phone,
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      style: TextStyle(color: isDark ? Colors.white60 : Colors.grey.shade600, fontSize: 12),
                     ),
                   ],
                 ),
@@ -553,7 +555,7 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     );
   }
 
-  Widget _buildAddNewMappingCard() {
+  Widget _buildAddNewMappingCard(bool isDark) {
     return GestureDetector(
       onTap: () {
         debugPrint("ADD NEW MAPPING CLICKED in StaffMappingManagerScreen");
@@ -563,15 +565,15 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
         margin: const EdgeInsets.only(top: 8, bottom: 20),
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5EEFF), 
+          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF5EEFF), 
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: const Color(0xFF7B3FC4),
+            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF7B3FC4),
             width: 2.0,
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF7B3FC4).withValues(alpha: 0.08),
+              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -583,17 +585,17 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
             Container(
               width: 36,
               height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xFF7B3FC4),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF7B3FC4),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.add, color: Colors.white, size: 20),
+              child: Icon(Icons.add, color: isDark ? const Color(0xFF1A2744) : Colors.white, size: 20),
             ),
             const SizedBox(width: 14),
-            const Text(
+            Text(
               'Add New Mapping',
               style: TextStyle(
-                color: Color(0xFF7B3FC4),
+                color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF7B3FC4),
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
                 fontFamily: 'Lato',
@@ -605,16 +607,20 @@ class _StaffMappingManagerScreenState extends State<StaffMappingManagerScreen> {
     );
   }
 
-  void _confirmDelete(LocationMapping mapping) async {
+  void _confirmDelete(LocationMapping mapping, bool isDark) async {
     final mappingProvider = context.read<MappingProvider>();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Remove Mapping?', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text('This will unassign all staff from ${mappingProvider.getLocationLabel(mapping)}.'),
+        backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+        ),
+        title: Text('Remove Mapping?', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+        content: Text('This will unassign all staff from ${mappingProvider.getLocationLabel(mapping)}.', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey))),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -810,44 +816,49 @@ class _EditMappingPageState extends State<EditMappingPage> {
     )).toList();
   }
 
-  Widget _buildDropdown<T>({required String label, required T? value, required List<DropdownMenuItem<T>> items, required Function(T?) onChanged, bool enabled = true}) {
+  Widget _buildDropdown<T>({required String label, required T? value, required List<DropdownMenuItem<T>> items, required Function(T?) onChanged, bool enabled = true, required bool isDark}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+        Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFFD4AF37) : Colors.grey)),
         const SizedBox(height: 8),
         DropdownButtonFormField<T>(
           initialValue: value,
+          dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+          style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14),
           items: enabled ? items : [],
           onChanged: enabled ? onChanged : null,
           decoration: InputDecoration(
             filled: true,
-            fillColor: enabled ? Colors.grey.shade50 : Colors.grey.shade100,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            fillColor: enabled 
+                ? (isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.grey.shade50) 
+                : (isDark ? const Color(0xFF0F1520) : Colors.grey.shade100),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.transparent)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.transparent)),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           ),
-          hint: Text(enabled ? 'Choose one...' : 'N/A', style: const TextStyle(fontSize: 14)),
+          hint: Text(enabled ? 'Choose one...' : 'N/A', style: TextStyle(fontSize: 14, color: isDark ? Colors.white38 : Colors.grey.shade600)),
         ),
       ],
     );
   }
 
-  Widget _buildEditableStaffItem(Staff staff, int index) {
+  Widget _buildEditableStaffItem(Staff staff, int index, bool isDark) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade200),
       ),
       child: Row(
         children: [
-          CircleAvatar(radius: 12, backgroundColor: _getRoleColor(staff.role).withValues(alpha: 0.1), child: Icon(_getRoleIcon(staff.role), size: 12, color: _getRoleColor(staff.role))),
+          CircleAvatar(radius: 12, backgroundColor: _getRoleColor(staff.role).withValues(alpha: isDark ? 0.25 : 0.1), child: Icon(_getRoleIcon(staff.role), size: 12, color: _getRoleColor(staff.role))),
           const SizedBox(width: 12),
-          Expanded(child: Text(staff.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500))),
+          Expanded(child: Text(staff.name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: isDark ? Colors.white : Colors.black87))),
           IconButton(
-            icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey),
+            icon: Icon(Icons.edit_outlined, size: 16, color: isDark ? Colors.white70 : Colors.grey),
             onPressed: () async {
               final result = await Navigator.of(context).push<Staff>(
                 MaterialPageRoute(
@@ -865,7 +876,7 @@ class _EditMappingPageState extends State<EditMappingPage> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.close, size: 16, color: Colors.redAccent),
+            icon: Icon(Icons.close, size: 16, color: isDark ? const Color(0xFFFF6B6B) : Colors.redAccent),
             onPressed: () => setState(() => currentStaff.removeAt(index)),
           ),
         ],
@@ -875,6 +886,8 @@ class _EditMappingPageState extends State<EditMappingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     final hostelProvider = context.watch<HierarchicalHostelProvider>();
     final mappingProvider = context.read<MappingProvider>();
 
@@ -886,22 +899,22 @@ class _EditMappingPageState extends State<EditMappingPage> {
           onBack: () => Navigator.of(context).pop(),
         ),
         body: _isInitializing
-            ? const Center(
-                child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+            ? Center(
+                child: CircularProgressIndicator(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)),
               )
             : Column(
                 children: [
                   Expanded(
-                    child: _buildFormFields(hostelProvider),
+                    child: _buildFormFields(hostelProvider, isDark),
                   ),
-                  _buildSaveButton(mappingProvider),
+                  _buildSaveButton(mappingProvider, isDark),
                 ],
               ),
       ),
     );
   }
 
-  Widget _buildFormFields(HierarchicalHostelProvider hostelProvider) {
+  Widget _buildFormFields(HierarchicalHostelProvider hostelProvider, bool isDark) {
     String previewPath = selectedHostel?.name ?? 'Select Location';
     if (selectedZone != null) previewPath += ' › ${selectedZone!.name}';
     if (selectedSubZone != null) previewPath += ' › ${selectedSubZone!.name}';
@@ -914,7 +927,8 @@ class _EditMappingPageState extends State<EditMappingPage> {
           _buildDropdown<HierarchicalHostel>(
             label: 'Select Hostel *',
             value: selectedHostel,
-            items: hostelProvider.hostels.map((h) => DropdownMenuItem(value: h, child: Text(h.name))).toList(),
+            isDark: isDark,
+            items: hostelProvider.hostels.map((h) => DropdownMenuItem(value: h, child: Text(h.name, style: TextStyle(color: isDark ? Colors.white : Colors.black87)))).toList(),
             onChanged: (val) async {
               if (val != null) {
                 setState(() {
@@ -934,8 +948,9 @@ class _EditMappingPageState extends State<EditMappingPage> {
             _buildDropdown<Zone>(
               label: 'Select Floor (Optional)',
               value: selectedZone,
+              isDark: isDark,
               enabled: selectedHostel != null && selectedHostel!.zones.isNotEmpty,
-              items: selectedHostel?.zones.map((z) => DropdownMenuItem(value: z, child: Text(z.name))).toList() ?? [],
+              items: selectedHostel?.zones.map((z) => DropdownMenuItem(value: z, child: Text(z.name, style: TextStyle(color: isDark ? Colors.white : Colors.black87)))).toList() ?? [],
               onChanged: (val) {
                 setState(() {
                   selectedZone = val;
@@ -947,8 +962,12 @@ class _EditMappingPageState extends State<EditMappingPage> {
           _buildDropdown<SubZone>(
             label: 'Select Wing (Optional)',
             value: selectedSubZone,
+            isDark: isDark,
             enabled: selectedZone != null,
-            items: _getWingDropdownItems(selectedZone, selectedSubZone),
+            items: _getWingDropdownItems(selectedZone, selectedSubZone).map((item) => DropdownMenuItem<SubZone>(
+              value: item.value,
+              child: Text(item.value?.name ?? '', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+            )).toList(),
             onChanged: (val) => setState(() => selectedSubZone = val),
           ),
 
@@ -957,23 +976,23 @@ class _EditMappingPageState extends State<EditMappingPage> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFFD4AF37).withValues(alpha: 0.1),
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFD4AF37).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.3)),
+              border: Border.all(color: isDark ? const Color(0xFFD4AF37).withValues(alpha: 0.4) : const Color(0xFFD4AF37).withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
                 const Icon(Icons.location_on, color: Color(0xFFD4AF37), size: 16),
                 const SizedBox(width: 8),
-                Expanded(child: Text(previewPath, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A2744)))),
+                Expanded(child: Text(previewPath, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? Colors.white : const Color(0xFF1A2744)))),
               ],
             ),
           ),
 
           const SizedBox(height: 32),
-          const Text('Assigned Staff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text('Assigned Staff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
           const SizedBox(height: 12),
-          ...currentStaff.asMap().entries.map((entry) => _buildEditableStaffItem(entry.value, entry.key)),
+          ...currentStaff.asMap().entries.map((entry) => _buildEditableStaffItem(entry.value, entry.key, isDark)),
 
           const SizedBox(height: 16),
           OutlinedButton.icon(
@@ -991,10 +1010,11 @@ class _EditMappingPageState extends State<EditMappingPage> {
                 setState(() => currentStaff.add(result));
               }
             },
-            icon: const Icon(Icons.add_circle_outline),
-            label: const Text('Add Staff Member'),
+            icon: Icon(Icons.add_circle_outline, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)),
+            label: Text('Add Staff Member', style: TextStyle(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744))),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF1A2744),
+              foregroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+              side: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)),
               padding: const EdgeInsets.symmetric(vertical: 12),
               minimumSize: const Size(double.infinity, 48),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1005,7 +1025,7 @@ class _EditMappingPageState extends State<EditMappingPage> {
     );
   }
 
-  Widget _buildSaveButton(MappingProvider mappingProvider) {
+  Widget _buildSaveButton(MappingProvider mappingProvider, bool isDark) {
     final existingMapping = widget.existingMapping;
     return SafeArea(
       child: Padding(
@@ -1050,11 +1070,13 @@ class _EditMappingPageState extends State<EditMappingPage> {
                   }
                 } : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A2744),
+                  backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                  foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
+                  disabledBackgroundColor: isDark ? Colors.white12 : Colors.grey.shade300,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
-                child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                child: const Text('Save Mapping', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
           ],
@@ -1087,59 +1109,21 @@ class AddStaffPage extends StatefulWidget {
 }
 
 class _AddStaffPageState extends State<AddStaffPage> {
-  late final TextEditingController nameController;
-  late final TextEditingController phoneController;
-  late final TextEditingController usernameController;
-  late final TextEditingController searchController;
-
-  List<String> roles = ['Warden', 'Security', 'Maintenance'];
   late String selectedRole;
   Map<String, dynamic>? selectedStaffUser;
+  late TextEditingController nameController;
+  late TextEditingController phoneController;
+  late TextEditingController usernameController;
+  final TextEditingController searchController = TextEditingController();
   bool showDropdown = false;
-  bool _rolesInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    nameController = TextEditingController(text: widget.existing?.name);
-    phoneController = TextEditingController(text: widget.existing?.phone);
-    usernameController = TextEditingController(text: widget.existing?.username);
-    searchController = TextEditingController();
     selectedRole = widget.existing?.role ?? 'Warden';
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_rolesInitialized) {
-      _rolesInitialized = true;
-      final catProvider = context.read<CategoryProvider>();
-      final Set<String> rolesSet = {};
-      for (var r in ['Warden', 'Security', 'Maintenance']) {
-        rolesSet.add(r);
-      }
-      for (var c in catProvider.categories) {
-        if ((c['is_staff_role'] ?? 1) == 1) {
-          String name = c['name']?.toString().trim() ?? '';
-          if (name.isNotEmpty) {
-            if (name.toLowerCase().contains('warden')) {
-              name = 'Warden';
-            } else if (name.toLowerCase().contains('secur')) {
-              name = 'Security';
-            } else if (name.toLowerCase().contains('maint')) {
-              name = 'Maintenance';
-            }
-            rolesSet.add(name);
-          }
-        }
-      }
-      roles = rolesSet.toList();
-      if (widget.existing?.role != null && roles.contains(widget.existing!.role)) {
-        selectedRole = widget.existing!.role;
-      } else if (!roles.contains(selectedRole)) {
-        selectedRole = roles.first;
-      }
-    }
+    nameController = TextEditingController(text: widget.existing?.name ?? '');
+    phoneController = TextEditingController(text: widget.existing?.phone ?? '');
+    usernameController = TextEditingController(text: widget.existing?.username ?? '');
   }
 
   @override
@@ -1151,11 +1135,30 @@ class _AddStaffPageState extends State<AddStaffPage> {
     super.dispose();
   }
 
+  void _confirmAndPop() {
+    final staff = Staff(
+      id: selectedStaffUser?['id']?.toString() ??
+          selectedStaffUser?['bio_id']?.toString() ??
+          widget.existing?.id ??
+          DateTime.now().millisecondsSinceEpoch.toString(),
+      name: nameController.text.trim().isNotEmpty
+          ? nameController.text.trim()
+          : (selectedStaffUser?['name'] ?? selectedStaffUser?['full_name'] ?? 'Unknown Staff').toString(),
+      role: selectedRole,
+      phone: phoneController.text.trim(),
+      username: usernameController.text.trim(),
+      hostelName: widget.existingMapping?.hostelName,
+      floorName: widget.existingMapping?.zoneName,
+      wingName: widget.existingMapping?.subZoneName,
+    );
+    Navigator.of(context).pop(staff);
+  }
+
   Color _getRoleColor(String role) {
     final catProvider = context.read<CategoryProvider>();
     final cat = catProvider.getCategoryByName(role);
     if (cat != null) return catProvider.getColor(cat['color']);
-
+    
     switch (role.toLowerCase()) {
       case 'warden': return const Color(0xFF4CAF50);
       case 'security': return const Color(0xFF2196F3);
@@ -1165,56 +1168,27 @@ class _AddStaffPageState extends State<AddStaffPage> {
     }
   }
 
-  void _confirmAndPop() {
-    final rawName = nameController.text.trim().isNotEmpty
-        ? nameController.text.trim()
-        : (selectedStaffUser?['full_name'] ?? selectedStaffUser?['name'] ?? 'Staff').toString();
-    final cleanName = rawName.replaceAll(RegExp(r'\s*\([^)]*\)'), '').trim();
-    final sPhone = phoneController.text.trim().isNotEmpty
-        ? phoneController.text.trim()
-        : (selectedStaffUser?['phone']?.toString() ?? '');
-    final sBioId = usernameController.text.trim().isNotEmpty
-        ? usernameController.text.trim()
-        : (selectedStaffUser?['username']?.toString() ?? selectedStaffUser?['bio_id']?.toString() ?? cleanName.replaceAll(' ', '_').toLowerCase());
-
-    debugPrint('=== [STAFF PAGE DEBUG] Confirm Clicked! ===');
-    debugPrint('  Adding Staff: id=$sBioId, name=$cleanName, role=$selectedRole, phone=$sPhone');
-
-    Navigator.pop(
-      context,
-      Staff(
-        id: sBioId,
-        name: cleanName,
-        role: selectedRole,
-        phone: sPhone,
-        username: sBioId,
-        hostelName: widget.existingMapping?.hostelName,
-        floorName: widget.existingMapping?.zoneName ?? widget.existingMapping?.zoneId,
-        wingName: widget.existingMapping?.subZoneName ?? widget.existingMapping?.subZoneId ?? 'All',
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    String roleKey = selectedRole.toLowerCase();
-    if (roleKey.contains('maint')) {
-      roleKey = 'maintenance';
-    } else if (roleKey.contains('secur')) {
-      roleKey = 'security';
-    }
-    final availableStaff = widget.availableStaffByRole[roleKey] ?? [];
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+    final catProvider = context.watch<CategoryProvider>();
+    final roles = catProvider.staffRoleNames;
 
-    if (widget.existing != null && selectedStaffUser == null && availableStaff.isNotEmpty) {
-      try {
-        selectedStaffUser = availableStaff.firstWhere(
-          (u) => u['phone'] == widget.existing!.phone || (u['full_name'] == widget.existing!.name && u['phone'] == widget.existing!.phone),
-          orElse: () => availableStaff.first,
-        );
-      } catch (_) {}
+    final String lookupKey = selectedRole.toLowerCase().trim();
+    List<Map<String, dynamic>> availableStaff = [];
+
+    if (lookupKey.contains('maint')) {
+      availableStaff = widget.availableStaffByRole['maintenance'] ?? [];
+    } else if (lookupKey.contains('secur')) {
+      availableStaff = widget.availableStaffByRole['security'] ?? [];
+    } else if (lookupKey.contains('warden')) {
+      availableStaff = widget.availableStaffByRole['warden'] ?? [];
+    } else {
+      availableStaff = widget.availableStaffByRole[lookupKey] ?? widget.availableStaffByRole['warden'] ?? [];
     }
 
-    final String searchFilter = searchController.text.trim().toLowerCase();
+    final searchFilter = searchController.text.trim().toLowerCase();
     final matchingStaff = availableStaff.where((u) {
       if (searchFilter.isEmpty) return true;
       final bio = (u['username'] ?? u['bio_id'] ?? '').toString().toLowerCase();
@@ -1244,12 +1218,12 @@ class _AddStaffPageState extends State<AddStaffPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // ROLE SECTION
-                        const Text(
+                        Text(
                           'Role',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A2744),
+                            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
                             letterSpacing: 0.2,
                           ),
                         ),
@@ -1268,7 +1242,7 @@ class _AddStaffPageState extends State<AddStaffPage> {
                                         ? Icons.security_outlined
                                         : Icons.build_outlined,
                                 size: 16,
-                                color: isSelected ? roleColor : Colors.grey.shade600,
+                                color: isSelected ? roleColor : (isDark ? Colors.white60 : Colors.grey.shade600),
                               ),
                               label: Text(role),
                               selected: isSelected,
@@ -1283,18 +1257,18 @@ class _AddStaffPageState extends State<AddStaffPage> {
                                   showDropdown = false;
                                 });
                               },
-                              selectedColor: roleColor.withValues(alpha: 0.15),
+                              selectedColor: roleColor.withValues(alpha: isDark ? 0.25 : 0.15),
                               checkmarkColor: roleColor,
                               side: BorderSide(
-                                color: isSelected ? roleColor : Colors.grey.shade300,
+                                color: isSelected ? roleColor : (isDark ? Colors.white24 : Colors.grey.shade300),
                                 width: isSelected ? 1.5 : 1,
                               ),
                               labelStyle: TextStyle(
-                                color: isSelected ? roleColor : Colors.black87,
+                                color: isSelected ? roleColor : (isDark ? Colors.white70 : Colors.black87),
                                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                                 fontSize: 13,
                               ),
-                              backgroundColor: Colors.grey.shade50,
+                              backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade50,
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             );
@@ -1303,18 +1277,19 @@ class _AddStaffPageState extends State<AddStaffPage> {
                         const SizedBox(height: 28),
 
                         // SELECT PERSON SECTION
-                        const Text(
+                        Text(
                           'Select Person',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A2744),
+                            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
                             letterSpacing: 0.2,
                           ),
                         ),
                         const SizedBox(height: 10),
                         TextField(
                           controller: searchController,
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
                           onTap: () {
                             setState(() {
                               showDropdown = true;
@@ -1327,23 +1302,23 @@ class _AddStaffPageState extends State<AddStaffPage> {
                           },
                           decoration: InputDecoration(
                             filled: true,
-                            fillColor: Colors.grey.shade50,
+                            fillColor: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.grey.shade50,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF1A2744), width: 1.5),
+                              borderSide: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), width: 1.5),
                             ),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            prefixIcon: const Icon(Icons.search, color: Color(0xFF1A2744), size: 22),
+                            prefixIcon: Icon(Icons.search, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), size: 22),
                             hintText: 'Search or select staff person...',
-                            hintStyle: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                            hintStyle: TextStyle(fontSize: 14, color: isDark ? Colors.white38 : Colors.grey.shade500),
                           ),
                         ),
                         if (showDropdown && matchingStaff.isNotEmpty) ...[
@@ -1351,12 +1326,12 @@ class _AddStaffPageState extends State<AddStaffPage> {
                           Container(
                             constraints: const BoxConstraints(maxHeight: 220),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: isDark ? const Color(0xFF1E293B) : Colors.white,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.grey.shade300),
+                              border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.05),
+                                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.05),
                                   blurRadius: 8,
                                   offset: const Offset(0, 4),
                                 )
@@ -1365,7 +1340,7 @@ class _AddStaffPageState extends State<AddStaffPage> {
                             child: ListView.separated(
                               shrinkWrap: true,
                               itemCount: matchingStaff.length,
-                              separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
+                              separatorBuilder: (_, __) => Divider(height: 1, color: isDark ? Colors.white12 : Colors.grey.shade200),
                               itemBuilder: (context, index) {
                                 final staffItem = matchingStaff[index];
                                 final String sName = (staffItem['full_name'] ?? staffItem['name'] ?? staffItem['username'] ?? 'Unknown').toString();
@@ -1376,7 +1351,7 @@ class _AddStaffPageState extends State<AddStaffPage> {
                                 final bool isSelected = (selectedStaffUser?['bio_id'] == sBioId) || (nameController.text == sName);
 
                                 return Material(
-                                  color: isSelected ? const Color(0xFF1A2744).withValues(alpha: 0.08) : Colors.transparent,
+                                  color: isSelected ? (isDark ? Colors.white12 : const Color(0xFF1A2744).withValues(alpha: 0.08)) : Colors.transparent,
                                   child: InkWell(
                                     onTap: () {
                                       debugPrint('=== [STAFF SELECTOR TAP] Selected: $sName ($sBioId, $sPhone) ===');
@@ -1395,7 +1370,7 @@ class _AddStaffPageState extends State<AddStaffPage> {
                                         children: [
                                           CircleAvatar(
                                             radius: 14,
-                                            backgroundColor: _getRoleColor(selectedRole).withValues(alpha: 0.15),
+                                            backgroundColor: _getRoleColor(selectedRole).withValues(alpha: isDark ? 0.25 : 0.15),
                                             child: Icon(Icons.person, size: 16, color: _getRoleColor(selectedRole)),
                                           ),
                                           const SizedBox(width: 12),
@@ -1408,18 +1383,20 @@ class _AddStaffPageState extends State<AddStaffPage> {
                                                   style: TextStyle(
                                                     fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                                                     fontSize: 14,
-                                                    color: isSelected ? const Color(0xFF1A2744) : Colors.black87,
+                                                    color: isSelected 
+                                                        ? (isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)) 
+                                                        : (isDark ? Colors.white : Colors.black87),
                                                   ),
                                                 ),
                                                 Text(
                                                   '$sDept ${sBioId.isNotEmpty ? "• ID: $sBioId" : ""} ${sPhone.isNotEmpty ? "• Ph: $sPhone" : ""}',
-                                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey.shade600),
                                                 ),
                                               ],
                                             ),
                                           ),
                                           if (isSelected)
-                                            const Icon(Icons.check_circle, color: Color(0xFF1A2744), size: 20),
+                                            Icon(Icons.check_circle, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), size: 20),
                                         ],
                                       ),
                                     ),
@@ -1434,19 +1411,19 @@ class _AddStaffPageState extends State<AddStaffPage> {
                             padding: const EdgeInsets.only(top: 8.0),
                             child: Text(
                               'No active warden users are available. Create the user first through User Management.',
-                              style: TextStyle(color: Colors.red.shade800, fontSize: 12, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: Colors.red.shade400, fontSize: 12, fontWeight: FontWeight.bold),
                             ),
                           ),
 
                         const SizedBox(height: 28),
 
                         // STAFF DETAILS SECTION
-                        const Text(
+                        Text(
                           'Phone Number',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A2744),
+                            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
                             letterSpacing: 0.2,
                           ),
                         ),
@@ -1454,35 +1431,37 @@ class _AddStaffPageState extends State<AddStaffPage> {
                         TextField(
                           controller: phoneController,
                           readOnly: false,
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
                           onChanged: (v) => setState(() {}),
                           decoration: InputDecoration(
                             hintText: 'Enter phone number',
+                            hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade500),
                             filled: true,
-                            fillColor: Colors.grey.shade50,
+                            fillColor: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.grey.shade50,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF1A2744), width: 1.5),
+                              borderSide: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), width: 1.5),
                             ),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            prefixIcon: const Icon(Icons.phone, color: Color(0xFF1A2744), size: 22),
+                            prefixIcon: Icon(Icons.phone, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), size: 22),
                           ),
                           keyboardType: TextInputType.phone,
                         ),
                         const SizedBox(height: 20),
-                        const Text(
+                        Text(
                           'Username / Staff Bio ID',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A2744),
+                            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
                             letterSpacing: 0.2,
                           ),
                         ),
@@ -1490,25 +1469,27 @@ class _AddStaffPageState extends State<AddStaffPage> {
                         TextField(
                           controller: usernameController,
                           readOnly: false,
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
                           onChanged: (v) => setState(() {}),
                           decoration: InputDecoration(
                             hintText: 'Enter Username / Bio ID',
+                            hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade500),
                             filled: true,
-                            fillColor: Colors.grey.shade50,
+                            fillColor: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.grey.shade50,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
+                              borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF1A2744), width: 1.5),
+                              borderSide: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), width: 1.5),
                             ),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            prefixIcon: const Icon(Icons.alternate_email, color: Color(0xFF1A2744), size: 22),
+                            prefixIcon: Icon(Icons.alternate_email, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), size: 22),
                           ),
                         ),
                       ],
@@ -1527,9 +1508,10 @@ class _AddStaffPageState extends State<AddStaffPage> {
                             onPressed: () => Navigator.pop(context),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 14),
+                              side: BorderSide(color: isDark ? Colors.white24 : Colors.grey),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
-                            child: const Text('Cancel'),
+                            child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -1537,12 +1519,13 @@ class _AddStaffPageState extends State<AddStaffPage> {
                           child: ElevatedButton(
                             onPressed: canConfirm ? _confirmAndPop : null,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1A2744),
+                              backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                              foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              disabledBackgroundColor: Colors.grey.shade300,
+                              disabledBackgroundColor: isDark ? Colors.white12 : Colors.grey.shade300,
                             ),
-                            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+                            child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ),
                       ],

@@ -40,8 +40,27 @@ try {
         $phone = $user_info['phone'] ?? ($data->contactNumber ?? "N/A");
 
         // 2. Insert payment record
-        $gateway_response = json_encode(['gateway' => 'Razorpay', 'status' => 'SUCCESS']);
+        $is_wallet = isset($data->payment_method) && strtolower($data->payment_method) === 'wallet';
+        $gateway_name = $is_wallet ? 'Wallet' : 'Razorpay';
+        $gateway_response = json_encode(['gateway' => $gateway_name, 'status' => 'SUCCESS']);
         $ip_address = getClientIp();
+
+        if ($is_wallet) {
+            $w_stmt = $db->prepare("SELECT id, balance FROM user_wallets WHERE LOWER(email) = LOWER(?) OR LOWER(email) = LOWER(?) ORDER BY balance DESC LIMIT 1 FOR UPDATE");
+            $w_stmt->execute([$email, "$reg.simats@saveetha.com"]);
+            $wallet_row = $w_stmt->fetch(PDO::FETCH_ASSOC);
+            $cur_bal = $wallet_row ? (float)$wallet_row['balance'] : 0.0;
+            if ($cur_bal < (float)$data->amount) {
+                http_response_code(400);
+                echo json_encode(["message" => "Insufficient wallet balance", "insufficient_balance" => true, "current_balance" => $cur_bal, "required_amount" => $data->amount]);
+                exit();
+            }
+            $new_bal = $cur_bal - (float)$data->amount;
+            $db->prepare("UPDATE user_wallets SET balance = ? WHERE id = ?")->execute([$new_bal, $wallet_row['id']]);
+            $db->prepare("INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description) VALUES (?, ?, 'debit', ?, ?, ?, ?)")
+               ->execute([$wallet_row['id'], $email, $data->amount, $new_bal, $payment_id, "Payment for " . $data->payment_type . " - Ref: $payment_id"]);
+        }
+
         $query = "INSERT INTO payment (campus, registerNumber, name, email, contactNumber, payment_type, payment_id, amount, status, admin_status, gateway_response, user_id, ip_address, paid_at) 
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Success', 'Confirmed', ?, ?, ?, NOW())";
         

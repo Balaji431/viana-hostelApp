@@ -47,11 +47,37 @@ if (isset($_FILES['doc_file']) && $_FILES['doc_file']['error'] === UPLOAD_ERR_OK
         exit();
     }
 } else {
-    echo json_encode(["success" => false, "matched" => false, "message" => "Document file is missing or failed to upload."]);
-    exit();
-}
-
 $cleanTypedDoc = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $docNumber));
+$userEmail = trim($_POST['email'] ?? $inputJSON['email'] ?? '');
+
+// Check if this document number already exists under another active request
+if (!empty($cleanTypedDoc)) {
+    try {
+        $database = new Database();
+        $db = $database->getConnection();
+        if ($db) {
+            $stmtDocChk = $db->prepare("
+                SELECT id, email 
+                FROM temporary_stay_requests 
+                WHERE REPLACE(REPLACE(UPPER(TRIM(doc_number)), ' ', ''), '-', '') = ? 
+                  AND LOWER(TRIM(email)) != LOWER(TRIM(?))
+                  AND status IN ('pending', 'approved', 'allocated')
+                LIMIT 1
+            ");
+            $stmtDocChk->execute([strtoupper($cleanTypedDoc), $userEmail]);
+            $dConflict = $stmtDocChk->fetch(PDO::FETCH_ASSOC);
+            if ($dConflict) {
+                @unlink($targetPath);
+                echo json_encode([
+                    "success" => false,
+                    "matched" => false,
+                    "message" => "This government document number ($docNumber) already exists and is registered to another application. Please upload your own valid government ID."
+                ]);
+                exit();
+            }
+        }
+    } catch (Exception $e) {}
+}
 
 /**
  * Advanced PDF Stream & FlateDecode Decompressor to extract text from e-PAN / e-Aadhaar PDFs

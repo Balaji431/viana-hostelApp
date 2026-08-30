@@ -5,6 +5,7 @@ import '../widgets/warden_widgets.dart';
 import '../../core/models/room_change_request_model.dart';
 import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 
 class PendingRenewalsModal extends StatefulWidget {
   const PendingRenewalsModal({super.key});
@@ -26,6 +27,9 @@ class _PendingRenewalsModalState extends State<PendingRenewalsModal> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return Dialog(
       backgroundColor: Colors.transparent,
       child: ConstrainedBox(
@@ -33,9 +37,10 @@ class _PendingRenewalsModalState extends State<PendingRenewalsModal> {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDark ? const Color(0xFF131D2E) : Colors.white,
             borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20)],
+            border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.4 : 0.2), blurRadius: 20)],
           ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -43,15 +48,24 @@ class _PendingRenewalsModalState extends State<PendingRenewalsModal> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Pending Renewals', style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 18, color: SkeuomorphicColors.residenceNavy)),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                Text(
+                  'Pending Renewals', 
+                  style: SkeuomorphicStyles.playfairHeader.copyWith(
+                    fontSize: 18, 
+                    color: isDark ? Colors.white : SkeuomorphicColors.residenceNavy,
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.black87), 
+                  onPressed: () => Navigator.pop(context),
+                ),
               ],
             ),
-            const Divider(),
+            Divider(color: isDark ? Colors.white24 : Colors.grey.shade300),
             if (_pending.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Text('No pending approvals.', style: TextStyle(color: Colors.grey)),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Text('No pending approvals.', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
               )
             else
               ConstrainedBox(
@@ -59,7 +73,7 @@ class _PendingRenewalsModalState extends State<PendingRenewalsModal> {
                 child: ListView.builder(
                   shrinkWrap: true,
                   itemCount: _pending.length,
-                  itemBuilder: (context, index) => _buildStudentItem(_pending[index], index),
+                  itemBuilder: (context, index) => _buildStudentItem(_pending[index], index, isDark),
                 ),
               ),
           ],
@@ -69,19 +83,29 @@ class _PendingRenewalsModalState extends State<PendingRenewalsModal> {
   );
 }
 
-  Widget _buildStudentItem(Map<String, String> student, int index) {
+  Widget _buildStudentItem(Map<String, String> student, int index, bool isDark) {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(12),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade300),
+      ),
       child: Row(
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(student['name']!, style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 14)),
-                Text('Room: ${student['room']}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                Text(
+                  student['name']!, 
+                  style: SkeuomorphicStyles.playfairHeader.copyWith(
+                    fontSize: 14,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                Text('Room: ${student['room']}', style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey)),
               ],
             ),
           ),
@@ -123,6 +147,8 @@ class _NewAnnouncementModalState extends State<NewAnnouncementModal> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     bool canPost = _titleController.text.isNotEmpty && _contentController.text.isNotEmpty;
 
     return Dialog(
@@ -131,12 +157,22 @@ class _NewAnnouncementModalState extends State<NewAnnouncementModal> {
         constraints: const BoxConstraints(maxWidth: 400),
         child: Container(
           padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF131D2E) : Colors.white, 
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+          ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('New Announcement', style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 18, color: SkeuomorphicColors.residenceNavy)),
+            Text(
+              'New Announcement', 
+              style: SkeuomorphicStyles.playfairHeader.copyWith(
+                fontSize: 18, 
+                color: isDark ? Colors.white : SkeuomorphicColors.residenceNavy,
+              ),
+            ),
             const SizedBox(height: 20),
             SkeuomorphicInput(label: 'Title', hint: 'Enter announcement title...', controller: _titleController, onChanged: (_) => setState(() {})),
             const SizedBox(height: 15),
@@ -242,11 +278,15 @@ class _EditConductModalState extends State<EditConductModal> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     String name = widget.student['full_name'] ?? widget.student['name'] ?? 'Unknown';
     String room = widget.student['room_no'] ?? 'N/A';
     String initials = name.isNotEmpty ? name.split(' ').where((s)=>s.isNotEmpty).map((l)=>l[0]).take(2).join().toUpperCase() : "?";
 
     return Dialog(
+      backgroundColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
       child: ConstrainedBox(
@@ -254,8 +294,16 @@ class _EditConductModalState extends State<EditConductModal> {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: const Color(0xFFF9F6F1),
+            color: isDark ? const Color(0xFF131D2E) : const Color(0xFFF9F6F1),
             borderRadius: BorderRadius.circular(25),
+            border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.4 : 0.08),
+                blurRadius: 15,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
         child: SingleChildScrollView(
           child: Column(
@@ -265,15 +313,22 @@ class _EditConductModalState extends State<EditConductModal> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Edit Student', style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 22, fontWeight: FontWeight.bold, color: const Color(0xFF1B2B48))),
+                  Text(
+                    'Edit Student', 
+                    style: SkeuomorphicStyles.playfairHeader.copyWith(
+                      fontSize: 22, 
+                      fontWeight: FontWeight.bold, 
+                      color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                    ),
+                  ),
                   IconButton(
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded, size: 28),
-                    style: IconButton.styleFrom(backgroundColor: Colors.black.withOpacity(0.05)),
+                    icon: Icon(Icons.close_rounded, size: 28, color: isDark ? Colors.white70 : Colors.black87),
+                    style: IconButton.styleFrom(backgroundColor: isDark ? Colors.white12 : Colors.black.withOpacity(0.05)),
                   ),
                 ],
               ),
-              const Divider(),
+              Divider(color: isDark ? Colors.white24 : Colors.grey.shade300),
               const SizedBox(height: 15),
               Row(
                 children: [
@@ -287,8 +342,16 @@ class _EditConductModalState extends State<EditConductModal> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 18, fontWeight: FontWeight.bold, color: const Color(0xFF1B2B48)), overflow: TextOverflow.ellipsis),
-                        Text('Room $room', style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                        Text(
+                          name, 
+                          style: SkeuomorphicStyles.playfairHeader.copyWith(
+                            fontSize: 18, 
+                            fontWeight: FontWeight.bold, 
+                            color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                          ), 
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text('Room $room', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 14)),
                       ],
                     ),
                   ),
@@ -296,40 +359,42 @@ class _EditConductModalState extends State<EditConductModal> {
               ),
 
               const SizedBox(height: 25),
-              _buildSectionTitle('Conduct Score'),
+              _buildSectionTitle('Conduct Score', isDark),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  _buildConductBtn('Good', Colors.green),
+                  _buildConductBtn('Good', Colors.green, isDark),
                   const SizedBox(width: 10),
-                  _buildConductBtn('Satisfactory', Colors.orange),
+                  _buildConductBtn('Satisfactory', Colors.orange, isDark),
                   const SizedBox(width: 10),
-                  _buildConductBtn('Poor', Colors.red),
+                  _buildConductBtn('Poor', Colors.red, isDark),
                 ],
               ),
               const SizedBox(height: 25),
-              _buildSectionTitle('Remarks'),
+              _buildSectionTitle('Remarks', isDark),
               const SizedBox(height: 12),
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
                   borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: Colors.black12),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+                  border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.05), blurRadius: 4, offset: const Offset(0, 2))],
                 ),
                 child: TextField(
                   controller: _remarksController,
                   maxLines: 2,
-                  decoration: const InputDecoration(
-                    contentPadding: EdgeInsets.all(15),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: InputDecoration(
+                    contentPadding: const EdgeInsets.all(15),
                     border: InputBorder.none,
                     hintText: 'Add remarks...',
+                    hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade500),
                   ),
                 ),
               ),
               const SizedBox(height: 30),
-              _buildDeallocateButton(),
-              _buildActionButtons(),
+              _buildDeallocateButton(isDark),
+              _buildActionButtons(isDark),
             ],
           ),
         ),
@@ -338,11 +403,18 @@ class _EditConductModalState extends State<EditConductModal> {
   );
 }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), fontSize: 16));
+  Widget _buildSectionTitle(String title, bool isDark) {
+    return Text(
+      title, 
+      style: TextStyle(
+        fontWeight: FontWeight.bold, 
+        color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF5D5D5D), 
+        fontSize: 16,
+      ),
+    );
   }
 
-  Widget _buildConductBtn(String label, Color color) {
+  Widget _buildConductBtn(String label, Color color, bool isDark) {
     bool active = _selectedConduct == label;
     return Expanded(
       child: GestureDetector(
@@ -350,19 +422,29 @@ class _EditConductModalState extends State<EditConductModal> {
         child: Container(
           height: 40,
           decoration: BoxDecoration(
-            color: active ? color.withOpacity(0.6) : Colors.white,
+            color: active ? color.withOpacity(0.6) : (isDark ? const Color(0xFF1E293B) : Colors.white),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: active ? color : color.withOpacity(0.3), width: 1.5),
+            border: Border.all(
+              color: active ? color : (isDark ? Colors.white24 : color.withOpacity(0.3)), 
+              width: 1.5,
+            ),
           ),
           child: Center(
-            child: Text(label, style: TextStyle(color: active ? Colors.white : color, fontWeight: FontWeight.bold, fontSize: 11)),
+            child: Text(
+              label, 
+              style: TextStyle(
+                color: active ? Colors.white : (isDark ? Colors.white70 : color), 
+                fontWeight: FontWeight.bold, 
+                fontSize: 11,
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildDeallocateButton() {
+  Widget _buildDeallocateButton(bool isDark) {
     final room = widget.student['room_no'] ?? widget.student['room_allocation'];
     if (room == null || room == 'N/A' || room.toString().isEmpty || room == 'unallocated') {
       return const SizedBox.shrink();
@@ -371,17 +453,17 @@ class _EditConductModalState extends State<EditConductModal> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: GestureDetector(
-        onTap: _isDeallocating ? null : _handleDeallocate,
+        onTap: _isDeallocating ? null : () => _handleDeallocate(isDark),
         child: Container(
           width: double.infinity,
           height: 48,
           decoration: BoxDecoration(
-            color: Colors.red.shade50,
+            color: isDark ? const Color(0xFF3B1E22) : Colors.red.shade50,
             borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.red.withOpacity(0.3), width: 1.5),
+            border: Border.all(color: Colors.red.withOpacity(isDark ? 0.5 : 0.3), width: 1.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.red.withOpacity(0.05),
+                color: Colors.red.withOpacity(isDark ? 0.15 : 0.05),
                 blurRadius: 4,
                 offset: const Offset(0, 2),
               ),
@@ -400,12 +482,12 @@ class _EditConductModalState extends State<EditConductModal> {
                 : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.logout_rounded, color: Colors.red.shade700, size: 20),
+                      Icon(Icons.logout_rounded, color: isDark ? const Color(0xFFFF6B6B) : Colors.red.shade700, size: 20),
                       const SizedBox(width: 8),
                       Text(
                         'Checkout Student',
                         style: TextStyle(
-                          color: Colors.red.shade700,
+                          color: isDark ? const Color(0xFFFF6B6B) : Colors.red.shade700,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),
@@ -418,35 +500,38 @@ class _EditConductModalState extends State<EditConductModal> {
     );
   }
 
-  Future<void> _handleDeallocate() async {
+  Future<void> _handleDeallocate(bool isDark) async {
     final name = widget.student['full_name'] ?? widget.student['name'] ?? 'Unknown';
     final confirm = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          backgroundColor: const Color(0xFFF9F6F1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+          ),
+          backgroundColor: isDark ? const Color(0xFF131D2E) : const Color(0xFFF9F6F1),
           child: Container(
             padding: const EdgeInsets.all(20),
             constraints: const BoxConstraints(maxWidth: 350),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 50),
+                Icon(Icons.warning_amber_rounded, color: isDark ? const Color(0xFFFF6B6B) : Colors.red.shade700, size: 50),
                 const SizedBox(height: 15),
                 Text(
                   'Confirm Checkout',
                   style: SkeuomorphicStyles.playfairHeader.copyWith(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1B2B48),
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
                   ),
                 ),
                 const SizedBox(height: 10),
                 Text(
                   'Are you sure you want to checkout $name? This action cannot be undone.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.black87, fontSize: 14),
+                  style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 14),
                 ),
                 const SizedBox(height: 25),
                 Row(
@@ -454,7 +539,7 @@ class _EditConductModalState extends State<EditConductModal> {
                     Expanded(
                       child: TextButton(
                         onPressed: () => Navigator.pop(context, false),
-                        child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                        child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -520,7 +605,7 @@ class _EditConductModalState extends State<EditConductModal> {
     }
   }
 
-  Widget _buildActionButtons() {
+  Widget _buildActionButtons(bool isDark) {
 
     return Row(
       children: [
@@ -529,8 +614,19 @@ class _EditConductModalState extends State<EditConductModal> {
             onTap: () => Navigator.pop(context),
             child: Container(
               height: 50,
-              decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(15)),
-              child: const Center(child: Text('Cancel', style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold))),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white12 : Colors.grey.shade200, 
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Center(
+                child: Text(
+                  'Cancel', 
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black54, 
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -889,6 +985,9 @@ class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     final String name = _fetchedDetails?['full_name'] ?? _fetchedDetails?['name'] ?? widget.fallbackName;
     final String regNo = (_fetchedDetails?['username'] ?? _fetchedDetails?['register_number'] ?? widget.fallbackRegNo).toString();
     final String room = (_fetchedDetails?['room_code'] ?? _fetchedDetails?['room_allocation'] ?? _fetchedDetails?['room_no'] ?? widget.fallbackRoom).toString();
@@ -899,8 +998,11 @@ class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
     final String status = (_fetchedDetails?['Status'] ?? _fetchedDetails?['status'] ?? 'active').toString();
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      backgroundColor: const Color(0xFFF9F6F1),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+      ),
+      backgroundColor: isDark ? const Color(0xFF131D2E) : const Color(0xFFF9F6F1),
       child: Container(
         padding: const EdgeInsets.all(24),
         constraints: const BoxConstraints(maxWidth: 360),
@@ -911,23 +1013,23 @@ class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Student Details',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF1B2B48),
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
                     fontFamily: 'PlayfairDisplay',
                   ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  style: IconButton.styleFrom(backgroundColor: Colors.black.withOpacity(0.05)),
+                  icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.black87),
+                  style: IconButton.styleFrom(backgroundColor: isDark ? Colors.white12 : Colors.black.withOpacity(0.05)),
                 ),
               ],
             ),
-            const Divider(),
+            Divider(color: isDark ? Colors.white24 : Colors.grey.shade300),
             const SizedBox(height: 15),
             if (_isLoading)
               const Center(
@@ -937,14 +1039,14 @@ class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
                 ),
               )
             else ...[
-              _buildDetailTile(Icons.person_outline, 'Name', name),
-              _buildDetailTile(Icons.badge_outlined, 'Register No', regNo),
-              _buildDetailTile(Icons.meeting_room_outlined, 'Room Details', room),
-              _buildDetailTile(Icons.phone_outlined, 'Phone', phone),
+              _buildDetailTile(Icons.person_outline, 'Name', name, isDark),
+              _buildDetailTile(Icons.badge_outlined, 'Register No', regNo, isDark),
+              _buildDetailTile(Icons.meeting_room_outlined, 'Room Details', room, isDark),
+              _buildDetailTile(Icons.phone_outlined, 'Phone', phone, isDark),
               if (institution != 'N/A')
-                _buildDetailTile(Icons.school_outlined, 'Institution', institution),
-              _buildDetailTile(Icons.shield_outlined, 'Conduct', conduct),
-              _buildDetailTile(Icons.info_outline, 'Status', status.toUpperCase()),
+                _buildDetailTile(Icons.school_outlined, 'Institution', institution, isDark),
+              _buildDetailTile(Icons.shield_outlined, 'Conduct', conduct, isDark),
+              _buildDetailTile(Icons.info_outline, 'Status', status.toUpperCase(), isDark),
             ],
             const SizedBox(height: 10),
           ],
@@ -953,7 +1055,7 @@ class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
     );
   }
 
-  Widget _buildDetailTile(IconData icon, String label, String value) {
+  Widget _buildDetailTile(IconData icon, String label, String value, bool isDark) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -967,11 +1069,11 @@ class _StudentDetailsDialogState extends State<StudentDetailsDialog> {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.bold),
                 ),
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                 ),
               ],
             ),

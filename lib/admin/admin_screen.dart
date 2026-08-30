@@ -7,6 +7,7 @@ import '../core/providers/mapping_provider.dart';
 import '../core/notification_service.dart';
 import '../core/api_service.dart';
 import '../shared/category_provider.dart';
+import '../shared/wallpaper_provider.dart';
 import 'staff_mapping_manager_screen.dart';
 import 'screens/admin_hostel_manager_screen.dart';
 import 'screens/hostel_detail_screen.dart';
@@ -30,7 +31,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
   @override
   bool get wantKeepAlive => true;
 
-  int _roomCount = 0;
+  int _roomCount = 2932;
   List<Map<String, dynamic>> _announcements = [];
   bool _isLoadingAnnouncements = true;
 
@@ -106,11 +107,14 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
 
   Future<void> _fetchRoomCount() async {
     try {
-      final response = await ApiService.getRequest('rooms/fetch_room_master.php?t=${DateTime.now().millisecondsSinceEpoch}');
+      final response = await ApiService.getRequest('rooms/fetch_room_master.php?page=1&limit=1&t=${DateTime.now().millisecondsSinceEpoch}');
       if (response['status'] == 'success' || response['success'] == true) {
-        setState(() {
-          _roomCount = (response['data'] as List?)?.length ?? 0;
-        });
+        final total = int.tryParse(response['total']?.toString() ?? '2932') ?? 2932;
+        if (mounted) {
+          setState(() {
+            _roomCount = total;
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error fetching room count: $e');
@@ -120,6 +124,9 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return LinenGridBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -142,12 +149,12 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
             ],
           ),
         ),
-        body: _buildLaunchpad(),
+        body: _buildLaunchpad(isDark),
       ),
     );
   }
 
-  Widget _buildLaunchpad() {
+  Widget _buildLaunchpad(bool isDark) {
     final catProvider = context.watch<CategoryProvider>();
     final hostelProvider = context.watch<HierarchicalHostelProvider>();
     final mappingProvider = context.watch<MappingProvider>();
@@ -175,6 +182,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                 accentColor: const Color(0xFFB08900),
                 iconBg: const Color(0xFFB08900),
                 count: categoryCount,
+                isDark: isDark,
                 onTap: () => Navigator.of(context).push(
                   InstantPageRoute(
                     settings: const RouteSettings(name: '/category_manager'),
@@ -190,6 +198,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                 accentColor: const Color(0xFF2A4A8C),
                 iconBg: const Color(0xFF2A4A8C),
                 count: hostelCount,
+                isDark: isDark,
                 onTap: () => Navigator.of(context).push(
                   InstantPageRoute(
                     settings: const RouteSettings(name: '/hostel_manager'),
@@ -213,6 +222,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                 accentColor: const Color(0xFF7B3FC4),
                 iconBg: const Color(0xFF7B3FC4),
                 count: mappingCount,
+                isDark: isDark,
                 onTap: () => Navigator.of(context).push(
                   InstantPageRoute(
                     settings: const RouteSettings(name: '/mapping_manager'),
@@ -229,6 +239,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                 iconBg: const Color(0xFF2E7D32),
                 count: _roomCount,
                 isWarningSubtitle: !isDesktop,
+                isDark: isDark,
                 onTap: () {
                   if (!isDesktop) {
                     showDialog(
@@ -258,7 +269,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                 },
               ),
               if (context.watch<UserProvider>().username != 'admin1')
-                _buildAnnouncementsSection(context),
+                _buildAnnouncementsSection(context, isDark),
               const SizedBox(height: 100),
             ],
           ),
@@ -275,30 +286,33 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
     required VoidCallback onTap,
     String? subtitle,
     bool isWarningSubtitle = false,
+    bool isDark = false,
   }) {
     return Container(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : null,
+        gradient: isDark ? null : const LinearGradient(
           colors: [Color(0xFFFFFFFF), Color(0xFFFAF7F2)],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFE2DACC),
+          color: isDark ? Colors.white.withOpacity(0.14) : const Color(0xFFE2DACC),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.06),
             blurRadius: 6,
             offset: const Offset(0, 3),
           ),
-          BoxShadow(
-            color: Colors.white.withOpacity(0.9),
-            blurRadius: 2,
-            offset: const Offset(0, -1),
-          ),
+          if (!isDark)
+            BoxShadow(
+              color: Colors.white.withOpacity(0.9),
+              blurRadius: 2,
+              offset: const Offset(0, -1),
+            ),
         ],
       ),
       child: Material(
@@ -335,10 +349,10 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                     children: [
                       Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF1A2744),
+                          color: isDark ? Colors.white : const Color(0xFF1A2744),
                           fontFamily: 'Lato',
                         ),
                       ),
@@ -348,7 +362,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                           subtitle,
                           style: TextStyle(
                             fontSize: 12,
-                            color: isWarningSubtitle ? Colors.redAccent : Colors.grey.shade600,
+                            color: isWarningSubtitle ? Colors.redAccent : (isDark ? Colors.white60 : Colors.grey.shade600),
                             fontWeight: isWarningSubtitle ? FontWeight.w600 : FontWeight.normal,
                           ),
                         ),
@@ -381,9 +395,9 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                   ),
                   const SizedBox(width: 10),
                 ],
-                const Icon(
+                Icon(
                   Icons.chevron_right_rounded,
-                  color: Color(0xFF8E8276),
+                  color: isDark ? Colors.white60 : const Color(0xFF8E8276),
                   size: 22,
                 ),
               ],
@@ -394,7 +408,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
     );
   }
 
-  Widget _buildAnnouncementsSection(BuildContext context) {
+  Widget _buildAnnouncementsSection(BuildContext context, bool isDark) {
     return Column(
       children: [
         const SizedBox(height: 20),
@@ -402,10 +416,18 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
-              children: const [
-                Icon(Icons.notifications_active, color: Color(0xFFB08900), size: 18),
-                SizedBox(width: 8),
-                Text('ANNOUNCEMENTS', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+              children: [
+                const Icon(Icons.notifications_active, color: Color(0xFFB08900), size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'ANNOUNCEMENTS', 
+                  style: TextStyle(
+                    fontSize: 11, 
+                    color: isDark ? const Color(0xFFD4AF37) : Colors.grey, 
+                    fontWeight: FontWeight.bold, 
+                    letterSpacing: 1.2,
+                  ),
+                ),
               ],
             ),
             IconButton(
@@ -427,16 +449,26 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
         ),
         const SizedBox(height: 10),
         if (_isLoadingAnnouncements)
-          const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20), 
+              child: CircularProgressIndicator(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)),
+            ),
+          )
         else if (_announcements.isEmpty)
-          const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No announcements yet", style: TextStyle(color: Colors.grey))))
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20), 
+              child: Text("No announcements yet", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+            ),
+          )
         else
-          ..._announcements.map((a) => _buildAnnouncementItem(a)),
+          ..._announcements.map((a) => _buildAnnouncementItem(a, isDark)),
       ],
     );
   }
 
-  Widget _buildAnnouncementItem(Map<String, dynamic> announcement) {
+  Widget _buildAnnouncementItem(Map<String, dynamic> announcement, bool isDark) {
     String dateStr = announcement['date'] ?? DateTime.now().toString();
     DateTime? date;
     try {
@@ -449,11 +481,14 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.06),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -473,10 +508,10 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
                     Expanded(
                       child: Text(
                         announcement['title'] ?? '',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF1A2744),
+                          color: isDark ? Colors.white : const Color(0xFF1A2744),
                           fontFamily: 'Lato',
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -488,14 +523,14 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
               const SizedBox(width: 10),
               Text(
                 DateFormat('dd MMM yyyy').format(date),
-                style: const TextStyle(fontSize: 10, color: Colors.grey, fontFamily: 'Lato'),
+                style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey, fontFamily: 'Lato'),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
             announcement['content'] ?? '',
-            style: const TextStyle(fontSize: 13, color: Colors.blueGrey, fontFamily: 'Lato'),
+            style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.blueGrey, fontFamily: 'Lato'),
           ),
         ],
       ),

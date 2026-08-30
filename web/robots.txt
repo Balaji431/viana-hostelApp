@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vstay.saveetha.com/sitemap.xml

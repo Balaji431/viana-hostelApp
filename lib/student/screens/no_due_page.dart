@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/api_service.dart';
+import '../../core/razorpay_checkout_helper.dart';
 import '../../core/styles.dart';
+import '../../core/top_notification.dart';
+import '../../shared/main_layout.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../widgets/add_funds_dialog.dart';
+import 'student_wallet_screen.dart';
 
 class NoDuePage extends StatefulWidget {
   const NoDuePage({super.key});
@@ -16,9 +23,92 @@ class NoDuePage extends StatefulWidget {
 
 class _NoDuePageState extends State<NoDuePage> {
   bool _isLoading = true;
+  bool _isAddingFunds = false;
   bool _showWalletErrorOnCard = false;
   bool _isWalletGridView = true; // Toggle between Grid View and Table View for Wallet
   List<Map<String, dynamic>> _requests = [];
+  double _walletBalance = 0.0;
+  List<Map<String, dynamic>> _transactions = [];
+
+  String _getEffectiveEmail(UserProvider user) {
+    if (user.email.trim().isNotEmpty && user.email.contains('@')) {
+      return user.email.trim();
+    }
+    final raw = user.email.trim().isNotEmpty
+        ? user.email.trim()
+        : (user.username.trim().isNotEmpty
+            ? user.username.trim()
+            : user.studentId.trim());
+    if (raw.isNotEmpty) {
+      return raw.contains('@') ? raw : '$raw.simats@saveetha.com';
+    }
+    return 'student@saveetha.com';
+  }
+
+  Future<void> _launchRazorpayCheckout(double amount) async {
+    if (!mounted) return;
+    setState(() => _isAddingFunds = true);
+
+    try {
+      final user = Provider.of<UserProvider>(context, listen: false);
+      final email = _getEffectiveEmail(user);
+      final fullName = user.userName.isNotEmpty ? user.userName : 'Student';
+
+      final res = await ApiService.createRazorpayOrder(
+        email: email,
+        amount: amount,
+        name: fullName,
+      );
+
+      if (!mounted) return;
+
+      if (res['success'] != true || res['checkout_url'] == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not initiate payment: ${res['message'] ?? 'Unknown error'}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final payRes = await RazorpayCheckoutHelper.openCheckout(
+        orderId: res['order_id']?.toString() ?? '',
+        keyId: res['key_id']?.toString() ?? '',
+        amount: amount,
+        name: fullName,
+        email: email,
+        checkoutUrl: res['checkout_url']?.toString(),
+      );
+
+      if (!mounted) return;
+
+      if (payRes['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('₹${amount.toStringAsFixed(2)} added to wallet successfully!'),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+        _loadData();
+      } else if (payRes['cancelled'] != true && payRes['launched'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(payRes['message'] ?? 'Payment was not completed.'),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Payment error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isAddingFunds = false);
+    }
+  }
 
   final List<Map<String, dynamic>> _walletFeeItems = [
     {
@@ -48,26 +138,50 @@ class _NoDuePageState extends State<NoDuePage> {
   @override
   void initState() {
     super.initState();
+    final user = context.read<UserProvider>();
+    _walletBalance = user.walletBalance;
     _loadData();
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    if (_walletBalance == 0.0 && _requests.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     try {
       final user = context.read<UserProvider>();
-      if (user.dbId != null) {
-        final res = await ApiService.getRoomChangeRequests(
-          status: 'all',
+      final email = _getEffectiveEmail(user);
+      final studentId = user.dbId ?? 1;
+
+      // Fetch live wallet balance and room change requests in parallel
+      final results = await Future.wait([
+        ApiService.fetchWalletInfo(
+          email: email,
+          regNo: user.username,
           studentId: user.dbId,
-        );
-        if (res['status'] == 'success' && res['data'] != null) {
-          final list = (res['data'] as List<dynamic>)
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
-          setState(() {
-            _requests = list;
-          });
-        }
+        ),
+        ApiService.getRoomChangeRequests(
+          status: 'all',
+          studentId: studentId,
+        ),
+      ]);
+
+      final walletRes = results[0];
+      final res = results[1];
+
+      if (walletRes['success'] == true) {
+        _walletBalance = double.tryParse(walletRes['balance']?.toString() ?? '0') ?? 0.0;
+        user.setWalletBalance(_walletBalance);
+        final txns = (walletRes['transactions'] as List<dynamic>?) ?? [];
+        _transactions = txns.map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+
+      if (res['status'] == 'success' && res['data'] != null) {
+        final list = (res['data'] as List<dynamic>)
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        setState(() {
+          _requests = list;
+        });
       }
     } catch (e) {
       debugPrint("Error loading no due status: $e");
@@ -77,312 +191,104 @@ class _NoDuePageState extends State<NoDuePage> {
   }
 
   void _showAddFundsDialog({double defaultAmount = 0}) {
-    final controller = TextEditingController(text: '0');
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        bool showDepositError = false;
-
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final int amtVal = int.tryParse(controller.text) ?? 0;
-            final String inWords = _convertAmountToWords(amtVal);
-
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 420),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.25),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Header Bar (Matching Add Funds Screenshot)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF5A758D), Color(0xFF4A6278)],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                        borderRadius: BorderRadius.only(
-                          topLeft: Radius.circular(16),
-                          topRight: Radius.circular(16),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Spacer(),
-                          Text(
-                            'Add Funds',
-                            style: GoogleFonts.lato(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const Spacer(),
-                          InkWell(
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.close, color: Colors.white, size: 18),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Dialog Content
-                    Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // CURRENT BALANCE Box
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Column(
-                              children: [
-                                const Text(
-                                  'CURRENT BALANCE',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF64748B),
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '₹0',
-                                  style: GoogleFonts.lato(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF1E293B),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          // Amount (₹) Field Label
-                          const Text(
-                            'Amount (₹)',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E293B),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Textfield with number stepper arrows
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFF3B82F6), width: 1.5),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: controller,
-                                    keyboardType: TextInputType.number,
-                                    style: GoogleFonts.lato(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: const Color(0xFF1E293B),
-                                    ),
-                                    decoration: const InputDecoration(
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                      border: InputBorder.none,
-                                    ),
-                                    onChanged: (val) {
-                                      setModalState(() {});
-                                    },
-                                  ),
-                                ),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    InkWell(
-                                      onTap: () {
-                                        int cur = (int.tryParse(controller.text) ?? 0) + 1000;
-                                        controller.text = cur.toString();
-                                        setModalState(() {});
-                                      },
-                                      child: const Icon(Icons.arrow_drop_up, size: 20, color: Colors.grey),
-                                    ),
-                                    InkWell(
-                                      onTap: () {
-                                        int cur = (int.tryParse(controller.text) ?? 0) - 1000;
-                                        if (cur < 0) cur = 0;
-                                        controller.text = cur.toString();
-                                        setModalState(() {});
-                                      },
-                                      child: const Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(width: 8),
-                              ],
-                            ),
-                          ),
-
-                          const SizedBox(height: 6),
-
-                          Text(
-                            inWords,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
-                              color: Color(0xFF475569),
-                            ),
-                          ),
-
-                          const SizedBox(height: 12),
-
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: InkWell(
-                              onTap: () => _showTermsAndConditionsDialog(context),
-                              child: Text(
-                                'View Terms & Conditions',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.blue.shade600,
-                                  fontWeight: FontWeight.w600,
-                                  decoration: TextDecoration.underline,
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          // Inline Error Notification Triggered on Deposit Click
-                          if (showDepositError) ...[
-                            const SizedBox(height: 14),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFEE2E2),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: const Color(0xFFEF4444)),
-                              ),
-                              child: const Row(
-                                children: [
-                                  Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 18),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'The wallet is not added yet.',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF991B1B),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-
-                          const SizedBox(height: 20),
-
-                          // Action Buttons: Cancel and Deposit
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'Cancel',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1E293B),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    setModalState(() {
-                                      showDepositError = true;
-                                    });
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF3B82F6),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    elevation: 2,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'Deposit',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+    AddFundsDialog.show(
+      context,
+      currentBalance: _walletBalance,
+      defaultAmount: defaultAmount > 0 ? defaultAmount : null,
+      onFundsAdded: () => _loadData(),
     );
   }
 
-  String _convertAmountToWords(int amount) {
-    if (amount <= 0) return '';
+  void _showTransactionsDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: 420,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Wallet Transactions',
+                    style: GoogleFonts.outfit(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF1B2B48),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_transactions.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text(
+                      'No transaction history found.',
+                      style: GoogleFonts.inter(color: Colors.grey),
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _transactions.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final t = _transactions[i];
+                      final isCredit = (t['txn_type'] ?? 'credit') == 'credit';
+                      final amt = double.tryParse(t['amount']?.toString() ?? '0') ?? 0.0;
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: isCredit ? Colors.green.shade50 : Colors.red.shade50,
+                          child: Icon(
+                            isCredit ? Icons.arrow_downward : Icons.arrow_upward,
+                            size: 16,
+                            color: isCredit ? Colors.green : Colors.red,
+                          ),
+                        ),
+                        title: Text(t['description'] ?? 'Transaction', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                        subtitle: Text(t['created_at'] ?? '', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey)),
+                        trailing: Text(
+                          '${isCredit ? '+' : '-'}₹${amt.toStringAsFixed(2)}',
+                          style: GoogleFonts.outfit(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: isCredit ? Colors.green.shade700 : Colors.red.shade700,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _convertAmountToWords(num amount) {
+    final int intVal = amount.toInt();
+    if (intVal <= 0) return 'zero rupees only';
 
     final units = [
       '', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
@@ -403,212 +309,66 @@ class _NoDuePageState extends State<NoDuePage> {
       return '${convert(n ~/ 10000000)} crore${n % 10000000 != 0 ? ' ${convert(n % 10000000)}' : ''}';
     }
 
-    return '${convert(amount)} rupees only';
+    return '${convert(intVal).trim()} rupees only';
   }
 
-  void _showTermsAndConditionsDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 460),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.25),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Header Bar
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF5A758D), Color(0xFF4A6278)],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      topRight: Radius.circular(16),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.gavel_outlined, color: Colors.white, size: 20),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Terms & Conditions',
-                        style: GoogleFonts.lato(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const Spacer(),
-                      InkWell(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.close, color: Colors.white, size: 18),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Content List
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEFF6FF),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFBFDBFE)),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.sync_alt_rounded, color: Color(0xFF2563EB), size: 20),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Shared Unified Wallet for VStudy & VStay Portals',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1E40AF),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        _buildTermItem(
-                          '1. Unified Multi-Portal Balance',
-                          'Your wallet balance is unified and shared synchronously between VStudy (Academic Portal) and VStay (Hostel Management). Any funds added or deducted in one portal immediately reflect in both portals.',
-                        ),
-                        _buildTermItem(
-                          '2. Cross-Portal Fee Payments',
-                          'Wallet funds can be used for room upgrade fees, maintenance dues, academic tuition fees, exam fees, and campus event registrations seamlessly across VStudy and VStay.',
-                        ),
-                        _buildTermItem(
-                          '3. Account Bound & Non-Transferable',
-                          'The wallet is strictly tied to your student Registration ID. Wallet balances cannot be transferred to other students or withdrawn as cash unless authorized during official institution clearance.',
-                        ),
-                        _buildTermItem(
-                          '4. Centralized Transaction Audit',
-                          'All deposits, hostel fee payments, and academic fee transactions made via VStudy or VStay are logged in a single centralized transaction history accessible anytime.',
-                        ),
-                        _buildTermItem(
-                          '5. Refunds & No Due Clearance Policy',
-                          'Unutilized wallet balances at program completion or hostel checkout will be refunded according to institution financial policies upon successful No Due clearance verification.',
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(context),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF3B82F6),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: const Text(
-                              'I Understand & Accept',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+  Future<void> _openSimatsPoliciesPdf() async {
+    final String pdfUrl = '${ApiService.baseUrl}simats_policies.pdf';
+    final Uri uri = Uri.parse(pdfUrl);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('Error opening simats_policies.pdf: $e');
+      try {
+        await launchUrl(uri);
+      } catch (_) {}
+    }
   }
 
-  Widget _buildTermItem(String title, String description) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E293B),
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            description,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF64748B),
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
-    );
+  Map<String, dynamic>? get _latestRenewalTxn {
+    for (final t in _transactions) {
+      final desc = (t['description'] ?? '').toString().toLowerCase();
+      if (desc.contains('renewal') || desc.contains('renew')) {
+        return t;
+      }
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final user = context.watch<UserProvider>();
     final latestRequest = _requests.isNotEmpty ? _requests.first : <String, dynamic>{};
+    final renewalTxn = _latestRenewalTxn;
 
     return LinenGridBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: const SkeuomorphicNavBar(
-          title: 'No Due',
+          title: 'Wallet',
         ),
         body: RefreshIndicator(
           onRefresh: _loadData,
           child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(20),
+            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+            padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 120),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // WALLET SECTION (Temporarily hidden for production release)
-                // _buildWalletSection(),
+                // WALLET SECTION AT TOP (Screenshot 1)
+                _buildWalletSection(),
 
                 const SizedBox(height: 20),
+
+                // RENEWED HOSTEL BOOKING CARD (If student has completed renewal)
+                if (renewalTxn != null) ...[
+                  _buildRenewedHostelCard(user, renewalTxn),
+                  const SizedBox(height: 20),
+                ],
 
                 // STUDENT ROOM ALLOCATION CARD
                 _buildExistingRoomCard(user),
@@ -625,6 +385,8 @@ class _NoDuePageState extends State<NoDuePage> {
                   const SizedBox(height: 20),
                   _buildRequestedTransferCard(latestRequest),
                 ],
+
+                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -633,80 +395,338 @@ class _NoDuePageState extends State<NoDuePage> {
     );
   }
 
-  // WALLET SECTION COMPONENT
+  // WALLET SECTION COMPONENT (Screenshot 1)
   Widget _buildWalletSection() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF3B82F6),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF427DF6), Color(0xFF2366EB)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.35), width: 1.0),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2563EB).withOpacity(0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'WALLET',
-            style: GoogleFonts.lato(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '₹0.00',
-            style: GoogleFonts.lato(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 12),
-          // History Icon
-          InkWell(
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('No transaction history found.')),
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
+          // Left: Wallet Icon + Label + Amount
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white.withOpacity(0.35)),
+                ),
+                child: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 20),
               ),
-              child: const Icon(Icons.history, color: Colors.white, size: 16),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // + Add Button -> Opens Add Funds Dialog
-          InkWell(
-            onTap: () => _showAddFundsDialog(defaultAmount: 70000),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.25),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.4)),
+              const SizedBox(width: 10),
+              Text(
+                'WALLET',
+                style: GoogleFonts.lato(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
+                ),
               ),
-              child: const Text(
-                '+ Add',
-                style: TextStyle(
-                  fontSize: 12,
+              const SizedBox(width: 10),
+              Text(
+                '₹${NumberFormat('#,##,##0.00').format(_walletBalance)}',
+                style: GoogleFonts.outfit(
+                  fontSize: 16.5,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
+            ],
+          ),
+
+          // Right: History + Add Button
+          Row(
+            children: [
+              InkWell(
+                onTap: _showTransactionsDialog,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white.withOpacity(0.35)),
+                  ),
+                  child: const Icon(Icons.history_rounded, color: Colors.white, size: 18),
+                ),
+              ),
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: () => _showAddFundsDialog(defaultAmount: 0),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white.withOpacity(0.35)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.add, color: Colors.white, size: 15),
+                      SizedBox(width: 4),
+                      Text(
+                        'Add',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // CARD: Renewed Hostel Booking Card (Displayed when student has completed renewal)
+  Widget _buildRenewedHostelCard(UserProvider user, Map<String, dynamic> renewalTxn) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
+    final hostel = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
+    final roomNo = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
+    final renewalDateStr = DateFormat('dd MMM yyyy').format(user.renewalDate);
+    final amtNum = double.tryParse(renewalTxn['amount']?.toString() ?? '120000') ?? 120000.0;
+    final refId = renewalTxn['reference_id'] ?? 'REF-RENEWAL';
+    final datePaid = renewalTxn['created_at'] != null ? renewalTxn['created_at'].toString().split(' ')[0] : 'Confirmed';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFF10B981),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF10B981).withOpacity(isDark ? 0.2 : 0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row: Icon + RENEWED HOSTEL BOOKING + Green Badge
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withOpacity(isDark ? 0.2 : 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 20),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'HOSTEL RENEWAL',
+                  style: GoogleFonts.lato(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: isDark ? Colors.white : const Color(0xFF1A2744),
+                    letterSpacing: 0.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF059669),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Text(
+                  'RENEWED',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          // Subtitle
+          Row(
+            children: [
+              Icon(Icons.location_on_outlined, color: isDark ? Colors.white60 : Colors.grey, size: 16),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  '$hostel · Thandalam Campus',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white70 : Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Room No & Status
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Room No: ',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF1A2744),
+                    ),
+                  ),
+                  Text(
+                    roomNo,
+                    style: GoogleFonts.lato(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF10B981),
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                'Paid: $datePaid',
+                style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white60 : Colors.grey.shade600, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Renewal Fee & Period
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Renewal Paid',
+                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '₹${NumberFormat('#,##,###').format(amtNum.toInt())}',
+                      style: GoogleFonts.lato(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF10B981),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Extended Validity',
+                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    renewalDateStr,
+                    style: GoogleFonts.lato(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF1A2744),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // 3 Info Boxes: Rent, Food, Duration (+1 Year)
+          Row(
+            children: [
+              Expanded(child: _buildInfoBox('Room Rent', '₹${NumberFormat('#,##,###').format((user.roomAmount > 0 ? user.roomAmount : 70000).toInt())}', isDark)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildInfoBox('Food', '₹${NumberFormat('#,##,###').format((user.roomFood > 0 ? user.roomFood : 50000).toInt())}', isDark)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildInfoBox('Stay Extended', '+1 Year', isDark)),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Ref ID Box
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withOpacity(isDark ? 0.12 : 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF10B981).withOpacity(0.25)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.receipt_long_outlined, size: 16, color: Color(0xFF10B981)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Ref ID: $refId · Paid via Institutional Wallet',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white70 : const Color(0xFF065F46),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -716,6 +736,9 @@ class _NoDuePageState extends State<NoDuePage> {
 
   // CARD 1: Existing Room Allotted Card (Image 1 Layout with Paid light green badge)
   Widget _buildExistingRoomCard(UserProvider user) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     final roomType = user.roomType.isNotEmpty ? user.roomType : (user.roomTypeDisplay.isNotEmpty ? user.roomTypeDisplay : "Standard Room");
     final hostel = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
     final roomNo = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
@@ -725,11 +748,14 @@ class _NoDuePageState extends State<NoDuePage> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.75) : Colors.white,
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : const Color(0xFFD4AF37).withOpacity(0.25),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.06),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -742,7 +768,7 @@ class _NoDuePageState extends State<NoDuePage> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Icon(Icons.king_bed_outlined, color: Color(0xFF1A2744), size: 22),
+              Icon(Icons.king_bed_outlined, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), size: 22),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -750,7 +776,7 @@ class _NoDuePageState extends State<NoDuePage> {
                   style: GoogleFonts.lato(
                     fontSize: 17,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1A2744),
+                    color: isDark ? Colors.white : const Color(0xFF1A2744),
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -781,14 +807,14 @@ class _NoDuePageState extends State<NoDuePage> {
           // Subtitle
           Row(
             children: [
-              const Icon(Icons.location_on_outlined, color: Colors.grey, size: 16),
+              Icon(Icons.location_on_outlined, color: isDark ? Colors.white60 : Colors.grey, size: 16),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   '$hostel · Thandalam Campus',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade600,
+                    color: isDark ? Colors.white70 : Colors.grey.shade600,
                     fontWeight: FontWeight.w500,
                   ),
                   maxLines: 1,
@@ -803,12 +829,12 @@ class _NoDuePageState extends State<NoDuePage> {
           // Room No
           Row(
             children: [
-              const Text(
+              Text(
                 'Room No: ',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A2744),
+                  color: isDark ? Colors.white : const Color(0xFF1A2744),
                 ),
               ),
               Expanded(
@@ -836,9 +862,9 @@ class _NoDuePageState extends State<NoDuePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Total Fee',
-                      style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.w500),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -846,7 +872,7 @@ class _NoDuePageState extends State<NoDuePage> {
                       style: GoogleFonts.lato(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1A2744),
+                        color: isDark ? const Color(0xFFFDE047) : const Color(0xFF1A2744),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -858,9 +884,9 @@ class _NoDuePageState extends State<NoDuePage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  const Text(
+                  Text(
                     'Additional EB Charges',
-                    style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -868,7 +894,7 @@ class _NoDuePageState extends State<NoDuePage> {
                     style: GoogleFonts.lato(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF1A2744),
+                      color: isDark ? Colors.white : const Color(0xFF1A2744),
                     ),
                   ),
                 ],
@@ -882,9 +908,9 @@ class _NoDuePageState extends State<NoDuePage> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Renewal Date',
-                style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.w500),
               ),
               const SizedBox(height: 2),
               Text(
@@ -892,7 +918,7 @@ class _NoDuePageState extends State<NoDuePage> {
                 style: GoogleFonts.lato(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1A2744),
+                  color: isDark ? Colors.white : const Color(0xFF1A2744),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -902,14 +928,14 @@ class _NoDuePageState extends State<NoDuePage> {
 
           const SizedBox(height: 16),
 
-          // Three White Info Boxes: Amount, Food, Caution
+          // Three Info Boxes: Amount, Food, Caution
           Row(
             children: [
-              Expanded(child: _buildInfoBox('Amount', '₹${NumberFormat('#,##,###').format(user.roomAmount.toInt())}')),
+              Expanded(child: _buildInfoBox('Amount', '₹${NumberFormat('#,##,###').format(user.roomAmount.toInt())}', isDark)),
               const SizedBox(width: 8),
-              Expanded(child: _buildInfoBox('Food', '₹${NumberFormat('#,##,###').format(user.roomFood.toInt())}')),
+              Expanded(child: _buildInfoBox('Food', '₹${NumberFormat('#,##,###').format(user.roomFood.toInt())}', isDark)),
               const SizedBox(width: 8),
-              Expanded(child: _buildInfoBox('Caution', '₹${NumberFormat('#,##,###').format(user.roomCaution.toInt())}')),
+              Expanded(child: _buildInfoBox('Caution', '₹${NumberFormat('#,##,###').format(user.roomCaution.toInt())}', isDark)),
             ],
           ),
         ],
@@ -917,20 +943,20 @@ class _NoDuePageState extends State<NoDuePage> {
     );
   }
 
-  Widget _buildInfoBox(String label, String amount) {
+  Widget _buildInfoBox(String label, String amount, bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9F6F0),
+        color: isDark ? Colors.white.withOpacity(0.08) : const Color(0xFFF9F6F0),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w500),
+            style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.w500),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -943,7 +969,7 @@ class _NoDuePageState extends State<NoDuePage> {
               style: GoogleFonts.lato(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFF1A2744),
+                color: isDark ? Colors.white : const Color(0xFF1A2744),
               ),
             ),
           ),
@@ -954,6 +980,9 @@ class _NoDuePageState extends State<NoDuePage> {
 
   // CARD 2: Requested Room Transfer Card (Displayed if student submitted a request)
   Widget _buildRequestedTransferCard(Map<String, dynamic> request) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     final status = (request['status'] ?? 'pending').toString().toLowerCase();
     String requestedRoom = (request['requested_room'] ?? '').toString();
     final requestedType = (request['requested_room_type'] ?? 'Standard').toString();
@@ -970,20 +999,20 @@ class _NoDuePageState extends State<NoDuePage> {
     String statusLabel;
 
     if (status == 'approved' || status == 'completed') {
-      badgeColor = const Color(0xFFDCFCE7);
-      badgeTextColor = const Color(0xFF059669);
+      badgeColor = isDark ? const Color(0xFF059669).withOpacity(0.25) : const Color(0xFFDCFCE7);
+      badgeTextColor = const Color(0xFF10B981);
       statusLabel = 'APPROVED';
     } else if (status == 'pre_approved') {
-      badgeColor = const Color(0xFFFEF3C7);
-      badgeTextColor = const Color(0xFFD97706);
+      badgeColor = isDark ? const Color(0xFFD97706).withOpacity(0.25) : const Color(0xFFFEF3C7);
+      badgeTextColor = const Color(0xFFF59E0B);
       statusLabel = 'PRE-APPROVED';
     } else if (status == 'rejected') {
-      badgeColor = const Color(0xFFFEE2E2);
-      badgeTextColor = const Color(0xFFDC2626);
+      badgeColor = isDark ? const Color(0xFFDC2626).withOpacity(0.25) : const Color(0xFFFEE2E2);
+      badgeTextColor = const Color(0xFFEF4444);
       statusLabel = 'REJECTED';
     } else {
-      badgeColor = const Color(0xFFFEF3C7);
-      badgeTextColor = const Color(0xFFD97706);
+      badgeColor = isDark ? const Color(0xFFD97706).withOpacity(0.25) : const Color(0xFFFEF3C7);
+      badgeTextColor = const Color(0xFFF59E0B);
       statusLabel = 'PENDING';
     }
 
@@ -991,12 +1020,12 @@ class _NoDuePageState extends State<NoDuePage> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.75) : Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: badgeTextColor.withOpacity(0.4), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.06),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1016,7 +1045,7 @@ class _NoDuePageState extends State<NoDuePage> {
                   style: GoogleFonts.lato(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1A2744),
+                    color: isDark ? Colors.white : const Color(0xFF1A2744),
                     letterSpacing: 0.5,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -1042,7 +1071,7 @@ class _NoDuePageState extends State<NoDuePage> {
           ),
 
           const SizedBox(height: 16),
-          Divider(color: Colors.grey.shade200),
+          Divider(color: isDark ? Colors.white12 : Colors.grey.shade200),
           const SizedBox(height: 12),
 
           // Transfer Movement Details
@@ -1052,14 +1081,14 @@ class _NoDuePageState extends State<NoDuePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'FROM ROOM',
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? Colors.white60 : Colors.grey),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       currentRoom,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)),
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744)),
                     ),
                   ],
                 ),
@@ -1069,9 +1098,9 @@ class _NoDuePageState extends State<NoDuePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Text(
+                    Text(
                       'TARGET ROOM',
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? Colors.white60 : Colors.grey),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -1094,11 +1123,11 @@ class _NoDuePageState extends State<NoDuePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Category', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text('Category', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
                     const SizedBox(height: 2),
                     Text(
                       requestedType,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)),
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744)),
                     ),
                   ],
                 ),
@@ -1107,7 +1136,7 @@ class _NoDuePageState extends State<NoDuePage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  const Text('Upgrade Fee', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('Upgrade Fee', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
                   const SizedBox(height: 2),
                   Text(
                     '₹$amountToPay',
@@ -1122,7 +1151,7 @@ class _NoDuePageState extends State<NoDuePage> {
             const SizedBox(height: 12),
             Text(
               'Reason: $reason',
-              style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey.shade700),
+              style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: isDark ? Colors.white70 : Colors.grey.shade700),
             ),
           ],
 
@@ -1132,73 +1161,119 @@ class _NoDuePageState extends State<NoDuePage> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: status == 'rejected' ? Colors.red.shade50 : Colors.grey.shade100,
+                color: status == 'rejected'
+                    ? (isDark ? Colors.red.shade900.withOpacity(0.3) : Colors.red.shade50)
+                    : (isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade100),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: status == 'rejected' ? Colors.red.shade200 : Colors.grey.shade300),
+                border: Border.all(
+                  color: status == 'rejected'
+                      ? (isDark ? Colors.red.shade700 : Colors.red.shade200)
+                      : (isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
+                ),
               ),
               child: Text(
                 status == 'rejected' ? 'Rejection Reason: $remarks' : 'Warden Remark: $remarks',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: status == 'rejected' ? Colors.red.shade800 : Colors.grey.shade800,
+                  color: status == 'rejected'
+                      ? (isDark ? const Color(0xFFF87171) : Colors.red.shade800)
+                      : (isDark ? Colors.white70 : Colors.grey.shade800),
                 ),
               ),
             ),
           ],
 
-          // Pay Now button for Upgrade Fee on right side (thick vibrant blue, exact screenshot design)
-          if (status == 'approved' || status == 'pre_approved') ...[
-            const SizedBox(height: 14),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _showWalletErrorOnCard = true;
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
-                  elevation: 2,
-                  shadowColor: const Color(0xFF1D4ED8).withOpacity(0.4),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+          // Upgrade Fee / Confirmed Allocation Status
+          if (status == 'approved' || status == 'pre_approved' || status == 'completed') ...[
+            if (double.tryParse(amountToPay.toString()) != null && (double.tryParse(amountToPay.toString()) ?? 0.0) > 0 && (request['payment_status'] ?? '').toString().toLowerCase() != 'paid' && status != 'completed') ...[
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: () => _handleRoomTransferPayment(request, double.tryParse(amountToPay.toString()) ?? 0.0),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+                    elevation: 2,
+                    shadowColor: const Color(0xFF1D4ED8).withOpacity(0.4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                ),
-                child: Text(
-                  'Pay Now',
-                  style: GoogleFonts.lato(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: Colors.white,
+                  child: Text(
+                    'Pay Now',
+                    style: GoogleFonts.lato(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ] else ...[
+              // Downgrade / Free room transfer / Already Completed
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF059669).withOpacity(0.2) : const Color(0xFFDCFCE7),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF10B981).withOpacity(0.6)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Room Transfer Approved & Allocated!',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF065F46),
+                            ),
+                          ),
+                          Text(
+                            'You have been transferred to $requestedRoom. No additional fee required.',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: isDark ? Colors.white70 : const Color(0xFF047857),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ] else if (status == 'pending') ...[
             const SizedBox(height: 14),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEF3C7),
+                color: isDark ? const Color(0xFFD97706).withOpacity(0.18) : const Color(0xFFFEF3C7),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.5)),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.hourglass_empty_rounded, color: Color(0xFFD97706), size: 18),
-                  SizedBox(width: 8),
+                  const Icon(Icons.hourglass_empty_rounded, color: Color(0xFFF59E0B), size: 18),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Pay Now option will enable after Warden approves the request.',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFFB45309),
+                        color: isDark ? const Color(0xFFFDE68A) : const Color(0xFFB45309),
                       ),
                     ),
                   ),
@@ -1214,7 +1289,7 @@ class _NoDuePageState extends State<NoDuePage> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEE2E2),
+                color: isDark ? Colors.red.shade900.withOpacity(0.3) : const Color(0xFFFEE2E2),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFFEF4444), width: 1),
               ),
@@ -1222,19 +1297,19 @@ class _NoDuePageState extends State<NoDuePage> {
                 children: [
                   const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 20),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       '⚠️ Insufficient balance',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF991B1B),
+                        color: isDark ? const Color(0xFFFCA5A5) : const Color(0xFF991B1B),
                       ),
                     ),
                   ),
                   InkWell(
                     onTap: () => setState(() => _showWalletErrorOnCard = false),
-                    child: const Icon(Icons.close, size: 18, color: Color(0xFF991B1B)),
+                    child: Icon(Icons.close, size: 18, color: isDark ? const Color(0xFFFCA5A5) : const Color(0xFF991B1B)),
                   ),
                 ],
               ),
@@ -1243,5 +1318,144 @@ class _NoDuePageState extends State<NoDuePage> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleRoomTransferPayment(Map<String, dynamic> request, double fee) async {
+    final user = Provider.of<UserProvider>(context, listen: false);
+    final targetRoom = request['requested_room'] ?? request['target_room'] ?? 'New Room';
+
+    // 1. Check wallet balance
+    if (user.walletBalance < fee) {
+      setState(() {
+        _showWalletErrorOnCard = true;
+      });
+      TopNotification.showInsufficientBalance(
+        context,
+        currentBalance: user.walletBalance,
+        requiredAmount: fee,
+        onTopUp: () {
+          final mainResponsive = context.findAncestorStateOfType<MainResponsiveLayoutState>();
+          if (mainResponsive != null) {
+            mainResponsive.setSelectedIndex(2);
+          } else {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const StudentWalletScreen()));
+          }
+        },
+      );
+      return;
+    }
+
+    // 2. Balance is sufficient — Show Confirmation Dialog
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE0F2FE),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF0288D1), size: 22),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Confirm Room Transfer',
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 17,
+                  color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pay ₹${NumberFormat('#,##,###').format(fee.toInt())} upgrade fee from your wallet to finalize transfer to $targetRoom?',
+              style: GoogleFonts.inter(fontSize: 13, color: isDark ? Colors.white70 : Colors.grey.shade700, height: 1.35),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Wallet Balance:', style: GoogleFonts.inter(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey.shade600)),
+                  Text('₹${NumberFormat('#,##,###.00').format(user.walletBalance)}', style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF10B981))),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Pay from Wallet'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // 3. Process payment
+    try {
+      final res = await ApiService.processPayment(
+        studentId: user.dbId ?? 0,
+        amount: fee,
+        paymentType: 'Room Change Upgrade Fee',
+        paymentMethod: 'Wallet',
+        requestId: request['request_id']?.toString(),
+      );
+
+      if (res['message'] == 'Payment processed successfully' || res['status'] == 'Success' || res['success'] == true) {
+        await user.refreshUserData();
+        await user.fetchWalletBalance();
+        if (mounted) {
+          setState(() {
+            _showWalletErrorOnCard = false;
+          });
+          TopNotification.showSuccess(
+            context,
+            title: 'Room Transfer Confirmed! 🎉',
+            message: 'You have been successfully allocated to $targetRoom.',
+          );
+        }
+      } else {
+        if (mounted) {
+          TopNotification.showError(
+            context,
+            title: 'Payment Failed',
+            message: res['message'] ?? 'Unable to complete room transfer payment.',
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        TopNotification.showError(context, title: 'Error', message: 'Payment error: $e');
+      }
+    }
   }
 }

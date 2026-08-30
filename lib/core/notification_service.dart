@@ -13,9 +13,15 @@ import 'app_logger.dart';
 
 @pragma('vm:entry-point')
 Future<void> _backgroundHandler(RemoteMessage message) async {
-  // Initialize local notifications in background isolate so we can show
+  // On iOS/macOS, the Apple APNs system already auto-displays the notification
+  // banner when the app is in background/locked/terminated.
+  // Displaying a local notification here on iOS would create a duplicate banner.
+  if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
+    return;
+  }
+
+  // Android: Initialize local notifications in background isolate so we can show
   // notifications with action buttons (Reply / Mark as Read / Mute).
-  // This is required because background isolates don't share state with the main isolate.
   final FlutterLocalNotificationsPlugin localPlugin = FlutterLocalNotificationsPlugin();
 
   const androidChannel = AndroidNotificationChannel(
@@ -47,8 +53,6 @@ Future<void> _backgroundHandler(RemoteMessage message) async {
     onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
   );
 
-  // Show local notification with action buttons (works for both
-  // data-only messages and messages with notification payload)
   await NotificationService._showNotificationWithPlugin(localPlugin, message);
 }
 
@@ -60,10 +64,22 @@ void notificationTapBackground(NotificationResponse notificationResponse) {
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
   static final ValueNotifier<int> fcmRefreshNotifier = ValueNotifier<int>(0);
+  static bool _initialized = false;
+
+  /// Message deduplication tracking to prevent race-condition duplicates
+  static final Map<String, int> _processedMessages = <String, int>{};
+
+  static bool _isDuplicate(String msgKey) {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    _processedMessages.removeWhere((_, time) => now - time > 15000);
+    if (_processedMessages.containsKey(msgKey)) {
+      return true;
+    }
+    _processedMessages[msgKey] = now;
+    return false;
+  }
 
   /// Cached FCM token — obtained once at init() and reused immediately on login.
-  /// This avoids the race condition where the token is fetched but user isn't
-  /// logged in yet, so the save is skipped. On login we use this cached value.
   static String? _cachedToken;
   static String? get cachedToken => _cachedToken;
 
@@ -73,6 +89,9 @@ class NotificationService {
   }
 
   static Future<void> init() async {
+    if (_initialized) return;
+    _initialized = true;
+
     NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
       alert: true, badge: true, sound: true, provisional: false,
     );
@@ -80,10 +99,12 @@ class NotificationService {
     AppLogger.info("Notification Permission: ${settings.authorizationStatus}");
 
     if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
+      // Disable native APNs banner in foreground on iOS so our local notification
+      // plugin presents exactly ONE rich interactive heads-up notification.
       await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-        alert: true,
+        alert: false,
         badge: true,
-        sound: true,
+        sound: false,
       );
     }
 
@@ -109,7 +130,6 @@ class NotificationService {
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    // iOS: Non-const construction is required for DarwinNotificationAction.text
     final chatCategory = DarwinNotificationCategory(
       'chat_category',
       actions: <DarwinNotificationAction>[
@@ -181,6 +201,12 @@ class NotificationService {
         try {
           final user = Provider.of<UserProvider>(context, listen: false);
           final catProvider = Provider.of<CategoryProvider>(context, listen: false);
+
+          final String? senderId = message.data['sender_id']?.toString();
+          if (user.isLoggedIn && (senderId == user.username || senderId == user.dbId?.toString())) {
+            AppLogger.info("Suppressing self-notification from sender $senderId");
+            return;
+          }
           
           // 🚀 INSTANT 0 ms local optimistic badge increment:
           final String dept = (message.data['department'] ?? message.data['type'] ?? 'warden').toString();
@@ -199,7 +225,6 @@ class NotificationService {
       
       // Show local notification (works for both data-only and notification-block FCM)
       _showNotification(message);
-
     });
 
     String? token = await getToken();
@@ -405,6 +430,14 @@ class NotificationService {
     FlutterLocalNotificationsPlugin plugin,
     RemoteMessage message,
   ) async {
+    final String msgKey = message.data['message_id']?.toString() ??
+        message.messageId ??
+        "${message.data['request_id']}_${message.data['timestamp']}_${message.data['message']}";
+    if (_isDuplicate(msgKey)) {
+      AppLogger.info("Suppressing duplicate notification for message key: $msgKey");
+      return;
+    }
+
     final String? requestId = message.data['request_id']?.toString();
     final prefs = await SharedPreferences.getInstance();
     final List<String> mutedList = prefs.getStringList('muted_requests') ?? [];

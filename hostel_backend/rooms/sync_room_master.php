@@ -147,17 +147,38 @@ try {
     // Map strictly by normKey(roomNumber) to prevent non-unique hostelRoomId cross-over
     $physByRoomNum = [];
 
+    // Pre-fetch canonical hostel genders from hostel_type table
+    $hostelGenderMap = [];
+    $htStmt = $db->query("SELECT hostel_name, hostel_type FROM hostel_type");
+    if ($htStmt) {
+        while ($htRow = $htStmt->fetch(PDO::FETCH_ASSOC)) {
+            $hKey = strtolower(trim($htRow['hostel_name']));
+            $hGen = (stripos($htRow['hostel_type'], 'girl') !== false || stripos($htRow['hostel_type'], 'female') !== false) ? 'Female' : 'Male';
+            $hostelGenderMap[$hKey] = $hGen;
+        }
+    }
+
     foreach ($physicalRooms as $pr) {
         $roomNum     = trim($pr['roomNumber']   ?? '');
         $hostelRoomId= trim($pr['hostelRoomId'] ?? $pr['id'] ?? '');
         $rType       = trim($pr['roomType']     ?? '');
+        $hName       = trim($pr['hostelName']   ?? '');
 
         if (empty($roomNum)) continue;
+
+        // Determine room gender: prefer hostel master type if known, otherwise normalize API gender
+        $hKey = strtolower($hName);
+        if (isset($hostelGenderMap[$hKey])) {
+            $roomGender = $hostelGenderMap[$hKey];
+        } else {
+            $rawG = trim($pr['gender'] ?? '');
+            $roomGender = (stripos($rawG, 'girl') !== false || stripos($rawG, 'female') !== false) ? 'Female' : 'Male';
+        }
 
         $data = [
             'id'               => $pr['id']               ?? $hostelRoomId,
             'hostel_id'        => $pr['hostelId']         ?? '',
-            'hostel_name'      => trim($pr['hostelName']  ?? ''),
+            'hostel_name'      => $hName,
             'campus'           => trim($pr['campus']      ?? ''),
             'hostel_room_id'   => $hostelRoomId,
             'room_type'        => $rType,
@@ -167,7 +188,7 @@ try {
             'occupied_beds'    => (int)($pr['occupiedBeds']    ?? $pr['occupied_beds']    ?? 0),
             'assigned_pending' => (int)($pr['assignedPending'] ?? $pr['assigned_pending'] ?? 0),
             'available_beds'   => (int)($pr['availableBeds']   ?? $pr['available_beds']   ?? 0),
-            'gender'           => trim($pr['gender']           ?? 'Male'),
+            'gender'           => $roomGender,
             'active'           => isset($pr['active']) ? (int)$pr['active'] : 1,
             'amount'           => (float)($pr['amount']        ?? 0),
             'food'             => (float)($pr['food']          ?? 0),
@@ -182,6 +203,114 @@ try {
         $physByRoomNum[normKey($roomNum)] = $data;
     }
     log_sync("  Built physByRoomNum: " . count($physByRoomNum) . " unique room keys.");
+
+    // -----------------------------------------------------------------------
+    // STEP 2B: Fetch availability/external for reservedFor & reservedForRoles
+    // Keyed by hostelName + '|' + roomType (since availability entries are per room TYPE, not per room)
+    // -----------------------------------------------------------------------
+    log_sync("Step 2B: Fetching availability API for reservedFor/reservedForRoles...");
+    $availByHostelType = [];
+    try {
+        $ch = curl_init('https://vstudy.saveetha.com/api/hostel-settings/availability/external');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'x-client-id: '     . VSTUDY_CLIENT_ID,
+            'x-client-secret: ' . VSTUDY_CLIENT_SECRET,
+            'Accept: application/json',
+        ]);
+        $availRaw  = curl_exec($ch);
+        $availCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($availCode === 200) {
+            $availJson = json_decode($availRaw, true);
+            $availData = $availJson['data'] ?? [];
+            foreach ($availData as $av) {
+                $hName   = trim($av['hostelName'] ?? '');
+                $rType   = trim($av['roomType']   ?? '');
+                if (empty($hName) || empty($rType)) continue;
+                $key = strtolower($hName . '|' . $rType);
+                // Merge multiple entries for same hostel+roomType (keep union of reservedFor lists)
+                if (!isset($availByHostelType[$key])) {
+                    $availByHostelType[$key] = [
+                        'reserved_for'       => $av['reservedFor']       ?? [],
+                        'reserved_for_roles' => $av['reservedForRoles']  ?? [],
+                    ];
+                } else {
+                    // Union the arrays to handle split entries
+                    $existing = $availByHostelType[$key];
+                    $merged   = array_values(array_unique(array_merge(
+                        $existing['reserved_for'],
+                        $av['reservedFor'] ?? []
+                    )));
+                    $mergedRoles = array_values(array_unique(array_merge(
+                        $existing['reserved_for_roles'],
+                        $av['reservedForRoles'] ?? []
+                    )));
+                    $availByHostelType[$key] = [
+                        'reserved_for'       => $merged,
+                        'reserved_for_roles' => $mergedRoles,
+                    ];
+                }
+            }
+            log_sync("  Availability API: " . count($availData) . " entries, " . count($availByHostelType) . " unique hostel+roomType keys.");
+        } else {
+            log_sync("  Availability API returned HTTP $availCode — skipping reservedFor sync.");
+        }
+    } catch (Exception $e) {
+        log_sync("  Availability API error: " . $e->getMessage() . " — skipping reservedFor sync.");
+    }
+
+    // -----------------------------------------------------------------------
+    // STEP 2C: Sync users.Institution from booked-rooms/external API
+    // Each booking record has registerNumber + institutionName.
+    // We update users.Institution where it is currently blank/null.
+    // -----------------------------------------------------------------------
+    log_sync("Step 2C: Syncing users.Institution from booked-rooms/external API...");
+    try {
+        $bookedRoomsData = fetchVStudyPages('https://vstudy.saveetha.com/api/hostel-settings/booked-rooms/external');
+        log_sync("  Fetched " . count($bookedRoomsData) . " booked-room records.");
+
+        // Build registerNumber → institutionName map (all statuses — institution doesn't change)
+        $regToInst = [];
+        foreach ($bookedRoomsData as $bk) {
+            $regNo   = trim($bk['registerNumber'] ?? '');
+            $instRaw = trim($bk['institutionName'] ?? '');
+            if ($regNo !== '' && $instRaw !== '') {
+                $regToInst[$regNo] = $instRaw; // last booking wins if duplicate reg
+            }
+        }
+        log_sync("  Built institution map for " . count($regToInst) . " unique register numbers.");
+
+        // Batch-update users.Institution where currently blank
+        $instUpdateStmt = $db->prepare("
+            UPDATE users
+            SET Institution = ?
+            WHERE (username = ? OR biometric_id = ?)
+              AND (Institution IS NULL OR TRIM(Institution) = '' OR TRIM(Institution) = '0')
+        ");
+        $instUpdated = 0;
+        foreach ($regToInst as $regNo => $inst) {
+            $instUpdateStmt->execute([$inst, $regNo, $regNo]);
+            $instUpdated += $instUpdateStmt->rowCount();
+        }
+        log_sync("  Updated users.Institution for $instUpdated user(s).");
+
+        // Fallback: sync profile.institution → users.Institution for any remaining gaps
+        $profileFallback = $db->exec("
+            UPDATE users u
+            JOIN profile p ON TRIM(u.username) = TRIM(p.reg_no)
+            SET u.Institution = p.institution
+            WHERE (u.Institution IS NULL OR TRIM(u.Institution) = '' OR TRIM(u.Institution) = '0')
+              AND p.institution IS NOT NULL AND TRIM(p.institution) != ''
+        ");
+        log_sync("  Profile fallback: $profileFallback user(s) updated from profile table.");
+
+    } catch (Exception $instEx) {
+        log_sync("  Step 2C error (non-fatal): " . $instEx->getMessage());
+    }
 
     // -----------------------------------------------------------------------
     // STEP 3: Count local pending allocations within the 3-day payment window
@@ -252,35 +381,58 @@ try {
     }
     log_sync("  Updated room_master table ($matchedCount matched).");
 
-    // 4B: Sync rooms_groups_details
-    $allRgStmt = $db->query("SELECT s_no, room_number, room_type FROM rooms_groups_details");
+    // 4B: Sync rooms_groups_details (beds + reservedFor/reservedForRoles)
+    $allRgStmt = $db->query("SELECT s_no, room_number, room_type, hostel_name FROM rooms_groups_details");
     $allRgRooms = $allRgStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $updateRgStmt = $db->prepare("
         UPDATE rooms_groups_details
-        SET total_beds       = ?,
-            occupied_beds    = ?,
-            assigned_pending = ?,
-            available_beds   = ?,
-            group_id         = ?,
-            group_name       = ?,
-            warden_user_id   = ?,
-            warden_name      = ?
+        SET total_beds          = ?,
+            occupied_beds       = ?,
+            assigned_pending    = ?,
+            available_beds      = ?,
+            group_id            = ?,
+            group_name          = ?,
+            warden_user_id      = ?,
+            warden_name         = ?,
+            reserved_for        = ?,
+            reserved_for_roles  = ?
         WHERE s_no = ?
     ");
 
     $rgMatchedCount = 0;
     foreach ($allRgRooms as $rg) {
-        $sNo    = (int)$rg['s_no'];
-        $rNum   = $rg['room_number'] ?? '';
-        $kNum   = normKey($rNum);
-        $apiData= $physByRoomNum[$kNum] ?? null;
+        $sNo      = (int)$rg['s_no'];
+        $rNum     = $rg['room_number'] ?? '';
+        $rType    = trim($rg['room_type']    ?? '');
+        $hName    = trim($rg['hostel_name']  ?? '');
+        $kNum     = normKey($rNum);
+        $apiData  = $physByRoomNum[$kNum] ?? null;
 
         if ($apiData !== null) {
             $totalBeds       = $apiData['total_beds'];
             $occupiedBeds    = $apiData['occupied_beds'];
             $assignedPending = $apiData['assigned_pending'];
             $availableBeds   = max(0, $totalBeds - $occupiedBeds - $assignedPending);
+
+            // Lookup reservedFor from availability API (by hostelName + roomType)
+            $availKey        = strtolower($hName . '|' . $rType);
+            $availInfo       = $availByHostelType[$availKey] ?? null;
+            if ($availInfo === null) {
+                $cleanHName  = trim(preg_replace('/\s*\(new\)\s*/i', '', $hName));
+                $availInfo   = $availByHostelType[strtolower($cleanHName . '|' . $rType)] ?? null;
+                if ($availInfo === null) {
+                    // Fallback to any room type under base hostel
+                    foreach ($availByHostelType as $k => $info) {
+                        if (strpos($k, strtolower($cleanHName) . '|') === 0 && !empty($info['reserved_for'])) {
+                            $availInfo = $info;
+                            break;
+                        }
+                    }
+                }
+            }
+            $reservedFor     = ($availInfo !== null) ? json_encode($availInfo['reserved_for'])      : null;
+            $reservedForRoles= ($availInfo !== null) ? json_encode($availInfo['reserved_for_roles']) : null;
 
             $updateRgStmt->execute([
                 $totalBeds,
@@ -291,13 +443,28 @@ try {
                 $apiData['group_name'],
                 $apiData['warden_user_id'],
                 $apiData['warden_name'],
+                $reservedFor,
+                $reservedForRoles,
                 $sNo
             ]);
             $rgMatchedCount++;
             $matchedApiKeys[$kNum] = true;
         }
     }
-    log_sync("  Updated rooms_groups_details table ($rgMatchedCount rows matched and updated).");
+    log_sync("  Updated rooms_groups_details table ($rgMatchedCount rows matched and updated, including reservedFor).");
+
+    // 4B2: Synchronize gender in rooms_groups_details and room_master with master hostel_type catalog
+    $db->exec("
+        UPDATE rooms_groups_details rgd
+        JOIN hostel_type ht ON LOWER(TRIM(rgd.hostel_name)) = LOWER(TRIM(ht.hostel_name))
+        SET rgd.gender = CASE WHEN LOWER(ht.hostel_type) LIKE '%girl%' OR LOWER(ht.hostel_type) LIKE '%female%' THEN 'Female' ELSE 'Male' END
+    ");
+    $db->exec("
+        UPDATE room_master rm
+        JOIN hostel_type ht ON LOWER(TRIM(rm.location_name)) = LOWER(TRIM(ht.hostel_name))
+        SET rm.gender = CASE WHEN LOWER(ht.hostel_type) LIKE '%girl%' OR LOWER(ht.hostel_type) LIKE '%female%' THEN 'Female' ELSE 'Male' END
+    ");
+    log_sync("  Aligned room genders in rooms_groups_details and room_master with hostel_type master catalog.");
 
     // 4C: Map wardens in rooms_groups_details from mapping_staff based on exact group_name match only.
     //     Using EXACT match prevents wrong wardens bleeding across floors via LIKE partial matches.

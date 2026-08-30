@@ -77,8 +77,8 @@ if ($username && $password) {
                 $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 
                 if (password_verify($password, $row['password'])) { 
-                    // Block student login via Login ID (username/password), EXCEPT for demo students (192211929, 192511250)
-                    if (strtolower($row['role']) === 'student' && !in_array(trim($row['register_no']), ['192211929', '192511250'])) {
+                    // Block student login via Login ID (username/password), EXCEPT for demo students
+                    if (strtolower($row['role']) === 'student' && !in_array(trim($row['register_no']), ['192211929', '192511250', '192524999', 'demo'])) {
                         logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN_BLOCKED', 'Authentication', null, [
                             'registration_no' => $row['register_no'],
                             'timestamp' => date('Y-m-d H:i:s'),
@@ -161,6 +161,28 @@ if ($username && $password) {
                     $total_fee = $room_amount + $room_food + $room_caution;
                     $renew_amount = $room_amount + $room_food;
 
+                    // Resolve available_roles for dual-role access (e.g. Warden + Maintenance)
+                    $available_roles = [strtolower($final_role)];
+                    if (in_array(strtolower($final_role), ['warden', 'maintenance', 'security', 'staff'])) {
+                        $bio_check = trim($row['register_no']);
+                        
+                        $maintCheck = $db->prepare("SELECT COUNT(*) FROM maintenance_users WHERE bio_id = :bio");
+                        $maintCheck->execute([':bio' => $bio_check]);
+                        if ($maintCheck->fetchColumn() > 0 && !in_array('maintenance', $available_roles)) {
+                            $available_roles[] = 'maintenance';
+                        }
+                        
+                        $wardenCheck = $db->prepare("SELECT COUNT(*) FROM staff_users WHERE bio_id = :bio AND LOWER(role) = 'warden'");
+                        $wardenCheck->execute([':bio' => $bio_check]);
+                        if ($wardenCheck->fetchColumn() > 0 && !in_array('warden', $available_roles)) {
+                            $available_roles[] = 'warden';
+                        }
+                        
+                        if (strtolower($row['role']) === 'warden' && !in_array('warden', $available_roles)) {
+                            $available_roles[] = 'warden';
+                        }
+                    }
+
                     $user_data = [
                         "id" => $row['id'],
                         "username" => $row['register_no'],
@@ -170,6 +192,7 @@ if ($username && $password) {
                         "dob" => $row['dob'],
                         "address" => $row['address'],
                         "role" => $final_role,
+                        "available_roles" => array_values(array_unique($available_roles)),
                         "institution" => $row['institution'] ?? 'N/A',
                         "hostel_name" => $hostel,
                         "room_allocation" => $row['room_allocation'] ?? 'N/A',

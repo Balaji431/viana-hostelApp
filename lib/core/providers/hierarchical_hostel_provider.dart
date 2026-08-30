@@ -55,8 +55,10 @@ class HierarchicalHostelProvider extends ChangeNotifier {
   Future<void> loadHostelHierarchy(dynamic hostel) async {
     try {
       final hostelId = hostel.id;
-      if (hostelId == null) return;
-      final response = await ApiService.getHostelHierarchy(int.tryParse(hostelId.toString()) ?? 0);
+      final hostelName = hostel.name;
+      if (hostelId == null && hostelName == null) return;
+      final queryParam = (hostelName != null && hostelName.toString().trim().isNotEmpty) ? hostelName : hostelId;
+      final response = await ApiService.getHostelHierarchy(queryParam);
       if (response['success'] == true) {
         final data = response['data'];
         hostel.zones.clear();
@@ -117,6 +119,7 @@ class HierarchicalHostelProvider extends ChangeNotifier {
       await loadHostels();
       return true;
     }
+    setError(response['message'] ?? 'Action failed');
     return false;
   }
 

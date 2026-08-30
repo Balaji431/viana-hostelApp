@@ -67,10 +67,15 @@ try {
         $stmtUpd->execute([$txn_id, $request_id]);
     }
 
-    // Decrement available room count in hostel_rooms (only if not a renewal)
-    if ($renew_days <= 0 && !empty($req['room_id'])) {
-        $stmtRoom = $db->prepare("UPDATE hostel_rooms SET available_rooms = GREATEST(0, available_rooms - 1), occupied_rooms = occupied_rooms + 1 WHERE id = ?");
-        $stmtRoom->execute([$req['room_id']]);
+    // Decrement available room count in rooms_groups_details & room_master (only if not a renewal)
+    if ($renew_days <= 0) {
+        $rCode = !empty($req['room_code']) ? $req['room_code'] : $req['room_no'];
+        if (!empty($rCode)) {
+            try {
+                $db->prepare("UPDATE rooms_groups_details SET available_beds = GREATEST(0, available_beds - 1), occupied_beds = occupied_beds + 1 WHERE room_number = ?")->execute([$rCode]);
+                $db->prepare("UPDATE room_master SET available_beds = GREATEST(0, available_beds - 1), occupied_beds = occupied_beds + 1 WHERE room_code = ? OR room_no = ?")->execute([$rCode, $rCode]);
+            } catch (Exception $eRoom) {}
+        }
     }
 
     // Send FCM push notification to user device

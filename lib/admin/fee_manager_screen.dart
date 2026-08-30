@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../core/api_service.dart';
 import '../core/app_logger.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
+import '../shared/wallpaper_provider.dart';
 import '../core/styles.dart';
 
 class FeeManagerScreen extends StatefulWidget {
@@ -172,6 +174,12 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return LinenGridBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -202,7 +210,7 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text('No fee structures found', 
-                           style: TextStyle(color: Colors.grey[600], fontSize: 16, fontFamily: 'Lato')),
+                           style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[600], fontSize: 16, fontFamily: 'Lato')),
                     ],
                   ),
                 )
@@ -213,8 +221,9 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
                       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF2A4A8C),
+                        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : const Color(0xFF2A4A8C),
                         borderRadius: BorderRadius.circular(14),
+                        border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
                       ),
                       child: Row(
                         children: [
@@ -238,7 +247,7 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
                       child: ListView.builder(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
                         itemCount: _fees.length,
-                        itemBuilder: (context, index) => _buildFeeCard(_fees[index], index),
+                        itemBuilder: (context, index) => _buildFeeCard(_fees[index], index, isDark),
                       ),
                     ),
                   ],
@@ -247,24 +256,27 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
     );
   }
 
-  Widget _buildFeeCard(Map<String, dynamic> fee, int index) {
+  Widget _buildFeeCard(Map<String, dynamic> fee, int index, bool isDark) {
     final hostelFee = fee['hostel_fee'] ?? 0;
     final foodFee = fee['food_fee'] ?? 50000;
     final total = (hostelFee is num ? hostelFee : 0) + (foodFee is num ? foodFee : 0);
     final occupancy = fee['occupancy']?.toString() ?? '';
     final cautionDeposit = fee['caution_deposit'] ?? 0;
 
-    const accent = Color(0xFF3D7CC9);
+    final accent = isDark ? const Color(0xFF1E3A8A).withOpacity(0.9) : const Color(0xFF3D7CC9);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFAF6EE),
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.75) : const Color(0xFFFAF6EE),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8E0D5), width: 1),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : const Color(0xFFE8E0D5),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.06),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -325,18 +337,18 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
               children: [
                 Row(
                   children: [
-                    _buildFeeChip(Icons.apartment, 'Hostel', _formatAmount(hostelFee), const Color(0xFF2A4A8C)),
+                    _buildFeeChip(Icons.apartment, 'Hostel', _formatAmount(hostelFee), const Color(0xFF2A4A8C), isDark: isDark),
                     const SizedBox(width: 8),
-                    _buildFeeChip(Icons.restaurant, 'Food', _formatAmount(foodFee), const Color(0xFF1B4D3E)),
+                    _buildFeeChip(Icons.restaurant, 'Food', _formatAmount(foodFee), const Color(0xFF1B4D3E), isDark: isDark),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _buildFeeChip(Icons.calculate_rounded, 'Total / Year', _formatAmount(total), const Color(0xFFD4AF37), highlight: true),
+                    _buildFeeChip(Icons.calculate_rounded, 'Total / Year', _formatAmount(total), const Color(0xFFD4AF37), highlight: true, isDark: isDark),
                     if (cautionDeposit > 0) ...[
                       const SizedBox(width: 8),
-                      _buildFeeChip(Icons.security, 'Caution', _formatAmount(cautionDeposit), Colors.grey.shade600),
+                      _buildFeeChip(Icons.security, 'Caution', _formatAmount(cautionDeposit), Colors.grey.shade600, isDark: isDark),
                     ],
                   ],
                 ),
@@ -348,24 +360,55 @@ class _FeeManagerScreenState extends State<FeeManagerScreen> {
     );
   }
 
-  Widget _buildFeeChip(IconData icon, String label, String amount, Color color, {bool highlight = false}) {
+  Widget _buildFeeChip(IconData icon, String label, String amount, Color color, {bool highlight = false, bool isDark = false}) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: highlight ? const Color(0xFFE8F0FB) : const Color(0xFFF0F4FA),
+          color: isDark
+              ? (highlight ? const Color(0xFFD4AF37).withOpacity(0.18) : Colors.white.withOpacity(0.08))
+              : (highlight ? const Color(0xFFE8F0FB) : const Color(0xFFF0F4FA)),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFD0DDED), width: 1),
+          border: Border.all(
+            color: isDark
+                ? (highlight ? const Color(0xFFD4AF37).withOpacity(0.4) : Colors.white.withOpacity(0.12))
+                : const Color(0xFFD0DDED),
+            width: 1,
+          ),
         ),
         child: Row(
           children: [
-            Icon(icon, size: 14, color: color),
+            Icon(
+              icon,
+              size: 14,
+              color: isDark
+                  ? (highlight ? const Color(0xFFEBC15B) : Colors.white70)
+                  : color,
+            ),
             const SizedBox(width: 6),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: TextStyle(fontSize: 9, color: color.withOpacity(0.8), fontWeight: FontWeight.w600, letterSpacing: 0.3)),
-                Text(amount, style: const TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.bold, fontFamily: 'Lato')),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: isDark
+                        ? (highlight ? const Color(0xFFEBC15B) : Colors.white70)
+                        : color.withOpacity(0.8),
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                Text(
+                  amount,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Lato',
+                  ),
+                ),
               ],
             ),
           ],

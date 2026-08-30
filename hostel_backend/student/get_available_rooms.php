@@ -32,21 +32,54 @@ function getNormalizedGender($str) {
     return 'boys';
 }
 
+function getStudentDetails($conn, $filters) {
+    $reg = $filters['register_no'] ?? $filters['username'] ?? $filters['roll_number'] ?? null;
+    $id  = $filters['student_id'] ?? null;
+
+    if ($reg) {
+        $stmt = $conn->prepare("
+            SELECT u.Gender, u.HostelType, u.Institution, p.institution as p_institution, p.hostel_name
+            FROM users u
+            LEFT JOIN profile p ON u.username = p.reg_no
+            WHERE u.username = ? OR u.email = ? LIMIT 1
+        ");
+        $stmt->bind_param("ss", $reg, $reg);
+        $stmt->execute();
+        $res = $stmt->get_result()->fetch_assoc();
+        if ($res) return $res;
+    }
+
+    if ($id) {
+        $stmt = $conn->prepare("
+            SELECT u.Gender, u.HostelType, u.Institution, p.institution as p_institution, p.hostel_name
+            FROM users u
+            LEFT JOIN profile p ON u.id = p.user_id
+            WHERE u.id = ? LIMIT 1
+        ");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $res = $stmt->get_result()->fetch_assoc();
+        if ($res) return $res;
+    }
+
+    return null;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 // Auto-release expired reservations
 releaseExpiredReservations($conn);
 
 if ($method === 'GET') {
-    if (isset($_GET['hostel_id'])) {
+    if ((isset($_GET['vacant_only']) && $_GET['vacant_only'] === 'true') || isset($_GET['hostel_name'])) {
+        // Get only rooms with vacancies filtered by student & hostel
+        getVacantRooms($conn, $_GET);
+    } elseif (isset($_GET['hostel_id']) && is_numeric($_GET['hostel_id'])) {
         // Get available rooms for specific hostel
-        getAvailableRoomsByHostel($conn, $_GET['hostel_id']);
+        getAvailableRoomsByHostel($conn, (int)$_GET['hostel_id']);
     } elseif (isset($_GET['room_type'])) {
         // Get rooms by type
         getRoomsByType($conn, $_GET['room_type']);
-    } elseif (isset($_GET['vacant_only']) && $_GET['vacant_only'] === 'true') {
-        // Get only rooms with vacancies
-        getVacantRooms($conn);
     } else {
         // Get all available rooms with filters
         getAvailableRooms($conn, $_GET);
@@ -78,7 +111,9 @@ function getAvailableRoomsByHostel($conn, $hostelId) {
                        rgd.available_beds as available_rooms,
                        rgd.room_type,
                        rgd.amount,
-                       rgd.hostel_name
+                       rgd.hostel_name,
+                       rgd.reserved_for,
+                       rgd.reserved_for_roles
                 FROM rooms_groups_details rgd
                 WHERE TRIM(rgd.hostel_name) = TRIM(?) OR TRIM(rgd.hostel_name) LIKE CONCAT('%', TRIM(?), '%')
                 ORDER BY rgd.group_name, rgd.room_number";
@@ -158,19 +193,104 @@ function getRoomsByType($conn, $roomType) {
 }
 
 /**
- * Get all rooms with vacancies
+ * Get all rooms with vacancies (Filtered by student Gender & Institution)
  */
-function getVacantRooms($conn) {
+function getVacantRooms($conn, $filters = []) {
     try {
-        $sql = "SELECT rgd.s_no as id, rgd.room_number as room_no, rgd.room_number as room_code,
-                       rgd.group_name as floor, rgd.group_name as floor_code, 'General' as wing_code,
-                       rgd.total_beds as total_capacity, rgd.occupied_beds as occupied_rooms,
-                       rgd.available_beds as available_rooms, rgd.room_type, rgd.amount,
-                       rgd.hostel_name, 'Thandalam Campus' as campus, rgd.gender as hostel_type
+        $student = getStudentDetails($conn, $filters);
+        $gender = null;
+        $institution = null;
+
+        if ($student) {
+            $rawGender = $student['Gender'] ?? $student['HostelType'] ?? '';
+            $gender = (stripos($rawGender, 'girl') !== false || stripos($rawGender, 'female') !== false) ? 'Female' : 'Male';
+            // Prefer users.Institution; fall back to profile.institution if blank
+            $rawInst = '';
+            if (!empty(trim($student['Institution'] ?? ''))) {
+                $rawInst = trim($student['Institution']);
+            } elseif (!empty(trim($student['p_institution'] ?? ''))) {
+                $rawInst = trim($student['p_institution']);
+            }
+            if ($rawInst !== '') {
+                $inst = $rawInst;
+                if (stripos($inst, 'Engineering') !== false || stripos($inst, 'SSE') !== false
+                    || (stripos($inst, 'SIMATS') !== false && stripos($inst, 'Medicine') === false && stripos($inst, 'Dentist') === false)
+                    || stripos($inst, 'Thandalam') !== false) {
+                    $institution = 'SIMATS - Engineering';
+                } elseif (stripos($inst, 'Medicine') !== false || stripos($inst, 'SMC') !== false) {
+                    $institution = 'SMC - Medicine';
+                } elseif (stripos($inst, 'Dentist') !== false || stripos($inst, 'SDC') !== false) {
+                    $institution = 'SDC - Dentistry';
+                } elseif (stripos($inst, 'Law') !== false || stripos($inst, 'SSL') !== false) {
+                    $institution = 'SSL - Law';
+                } elseif (stripos($inst, 'Management') !== false || stripos($inst, 'SSM') !== false) {
+                    $institution = 'SSM - Management';
+                } elseif (stripos($inst, 'Physical') !== false || stripos($inst, 'SSPE') !== false) {
+                    $institution = 'SSPE - Physical Education';
+                } elseif (stripos($inst, 'Nursing') !== false || stripos($inst, 'SNC') !== false) {
+                    $institution = 'SNC - Nursing';
+                } else {
+                    $institution = $inst;
+                }
+            }
+        }
+
+        $conditions = ["rgd.available_beds > 0"];
+        $params = [];
+        $types = "";
+
+        if ($gender) {
+            // Strict gender match — blank/NULL gender rooms excluded from both boys & girls
+            $conditions[] = "(rgd.gender = ? AND rgd.gender IS NOT NULL AND TRIM(rgd.gender) != '')";
+            $params[] = $gender;
+            $types .= "s";
+        }
+
+        if ($institution) {
+            // Institution KNOWN → show ONLY rooms explicitly reserved for this institution
+            $conditions[] = "(rgd.reserved_for IS NOT NULL AND rgd.reserved_for != '[]' AND JSON_CONTAINS(rgd.reserved_for, JSON_QUOTE(?)))";
+            $params[] = $institution;
+            $types .= "s";
+        } else {
+            // Institution UNKNOWN → only show completely unrestricted rooms
+            $conditions[] = "(rgd.reserved_for IS NULL OR rgd.reserved_for = '[]')";
+        }
+
+        // Filter by specific hostel if provided
+        if (!empty($filters['hostel_name'])) {
+            $conditions[] = "TRIM(rgd.hostel_name) = TRIM(?)";
+            $params[] = $filters['hostel_name'];
+            $types .= "s";
+        } elseif (!empty($filters['hostel_id'])) {
+            $conditions[] = "rgd.hostel_name = (SELECT hostel_name FROM hostel_type WHERE id = ? LIMIT 1)";
+            $params[] = $filters['hostel_id'];
+            $types .= "i";
+        }
+
+        $whereClause = implode(" AND ", $conditions);
+
+        $sql = "SELECT rgd.s_no as id,
+                       rgd.room_number,
+                       rgd.room_number as room_code,
+                       rgd.group_name as floor,
+                       rgd.group_name as floor_code,
+                       rgd.total_beds as total_capacity,
+                       rgd.occupied_beds as occupied_rooms,
+                       rgd.available_beds,
+                       rgd.available_beds as available_rooms,
+                       rgd.room_type,
+                       rgd.amount,
+                       rgd.hostel_name,
+                       rgd.gender as hostel_gender,
+                       rgd.reserved_for
                 FROM rooms_groups_details rgd
-                ORDER BY rgd.hostel_name, rgd.group_name, rgd.room_number";
-                
+                WHERE $whereClause
+                ORDER BY rgd.hostel_name, rgd.room_type, rgd.group_name, rgd.room_number";
+
         $stmt = $conn->prepare($sql);
+        if (!empty($params)) {
+            $stmt->bind_param($types, ...$params);
+        }
         $stmt->execute();
         $result = $stmt->get_result();
         $rooms = $result->fetch_all(MYSQLI_ASSOC);
@@ -181,10 +301,7 @@ function getVacantRooms($conn) {
             $hName = $room['hostel_name'];
             if (!isset($hostels[$hName])) {
                 $hostels[$hName] = [
-                    'hostel_id' => $hName,
                     'hostel_name' => $room['hostel_name'],
-                    'hostel_type' => $room['hostel_type'],
-                    'campus' => $room['campus'],
                     'rooms' => []
                 ];
             }
@@ -192,9 +309,12 @@ function getVacantRooms($conn) {
         }
 
         echo json_encode([
-            'status' => 'success',
-            'count' => count($rooms),
-            'hostels' => array_values($hostels)
+            'status'               => 'success',
+            'count'                => count($rooms),
+            'data'                 => $rooms,
+            'student_institution'  => $institution,
+            'student_gender'       => $gender,
+            'hostels'              => array_values($hostels)
         ]);
     } catch (Exception $e) {
         http_response_code(500);

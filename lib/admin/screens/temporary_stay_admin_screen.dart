@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
 import '../../main.dart';
+import '../../shared/wallpaper_provider.dart';
+import '../../shared/ui_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../warden/widgets/warden_widgets.dart';
 
@@ -293,7 +296,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
                         'Fee',
                         (req['amount'] != null &&
                                 (double.tryParse(req['amount'].toString()) ?? 0) > 0)
-                            ? '₹${(double.tryParse(req['amount'].toString()) ?? 0).toStringAsFixed(2)} (Annual/365 × days)'
+                            ? '₹${(((double.tryParse(req['amount'].toString()) ?? 0) / 50.0).round() * 50)} (Annual/365 × days)'
                             : 'Calculated upon approval',
                         Icons.payments,
                       ),
@@ -410,7 +413,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
   }
 
   // ── Compact list card ────────────────────────────────────────────────────────
-  Widget _buildRequestCard(Map<String, dynamic> req) {
+  Widget _buildRequestCard(Map<String, dynamic> req, [bool isDark = false]) {
     final status = req['status'] ?? 'pending';
     Color statusColor = const Color(0xFFF59E0B);
     if (status == 'approved') statusColor = Colors.green.shade700;
@@ -424,16 +427,19 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : Colors.white,
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: _navy.withOpacity(0.07),
+              color: Colors.black.withOpacity(isDark ? 0.35 : 0.07),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
           ],
-          border: Border.all(color: const Color(0xFFE8EDF3), width: 1),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.14) : const Color(0xFFE8EDF3),
+            width: 1,
+          ),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -459,7 +465,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
                       style: GoogleFonts.outfit(
                         fontWeight: FontWeight.bold,
                         fontSize: 14.5,
-                        color: _navy,
+                        color: isDark ? const Color(0xFFD4AF37) : _navy,
                         letterSpacing: 0.3,
                       ),
                     ),
@@ -468,7 +474,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
                       req['full_name'] ?? 'Unknown Applicant',
                       style: GoogleFonts.inter(
                         fontSize: 12,
-                        color: Colors.grey.shade700,
+                        color: isDark ? Colors.white70 : Colors.grey.shade700,
                         fontWeight: FontWeight.w500,
                       ),
                       overflow: TextOverflow.ellipsis,
@@ -477,12 +483,12 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
                     Row(
                       children: [
                         Icon(Icons.calendar_today,
-                            size: 11, color: Colors.grey.shade500),
+                            size: 11, color: isDark ? Colors.white54 : Colors.grey.shade500),
                         const SizedBox(width: 4),
                         Text(
                           '${req['from_date'] ?? ''} → ${req['to_date'] ?? ''}',
                           style: GoogleFonts.inter(
-                              fontSize: 10.5, color: Colors.grey.shade600),
+                              fontSize: 10.5, color: isDark ? Colors.white60 : Colors.grey.shade600),
                         ),
                       ],
                     ),
@@ -685,12 +691,23 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
   // ── Build ────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     final canPop = Navigator.of(context).canPop();
+    final isDesktop = MediaQuery.of(context).size.width >= 768;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
         title: 'Temporary Stay Requests',
-        onBack: canPop ? () => Navigator.of(context).pop() : null,
+        onBack: () {
+          final ui = Provider.of<UIProvider>(context, listen: false);
+          if (isDesktop && ui.activeChatChannel != null) {
+            ui.setActiveChatChannel(null);
+          } else if (canPop) {
+            Navigator.of(context).pop();
+          }
+        },
         rightAction: IconButton(
           icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
           onPressed: _fetchRequests,
@@ -706,12 +723,14 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
               margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : Colors.white,
                 borderRadius: BorderRadius.circular(30),
-                border: Border.all(color: Colors.black12),
+                border: Border.all(
+                  color: isDark ? Colors.white.withOpacity(0.14) : Colors.black12,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
+                    color: Colors.black.withOpacity(isDark ? 0.3 : 0.04),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),
@@ -719,9 +738,9 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
               ),
               child: Row(
                 children: [
-                  Expanded(child: _buildStatusTab('pending', 'Pending', Icons.hourglass_empty_outlined)),
-                  Expanded(child: _buildStatusTab('approved', 'Approved', Icons.check_circle_outline)),
-                  Expanded(child: _buildStatusTab('rejected', 'Rejected', Icons.cancel_outlined)),
+                  Expanded(child: _buildStatusTab('pending', 'Pending', Icons.hourglass_empty_outlined, isDark)),
+                  Expanded(child: _buildStatusTab('approved', 'Approved', Icons.check_circle_outline, isDark)),
+                  Expanded(child: _buildStatusTab('rejected', 'Rejected', Icons.cancel_outlined, isDark)),
                 ],
               ),
             ),
@@ -772,7 +791,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
                           ),
                           itemCount: _requests.length,
                           itemBuilder: (ctx, i) =>
-                              _buildRequestCard(_requests[i]),
+                              _buildRequestCard(_requests[i], isDark),
                         ),
             ),
           ],
@@ -782,7 +801,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
   }
 
   // Activity-Logs-style gold glossy tab (matches the app's skeuomorphic design system)
-  Widget _buildStatusTab(String status, String label, IconData icon) {
+  Widget _buildStatusTab(String status, String label, IconData icon, [bool isDark = false]) {
     final bool isSelected = _selectedStatus == status;
     return GestureDetector(
       onTap: () {
@@ -812,14 +831,14 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
           children: [
             Icon(
               icon,
-              color: isSelected ? const Color(0xFF3D2E0A) : Colors.grey,
+              color: isSelected ? const Color(0xFF3D2E0A) : (isDark ? Colors.white60 : Colors.grey),
               size: 15,
             ),
             const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? const Color(0xFF3D2E0A) : Colors.grey,
+                color: isSelected ? const Color(0xFF3D2E0A) : (isDark ? Colors.white70 : Colors.grey),
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
                 fontFamily: 'Lato',

@@ -21,6 +21,8 @@ if (Test-Path "build") {
 
 # Clean ephemeral and dependency caches
 Remove-Item -Path ".dart_tool", ".flutter-plugins-dependencies" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "ios/Flutter/Generated.xcconfig", "ios/Flutter/flutter_export_environment.sh" -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "ios/Pods", "ios/Podfile.lock", "ios/.symlinks" -Recurse -Force -ErrorAction SilentlyContinue
 
 # 2. Define test & temporary checkup files/patterns to clean
 $itemsToDelete = @(

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
 import '../../core/api_service.dart';
 import '../../core/app_logger.dart';
+import '../../core/top_notification.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 
 class PaymentPage extends StatefulWidget {
@@ -168,8 +169,10 @@ class _PaymentPageState extends State<PaymentPage> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
+    TopNotification.showError(
+      context,
+      title: 'Payment Error',
+      message: msg,
     );
   }
 

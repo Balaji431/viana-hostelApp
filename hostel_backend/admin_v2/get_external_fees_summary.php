@@ -2,9 +2,9 @@
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
-if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') exit(0);
+if (($_SERVER['REQUEST_METHOD'] ?? '') == 'OPTIONS') exit(0);
 
-require_once '../config/api_config.php';
+require_once __DIR__ . '/../config/api_config.php';
 header('Content-Type: application/json');
 
 $ch = curl_init('https://vstudy.saveetha.com/api/hostel-settings/availability/external');

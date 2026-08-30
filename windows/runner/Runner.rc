@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "com.vianasoft.com" "\0"
+            VALUE "CompanyName", "com.vianasoft" "\0"
+            VALUE "FileDescription", "VStay" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "com.vianasoft.com" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "com.vianasoft.com.exe" "\0"
-            VALUE "ProductName", "com.vianasoft.com" "\0"
+            VALUE "InternalName", "VStay" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026. All rights reserved." "\0"
+            VALUE "OriginalFilename", "VStay.exe" "\0"
+            VALUE "ProductName", "VStay" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

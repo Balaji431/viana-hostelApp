@@ -112,9 +112,11 @@ function syncStudentOnDemand($email, $db) {
     ]);
 
     // 2. Insert into users table if missing
-    $checkUserStmt  = $db->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
+    $checkUserStmt  = $db->prepare("SELECT id, email_override FROM users WHERE username = ? OR email = ?");
     $checkUserStmt->execute([$roll, $userEmail]);
-    $existingId = $checkUserStmt->fetchColumn();
+    $existingRow   = $checkUserStmt->fetch(PDO::FETCH_ASSOC);
+    $existingId    = $existingRow ? $existingRow['id'] : null;
+    $emailOverride = $existingRow ? (int)($existingRow['email_override'] ?? 0) : 0;
 
     if (!$existingId) {
         $insertUserStmt = $db->prepare("
@@ -142,7 +144,10 @@ function syncStudentOnDemand($email, $db) {
     } else {
         $updateUserStmt = $db->prepare("
             UPDATE users SET 
-                full_name = ?, email = ?, phone_number = ?, Campus = ?, HostelName = ?, HostelType = ?, RoomType = ?, RoomId = ?
+                full_name = ?,
+                email = IF(email_override = 1, email, ?),
+                phone_number = IF(email_override = 1, phone_number, ?),
+                Campus = ?, HostelName = ?, HostelType = ?, RoomType = ?, RoomId = ?
             WHERE id = ?
         ");
         $updateUserStmt->execute([$name, $userEmail, $phone, $campus, $hostelName, $hType, $roomType, $roomNo, $existingId]);

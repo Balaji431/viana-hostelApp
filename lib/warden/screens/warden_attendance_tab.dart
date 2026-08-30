@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import 'dart:math';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
@@ -146,12 +147,16 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     super.build(context);
     final user = context.watch<UserProvider>();
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     final showInternalAppBar = (user.role == UserRole.warden || user.role == UserRole.admin);
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: showInternalAppBar 
           ? const SkeuomorphicNavBar(
               title: 'Attendance',
@@ -163,33 +168,33 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
             SliverToBoxAdapter(
               child: Column(
                 children: [
-                  _buildMonthSelector(),
-                  _buildHeatmapCard(),
+                  _buildMonthSelector(isDark),
+                  _buildHeatmapCard(isDark),
                 ],
               ),
             ),
             SliverToBoxAdapter(
-              child: _buildMarkAttendanceButton(),
+              child: _buildMarkAttendanceButton(isDark),
             ),
             SliverPersistentHeader(
               pinned: true,
               delegate: _SearchHeaderDelegate(
-                child: _buildSearchAndStatsHeader(),
+                child: _buildSearchAndStatsHeader(isDark),
               ),
             ),
             SliverToBoxAdapter(
-              child: _buildDailyStatsSection(),
+              child: _buildDailyStatsSection(isDark),
             ),
-            _buildStudentListSliver(),
+            _buildStudentListSliver(isDark),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildMarkAttendanceButton() {
+  Widget _buildMarkAttendanceButton(bool isDark) {
     return Container(
-      color: const Color(0xFFFDFBF7), // Match background
+      color: Colors.transparent,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: SkeuomorphicButton(
         onTap: () => _showManualAttendanceModal(context),
@@ -218,12 +223,14 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
     );
   }
 
-
-
-  Widget _buildMonthSelector() {
+  Widget _buildMonthSelector(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-      decoration: const BoxDecoration(gradient: SkeuomorphicColors.navyAppBarGradient),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+        gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
+        border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))) : null,
+      ),
       child: Column(
         children: [
           Row(
@@ -285,16 +292,36 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
     );
   }
 
-  Widget _buildHeatmapCard() {
+  Widget _buildHeatmapCard(bool isDark) {
     return Container(
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(15),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.75) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.16) : Colors.black.withOpacity(0.06),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.06),
+            blurRadius: isDark ? 16 : 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => Text(d, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))).toList(),
+            children: ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => Text(
+              d,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white70 : Colors.grey,
+              ),
+            )).toList(),
           ),
           const SizedBox(height: 10),
           GridView.builder(
@@ -327,7 +354,9 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
                 },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: _monthlyDailyData.containsKey(day) ? _getHeatmapColor(attendancePerc, isFuture) : const Color(0xFFE8E0D5),
+                    color: _monthlyDailyData.containsKey(day) 
+                        ? _getHeatmapColor(attendancePerc, isFuture) 
+                        : (isDark ? Colors.white12 : const Color(0xFFE8E0D5)),
                     borderRadius: BorderRadius.circular(4),
                     border: isSelected ? Border.all(color: const Color(0xFFD4AF37), width: 2) : (isToday ? Border.all(color: Colors.white, width: 2) : null),
                   ),
@@ -344,20 +373,20 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
             },
           ),
           const SizedBox(height: 15),
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Low', style: TextStyle(fontSize: 10, color: Colors.red, fontWeight: FontWeight.bold)),
+              const Text('Low', style: TextStyle(fontSize: 10, color: Colors.red, fontWeight: FontWeight.bold)),
               Expanded(
                 child: Text(
                   'Tap dates to view • Multi-select supported', 
-                  style: TextStyle(fontSize: 10, color: Colors.grey),
+                  style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text('High', style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
+              const Text('High', style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
             ],
           ),
         ],
@@ -365,35 +394,56 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
     );
   }
 
-
-
-  Widget _buildSearchAndStatsHeader() {
+  Widget _buildSearchAndStatsHeader(bool isDark) {
     return Container(
-      color: const Color(0xFFFDFBF7),
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+      color: isDark ? const Color(0xFF0F172A).withOpacity(0.95) : const Color(0xFFFDFBF7),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (_selectedDays.isNotEmpty && !_isLoadingLogs) ...[
-            _buildDailyStats(_attendanceLogs),
-            const SizedBox(height: 15),
+            _buildDailyStats(_attendanceLogs, isDark),
+            const SizedBox(height: 10),
             TextField(
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13.5),
               decoration: InputDecoration(
                 hintText: 'Search students...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                prefixIcon: Icon(Icons.search, color: isDark ? Colors.white60 : Colors.grey, size: 20),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                  borderSide: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)),
+                ),
                 filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
               ),
               onChanged: (v) => setState(() => _searchQuery = v),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${_getFilteredLogs().length} Records', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey, fontSize: 14)),
-                Text(DateFormat('dd MMM yyyy').format(DateTime(_selectedMonth.year, _selectedMonth.month, _selectedDays.last)), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                Text(
+                  '${_getFilteredLogs().length} Records',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? const Color(0xFFD4AF37) : Colors.blueGrey,
+                    fontSize: 13,
+                  ),
+                ),
+                Text(
+                  DateFormat('dd MMM yyyy').format(DateTime(_selectedMonth.year, _selectedMonth.month, _selectedDays.last)),
+                  style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 11),
+                ),
               ],
             ),
           ],
@@ -402,31 +452,45 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
     );
   }
 
-  Widget _buildDailyStatsSection() {
+  Widget _buildDailyStatsSection(bool isDark) {
     if (_selectedDays.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 60),
+      return Padding(
+        padding: const EdgeInsets.only(top: 60),
         child: Column(
           children: [
-            Icon(Icons.calendar_month, size: 64, color: Colors.grey),
-            SizedBox(height: 15),
-            Text('Tap dates on the calendar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
-            Text('Select a date to view detailed attendance logs', style: TextStyle(color: Colors.grey)),
+            Icon(Icons.calendar_month, size: 64, color: isDark ? Colors.white38 : Colors.grey),
+            const SizedBox(height: 15),
+            Text(
+              'Tap dates on the calendar',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white70 : Colors.grey,
+              ),
+            ),
+            Text(
+              'Select a date to view detailed attendance logs',
+              style: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+            ),
           ],
         ),
       );
     }
     
     if (_isLoadingLogs) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 40),
-        child: Center(child: CircularProgressIndicator()),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: CircularProgressIndicator(
+            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+          ),
+        ),
       );
     }
     return const SizedBox.shrink();
   }
 
-  Widget _buildStudentListSliver() {
+  Widget _buildStudentListSliver(bool isDark) {
     if (_selectedDays.isEmpty || _isLoadingLogs) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
@@ -438,13 +502,13 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
       sliver: SliverList.builder(
         itemCount: filteredLogs.length,
         itemBuilder: (context, index) {
-          return _buildStudentCard(filteredLogs[index]);
+          return _buildStudentCard(filteredLogs[index], isDark);
         },
       ),
     );
   }
 
-  Widget _buildDailyStats(List<Map<String, dynamic>> logs) {
+  Widget _buildDailyStats(List<Map<String, dynamic>> logs, bool isDark) {
     int present = 0;
     int absent = 0;
     int half = 0;
@@ -466,28 +530,44 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.75) : Colors.white,
         borderRadius: BorderRadius.circular(15),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatColumn('Present', present, Colors.green),
-          _buildStatColumn('Absent', absent, Colors.red),
-          _buildStatColumn('Half Day', half, Colors.orange),
-          _buildStatColumn('Not Marked', notMarked, Colors.grey),
+          _buildStatColumn('Present', present, Colors.green, isDark),
+          _buildStatColumn('Absent', absent, Colors.red, isDark),
+          _buildStatColumn('Half Day', half, Colors.orange, isDark),
+          _buildStatColumn('Not Marked', notMarked, isDark ? Colors.white60 : Colors.grey, isDark),
         ],
       ),
     );
   }
 
-  Widget _buildStatColumn(String label, int value, Color color) {
+  Widget _buildStatColumn(String label, int value, Color color, bool isDark) {
     return Column(
       children: [
         Text(value.toString(), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: isDark ? Colors.white60 : Colors.grey,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ],
     );
   }
@@ -508,7 +588,7 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
     }).toList();
   }
 
-  Widget _buildStudentCard(Map<String, dynamic> log) {
+  Widget _buildStudentCard(Map<String, dynamic> log, bool isDark) {
     String name = log['name'] ?? 'Unknown';
     String initials = name.isNotEmpty ? name.trim().split(' ').where((s) => s.isNotEmpty).map((l) => l[0]).take(2).join().toUpperCase() : "?";
     String status = log['status'] ?? 'Not Marked';
@@ -519,47 +599,69 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
-        decoration: SkeuomorphicStyles.skeuomorphicCard,
-      child: Row(
-        children: [
-          Container(
-            width: 44, height: 44,
-            decoration: BoxDecoration(
-              gradient: _getAvatarGradient(status),
-              color: status == 'Not Marked' ? Colors.grey.shade400 : null,
-              shape: BoxShape.circle,
-            ),
-            child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
           ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                gradient: _getAvatarGradient(status),
+                color: status == 'Not Marked' ? (isDark ? Colors.white24 : Colors.grey.shade400) : null,
+                shape: BoxShape.circle,
+              ),
+              child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: SkeuomorphicStyles.playfairHeader.copyWith(
+                      fontSize: 14,
+                      color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                    ),
+                  ),
+                  Text(
+                    'Room: ${log['room_no'] ?? "N/A"} • ID: ${log['RegisterNumber'] ?? 'N/A'}',
+                    style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(name, style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 14, color: const Color(0xFF1B2B48))),
-                Text('Room: ${log['room_no'] ?? "N/A"} • ID: ${log['RegisterNumber'] ?? 'N/A'}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                _buildStatusBadge(status),
+                const SizedBox(height: 5),
+                if (status != 'Not Marked' && timeStr.isNotEmpty)
+                  Row(
+                    children: [
+                      Icon(
+                        status.toLowerCase() == 'present' || status.toLowerCase() == 'in' ? Icons.check_circle : (status.toLowerCase() == 'half day' ? Icons.timelapse : Icons.cancel), 
+                        size: 10, 
+                        color: _getFilterColor(status)
+                      ),
+                      const SizedBox(width: 4),
+                      Text(timeStr, style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey)),
+                    ],
+                  ),
               ],
             ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _buildStatusBadge(status),
-              const SizedBox(height: 5),
-              if (status != 'Not Marked' && timeStr.isNotEmpty)
-                Row(
-                  children: [
-                    Icon(
-                      status.toLowerCase() == 'present' || status.toLowerCase() == 'in' ? Icons.check_circle : (status.toLowerCase() == 'half day' ? Icons.timelapse : Icons.cancel), 
-                      size: 10, 
-                      color: _getFilterColor(status)
-                    ),
-                    const SizedBox(width: 4),
-                    Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                  ],
-                ),
-            ],
-          ),
           ],
         ),
       ),
@@ -688,18 +790,35 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = Provider.of<WallpaperProvider>(context, listen: false);
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     if (_isSuccess) {
       return Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(vertical: 40),
+        backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: isDark ? BorderSide(color: Colors.white.withOpacity(0.18)) : BorderSide.none,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle_outline, color: Colors.green, size: 80),
-              SizedBox(height: 20),
-              Text('Attendance Saved!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              Text('Records updated successfully.', style: TextStyle(color: Colors.grey)),
+              const Icon(Icons.check_circle_outline, color: Colors.green, size: 80),
+              const SizedBox(height: 20),
+              Text(
+                'Attendance Saved!',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                ),
+              ),
+              Text('Records updated successfully.', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
             ],
           ),
         ),
@@ -708,7 +827,7 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
     int totalCount = _students.length;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFDFBF7),
+      backgroundColor: isDark ? const Color(0xFF0F1520) : const Color(0xFFFDFBF7),
       body: SafeArea(
         child: Column(
             children: [
@@ -738,22 +857,33 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                     children: [
                       const SizedBox(height: 10),
                       // Date Selector
-                      Text('ATTENDANCE DATE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade600, letterSpacing: 1)),
+                      Text(
+                        'ATTENDANCE DATE',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white60 : Colors.grey.shade600,
+                          letterSpacing: 1,
+                        ),
+                      ),
                       const SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
+                          color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade50,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.black12),
+                          border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.calendar_today, size: 18, color: Colors.grey),
+                            Icon(Icons.calendar_today, size: 18, color: isDark ? const Color(0xFFD4AF37) : Colors.grey),
                             const SizedBox(width: 15),
                             Text(
                               '${DateFormat('dd MMMM yyyy').format(_selectedDate)} (Strictly Today)', 
-                              style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white : Colors.grey.shade800,
+                              ),
                             ),
                           ],
                         ),
@@ -764,9 +894,9 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                       // Status Stats
                       Row(
                         children: [
-                          Expanded(child: _buildStatBox('${_students.where((s) => s['status'] == 'present').length}', 'PRESENT', Colors.green)),
+                          Expanded(child: _buildStatBox('${_students.where((s) => s['status'] == 'present').length}', 'PRESENT', Colors.green, isDark)),
                           const SizedBox(width: 8),
-                          Expanded(child: _buildStatBox('${_students.where((s) => s['status'] == 'absent').length}', 'ABSENT', Colors.red)),
+                          Expanded(child: _buildStatBox('${_students.where((s) => s['status'] == 'absent').length}', 'ABSENT', Colors.red, isDark)),
                         ],
                       ),
                       
@@ -778,12 +908,14 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                           Expanded(
                             flex: 3,
                             child: TextField(
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
                               decoration: InputDecoration(
                                 hintText: 'Search student name...',
-                                prefixIcon: const Icon(Icons.search, size: 20),
+                                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                                prefixIcon: Icon(Icons.search, size: 20, color: isDark ? Colors.white60 : Colors.grey),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                                 filled: true,
-                                fillColor: Colors.grey.shade100,
+                                fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
                                 contentPadding: const EdgeInsets.symmetric(vertical: 0),
                               ),
                               onChanged: (v) => setState(() => _searchQuery = v),
@@ -796,15 +928,17 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                               height: 48,
                               padding: const EdgeInsets.symmetric(horizontal: 12),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
+                                color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
                                 borderRadius: BorderRadius.circular(12),
+                                border: isDark ? Border.all(color: Colors.white24) : null,
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
+                                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                                   isExpanded: true,
                                   value: _selectedRoom,
-                                  icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
-                                  style: const TextStyle(color: Colors.black87, fontSize: 13),
+                                  icon: Icon(Icons.arrow_drop_down, color: isDark ? Colors.white60 : Colors.grey),
+                                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
                                   onChanged: (String? newValue) {
                                     if (newValue != null) {
                                       setState(() {
@@ -819,7 +953,11 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                                     }
                                     return DropdownMenuItem<String>(
                                       value: value,
-                                      child: Text(displayValue, overflow: TextOverflow.ellipsis),
+                                      child: Text(
+                                        displayValue,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                                      ),
                                     );
                                   }).toList(),
                                 ),
@@ -834,8 +972,18 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('$totalCount Total Students', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-                          Text('${filteredStudents.length} Found', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                          Text(
+                            '$totalCount Total Students',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? const Color(0xFFD4AF37) : Colors.blueGrey,
+                            ),
+                          ),
+                          Text(
+                            '${filteredStudents.length} Found',
+                            style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey),
+                          ),
                         ],
                       ),
                       
@@ -844,12 +992,21 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                       // Student List
                       Expanded(
                         child: _isLoading
-                          ? const Center(child: CircularProgressIndicator())
+                          ? Center(
+                              child: CircularProgressIndicator(
+                                color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+                              ),
+                            )
                           : filteredStudents.isEmpty
-                            ? const Center(child: Text("No students matching search."))
+                            ? Center(
+                                child: Text(
+                                  "No students matching search.",
+                                  style: TextStyle(color: isDark ? Colors.white60 : Colors.grey),
+                                ),
+                              )
                             : ListView.builder(
                                 itemCount: filteredStudents.length,
-                                itemBuilder: (context, index) => _buildStudentMarkingRow(filteredStudents[index]),
+                                itemBuilder: (context, index) => _buildStudentMarkingRow(filteredStudents[index], isDark),
                               ),
                       ),
                     ],
@@ -861,8 +1018,8 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
+                  color: isDark ? const Color(0xFF131D2E) : Colors.white,
+                  border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200)),
                 ),
                 child: Row(
                   children: [
@@ -872,8 +1029,9 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 15),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                         ),
-                        child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                        child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(width: 15),
@@ -918,24 +1076,24 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
     );
   }
 
-  Widget _buildStatBox(String value, String label, Color color) {
+  Widget _buildStatBox(String value, String label, Color color, [bool isDark = false]) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withOpacity(isDark ? 0.18 : 0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Column(
         children: [
           Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-          Text(label, style: TextStyle(fontSize: 10, color: color.withOpacity(0.7), fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(fontSize: 10, color: isDark ? Colors.white70 : color.withOpacity(0.7), fontWeight: FontWeight.bold)),
         ],
       ),
     );
   }
 
-  Widget _buildStudentMarkingRow(Map<String, dynamic> s) {
+  Widget _buildStudentMarkingRow(Map<String, dynamic> s, [bool isDark = false]) {
     String name = s['name'] ?? 'Unknown';
     String initials = name.isNotEmpty ? name.trim().split(' ').where((s) => s.isNotEmpty).map((l) => l[0]).take(2).join().toUpperCase() : "?";
     
@@ -943,10 +1101,10 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black12),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4)],
+        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.02), blurRadius: 4)],
       ),
       child: Row(
         children: [
@@ -960,17 +1118,24 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B2B48))),
-                Text(s['room'], style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                  ),
+                ),
+                Text(s['room'], style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey)),
               ],
             ),
           ),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildSmallToggleButton(Icons.check, Colors.green, s['status'] == 'present', () => setState(() => s['status'] = 'present')),
+              _buildSmallToggleButton(Icons.check, Colors.green, s['status'] == 'present', () => setState(() => s['status'] = 'present'), isDark),
               const SizedBox(width: 8),
-              _buildSmallToggleButton(Icons.close, Colors.red, s['status'] == 'absent', () => setState(() => s['status'] = 'absent')),
+              _buildSmallToggleButton(Icons.close, Colors.red, s['status'] == 'absent', () => setState(() => s['status'] = 'absent'), isDark),
             ],
           ),
         ],
@@ -978,17 +1143,17 @@ class _ManualAttendanceModalState extends State<_ManualAttendanceModal> {
     );
   }
 
-  Widget _buildSmallToggleButton(IconData icon, Color color, bool active, VoidCallback onTap) {
+  Widget _buildSmallToggleButton(IconData icon, Color color, bool active, VoidCallback onTap, [bool isDark = false]) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 30, height: 30,
         decoration: BoxDecoration(
-          color: active ? color : Colors.grey.shade100,
+          color: active ? color : (isDark ? Colors.white12 : Colors.grey.shade100),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: active ? Colors.transparent : Colors.black12),
+          border: Border.all(color: active ? Colors.transparent : (isDark ? Colors.white24 : Colors.black12)),
         ),
-        child: Icon(icon, size: 16, color: active ? Colors.white : color.withOpacity(0.7)),
+        child: Icon(icon, size: 16, color: active ? Colors.white : (isDark ? Colors.white60 : color.withOpacity(0.7))),
       ),
     );
   }
@@ -1000,9 +1165,9 @@ class _SearchHeaderDelegate extends SliverPersistentHeaderDelegate {
   _SearchHeaderDelegate({required this.child});
 
   @override
-  double get minExtent => 190;
+  double get minExtent => 205;
   @override
-  double get maxExtent => 190;
+  double get maxExtent => 205;
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {

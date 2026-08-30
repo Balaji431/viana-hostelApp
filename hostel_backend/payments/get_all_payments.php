@@ -25,34 +25,14 @@ try {
 
     if ($warden_username && $warden_username !== 'admin') {
         $warden_filter = " WHERE p.registerNumber IN (
-            SELECT DISTINCT pr.reg_no
-            FROM profile pr
-            JOIN rooms_groups_details rgd ON (TRIM(pr.room_allocation) = TRIM(rgd.room_number))
-            JOIN mapping_staff ms ON (TRIM(ms.username) = :warden_username)
-            WHERE (
-                LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(rgd.hostel_name))
-                OR LOWER(TRIM(ms.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(rgd.hostel_name)), '%')
-                OR LOWER(TRIM(rgd.hostel_name)) LIKE CONCAT('%', LOWER(TRIM(ms.hostel_name)), '%')
-            )
-            AND (
-                LOWER(TRIM(rgd.group_name)) LIKE CONCAT('%', LOWER(TRIM(ms.floor_name)), '%')
-                OR ms.floor_name IS NULL OR ms.floor_name = ''
-            )
+            SELECT DISTINCT pr.reg_no COLLATE utf8mb4_unicode_ci 
+            FROM profile pr 
+            JOIN mapping_staff ms ON (ms.username = :warden_username AND LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(pr.hostel_name)))
         )";
         $params[':warden_username'] = $warden_username;
     }
 
-    // Try booking_date first, fallback to payment_id if it doesn't exist
-    $query = "SELECT p.* FROM payment p $warden_filter ORDER BY payment_id DESC LIMIT 500";
-    
-    // Check if booking_date exists by trying to select it
-    try {
-        $check_query = "SELECT booking_date FROM payment LIMIT 1";
-        $db->query($check_query);
-        $query = "SELECT p.* FROM payment p $warden_filter ORDER BY booking_date DESC LIMIT 500";
-    } catch (Exception $e) {
-        // booking_date doesn't exist, keep the payment_id order
-    }
+    $query = "SELECT p.* FROM payment p $warden_filter ORDER BY COALESCE(p.paid_at, p.created_at, p.booking_date, p.id) DESC LIMIT 500";
 
     $stmt = $db->prepare($query);
     foreach ($params as $key => $val) {

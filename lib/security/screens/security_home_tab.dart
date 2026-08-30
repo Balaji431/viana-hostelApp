@@ -5,6 +5,7 @@ import 'dart:async';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../shared/ui_provider.dart';
 import '../../shared/category_provider.dart';
 import '../../warden/widgets/warden_widgets.dart' show LinenBackground;
@@ -92,6 +93,8 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
   Widget build(BuildContext context) {
     super.build(context);
     final user = context.watch<UserProvider>();
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -119,11 +122,11 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildHeaderSection(user),
-                    const SizedBox(height: 25),
-                    _buildQuickActionsHeader(),
-                    _buildQuickActions(context),
-                    _buildAnnouncementsSection(context),
+                    _buildHeaderSection(user, isDark),
+                    const SizedBox(height: 15),
+                    _buildQuickActionsHeader(isDark),
+                    _buildQuickActions(context, isDark),
+                    _buildAnnouncementsSection(context, isDark),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -135,40 +138,85 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
   );
 }
 
+  Widget _buildHeaderSection(UserProvider user, bool isDark) {
+    final String displayName = user.userName.isEmpty ? 'Security Staff' : user.userName;
+    final String displayId = user.username.isEmpty ? 'ID: Security' : 'ID: ${user.username}';
 
-
-  Widget _buildHeaderSection(UserProvider user) {
-    String displayName = user.userName.isEmpty ? 'Security Staff' : user.userName;
-    String displayId = user.username.isEmpty ? 'ID: Security' : 'ID: ${user.username}';
+    String initials = 'S';
+    final parts = displayName.trim().split(RegExp(r'\s+'));
+    if (parts.isNotEmpty) {
+      if (parts.length > 1 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+        initials = '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+      } else if (parts[0].isNotEmpty) {
+        initials = parts[0].length >= 2 ? parts[0].substring(0, 2).toUpperCase() : parts[0][0].toUpperCase();
+      }
+    }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 30),
-      decoration: const BoxDecoration(
-        gradient: SkeuomorphicColors.royalContentGradient,
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+        gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
+        border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))) : null,
       ),
       child: Row(
         children: [
           Container(
-            width: 64, height: 64,
-            decoration: const BoxDecoration(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: SkeuomorphicColors.goldGlossyGradient,
-              boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 5, offset: Offset(0, 3))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+              border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
             ),
             child: Center(
               child: Text(
-                displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S', 
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1a2744))
+                initials,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF1B2B48),
+                  fontFamily: 'Lato',
+                ),
               ),
             ),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(displayName, style: SkeuomorphicStyles.playfairHeader.copyWith(color: Colors.white, fontSize: 20)),
-                Text(displayId, style: SkeuomorphicStyles.latoBody.copyWith(color: const Color(0xFFA0B0C0), fontSize: 14)),
+                Text(
+                  displayName.toUpperCase(),
+                  style: const TextStyle(
+                    fontFamily: 'Lato',
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 0.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  displayId,
+                  style: TextStyle(
+                    fontFamily: 'Lato',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : SkeuomorphicColors.residenceMutedText,
+                    letterSpacing: 0.5,
+                  ),
+                ),
               ],
             ),
           ),
@@ -177,9 +225,9 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
     );
   }
 
-  Widget _buildQuickActionsHeader() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 25),
+  Widget _buildQuickActionsHeader(bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 25),
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(
@@ -187,13 +235,13 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF5D5D5D),
+            color: isDark ? Colors.white : const Color(0xFF5D5D5D),
           ),
         ),
       ),
     );
   }
-  Widget _buildQuickActions(BuildContext context) {
+  Widget _buildQuickActions(BuildContext context, bool isDark) {
     final catProvider = context.watch<CategoryProvider>();
     final List<Map<String, dynamic>> predefinedActions = [
       {
@@ -221,6 +269,7 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
                 action['color'],
                 action['channel'],
                 action['count'],
+                isDark,
               ),
             ),
           );
@@ -229,7 +278,7 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
     );
   }
 
-  Widget _buildActionCard(BuildContext context, String title, IconData icon, Color color, String channel, int count) {
+  Widget _buildActionCard(BuildContext context, String title, IconData icon, Color color, String channel, int count, bool isDark) {
     bool isHover = false;
     return StatefulBuilder(
       builder: (context, setHover) {
@@ -247,7 +296,7 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
                 final user = Provider.of<UserProvider>(context, listen: false);
                 Navigator.push(context, MaterialPageRoute(
                   builder: (context) => Scaffold(
-                    backgroundColor: const Color(0xFFF9F6F1),
+                    backgroundColor: Colors.transparent,
                     body: WardenChatInterface(channel: channel),
                   ),
                   settings: RouteSettings(name: '/chat_$channel'),
@@ -270,16 +319,18 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
                   height: 110,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
                     borderRadius: BorderRadius.circular(15),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(isHover ? 0.18 : 0.08),
+                        color: Colors.black.withOpacity(isHover ? 0.25 : (isDark ? 0.35 : 0.08)),
                         blurRadius: isHover ? 18 : 10,
                         offset: Offset(0, isHover ? 8 : 4),
                       ),
                     ],
-                    border: Border.all(color: Colors.black.withOpacity(0.03)),
+                    border: Border.all(
+                      color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.03),
+                    ),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -307,10 +358,10 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
                       const SizedBox(height: 10),
                       Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF1B2B48),
+                          color: isDark ? Colors.white : const Color(0xFF1B2B48),
                         ),
                         textAlign: TextAlign.center,
                         overflow: TextOverflow.ellipsis,
@@ -345,7 +396,7 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
     );
   }
 
-  Widget _buildAnnouncementsSection(BuildContext context) {
+  Widget _buildAnnouncementsSection(BuildContext context, bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 20),
       child: Column(
@@ -354,27 +405,45 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
-                children: const [
-                  Icon(Icons.notifications_active, color: Color(0xFFD4AF37), size: 18),
-                  SizedBox(width: 8),
-                  Text('ANNOUNCEMENTS', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                children: [
+                  const Icon(Icons.notifications_active, color: Color(0xFFD4AF37), size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'ANNOUNCEMENTS', 
+                    style: TextStyle(
+                      fontSize: 11, 
+                      color: isDark ? const Color(0xFFD4AF37) : Colors.grey, 
+                      fontWeight: FontWeight.bold, 
+                      letterSpacing: 1.2,
+                    ),
+                  ),
                 ],
               ),
             ],
           ),
           const SizedBox(height: 10),
           if (_isLoadingAnnouncements)
-            const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20), 
+                child: CircularProgressIndicator(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)),
+              ),
+            )
           else if (_announcements.isEmpty)
-            const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No announcements yet", style: TextStyle(color: Colors.grey))))
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20), 
+                child: Text("No announcements yet", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+              ),
+            )
           else
-            ..._announcements.map((a) => _buildAnnouncementItem(a)),
+            ..._announcements.map((a) => _buildAnnouncementItem(a, isDark)),
         ],
       ),
     );
   }
 
-  Widget _buildAnnouncementItem(Map<String, dynamic> announcement) {
+  Widget _buildAnnouncementItem(Map<String, dynamic> announcement, bool isDark) {
     String dateStr = announcement['date'] ?? DateTime.now().toString();
     DateTime? date;
     try {
@@ -386,7 +455,20 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -399,17 +481,33 @@ class _SecurityHomeTabState extends State<SecurityHomeTab> with AutomaticKeepAli
                     Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFFD4AF37), shape: BoxShape.circle)),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Text(announcement['title'] ?? '', style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 14, color: SkeuomorphicColors.residenceNavy), overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        announcement['title'] ?? '', 
+                        style: SkeuomorphicStyles.playfairHeader.copyWith(
+                          fontSize: 14, 
+                          color: isDark ? Colors.white : SkeuomorphicColors.residenceNavy,
+                        ), 
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 10),
-              Text(DateFormat('dd MMM yyyy').format(date), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              Text(
+                DateFormat('dd MMM yyyy').format(date), 
+                style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey),
+              ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(announcement['content'] ?? '', style: SkeuomorphicStyles.latoBody.copyWith(fontSize: 13, color: Colors.blueGrey)),
+          Text(
+            announcement['content'] ?? '', 
+            style: SkeuomorphicStyles.latoBody.copyWith(
+              fontSize: 13, 
+              color: isDark ? Colors.white70 : Colors.blueGrey,
+            ),
+          ),
         ],
       ),
     );

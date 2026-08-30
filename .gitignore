@@ -57,6 +57,65 @@ app.*.map.json
 # MySQL Database backups and dumps
 *.sql
 
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# VS Code config
+.vscode/
+
+# Composer dependencies
+/hostel_backend/vendor/
+
+# Application secrets (PHP & Firebase)
+/hostel_backend/config/secrets.php
+/hostel_backend/config/service-account.json
+
+# MySQL Database backups and dumps
+*.sql
+
 # Logs and Debug files
 *.log
 hostel_backend/fcm_debug.txt
@@ -66,3 +125,12 @@ hostel_backend/token_debug.log
 # Uploads and temporary runtime cache
 /hostel_backend/uploads/
 .env
+
+# SSH keys and credentials — NEVER commit these
+*.pem
+*.key
+*.p12
+*.pfx
+*-key.json
+google-services.json
+GoogleService-Info.plist

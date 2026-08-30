@@ -4,37 +4,26 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for (let registration of registrations) {
-          registration.unregister();
-        }
-      });
-    }
-  </script>
-  <meta name="description" content="Saveetha Hostels">
+  <meta name="description" content="SIMATS VSTAY. Welcome Back. Login required for secure access to hostel services. Continue with Google to manage attendance, wallet, and room requests.">
 
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Saveetha Hostels">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="VStay">
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png">
 
-  <link rel="icon" type="image/png" href="favicon.png"/>
-  <title>Saveetha Hostels</title>
+  <link rel="icon" type="image/png" sizes="192x192" href="favicon.png"/>
+  <title>SIMATS VStay Portal</title>
   <link rel="manifest" href="manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://accounts.google.com">
   <link rel="preconnect" href="https://vstay.saveetha.com" crossorigin>
   <link rel="dns-prefetch" href="https://vstay.saveetha.com">
+  <link rel="preload" href="favicon.png" as="image">
   <link rel="preload" href="flutter_bootstrap.js" as="script">
-  <link rel="preload" href="assets/images/login_bg.jpg" as="image">
-  <link rel="stylesheet" href="index.css">
+  <link rel="preload" href="main.dart.js" as="script">
 
   <style>
     html,
@@ -46,21 +35,131 @@
       background-color: #0f1520;
       background-image: linear-gradient(135deg, #0f1520 0%, #1a2235 50%, #0f1520 100%);
       background-attachment: fixed;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
     }
 
-    .bg-linen-grid {
-      background-color: #f5f0e8;
-      background-image:
-        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.03) 2px, rgba(0, 0, 0, 0.03) 4px),
-        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.03) 2px, rgba(0, 0, 0, 0.03) 4px),
-        linear-gradient(180deg, #f5f0e8 0%, #e8e0d5 100%);
-      background-attachment: fixed;
+    #loading-shell {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      pointer-events: none;
+      transition: opacity 0.35s ease-out;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #ffffff;
+      border-right-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
   </style>
+
   <meta name="google-signin-client_id" content="907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Razorpay checkout.js is loaded on-demand (only when a payment is initiated) -->
+  <script>
+    // Razorpay checkout.js is injected lazily — only fetched when a payment is
+    // actually initiated. This removes ~215 KB from every non-payment page load.
+    (function() {
+      var _rzpLoaded = false;
+      var _rzpLoading = false;
+      var _rzpQueue = [];
+
+      function _loadRazorpay(cb) {
+        if (_rzpLoaded) { cb(); return; }
+        _rzpQueue.push(cb);
+        if (_rzpLoading) return;
+        _rzpLoading = true;
+        var s = document.createElement('script');
+        s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        s.onload = function() {
+          _rzpLoaded = true;
+          _rzpLoading = false;
+          _rzpQueue.forEach(function(fn) { fn(); });
+          _rzpQueue = [];
+        };
+        s.onerror = function() {
+          _rzpLoading = false;
+          _rzpQueue.forEach(function(fn) { fn(new Error('Failed to load Razorpay SDK')); });
+          _rzpQueue = [];
+        };
+        document.head.appendChild(s);
+      }
+
+      window.openRazorpayModal = function(optionsJson, successCallback, failureCallback) {
+        _loadRazorpay(function(err) {
+          if (err) {
+            if (typeof failureCallback === 'function') failureCallback(err.toString());
+            return;
+          }
+          try {
+            var options = typeof optionsJson === 'string' ? JSON.parse(optionsJson) : optionsJson;
+            options.theme = options.theme || { color: '#1B2B48' };
+            options.handler = function(response) {
+              if (typeof successCallback === 'function') {
+                successCallback(JSON.stringify(response));
+              }
+            };
+            options.modal = {
+              ondismiss: function() {
+                if (typeof failureCallback === 'function') {
+                  failureCallback('Payment cancelled');
+                }
+              }
+            };
+            var rzp = new Razorpay(options);
+            rzp.on('payment.failed', function(resp) {
+              if (typeof failureCallback === 'function') {
+                var msg = (resp.error && resp.error.description) ? resp.error.description : 'Payment failed';
+                failureCallback(msg);
+              }
+            });
+            rzp.open();
+          } catch (err2) {
+            if (typeof failureCallback === 'function') failureCallback(err2.toString());
+          }
+        });
+      };
+    })();
+  </script>
 </head>
 <body>
+  <!-- Startup loading shell & LCP candidate -->
+  <div id="loading-shell">
+    <img src="favicon.png" alt="VStay" style="width: 72px; height: 72px; border-radius: 50%; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); margin-bottom: 12px;" />
+    <div style="color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 16px;">
+      SIMATS VSTAY
+    </div>
+    <div class="spinner"></div>
+  </div>
+
+  <script>
+    window.addEventListener('flutter-first-frame', function() {
+      var shell = document.getElementById('loading-shell');
+      if (shell) {
+        shell.style.opacity = '0';
+        setTimeout(function() {
+          shell.remove();
+        }, 400);
+      }
+    });
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

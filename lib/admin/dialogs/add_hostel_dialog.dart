@@ -3,16 +3,18 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
+import 'package:excel/excel.dart' as excel_pkg;
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 import 'dart:io' as io;
 
+import 'package:provider/provider.dart';
 import '../../core/api_service.dart';
+import '../../shared/wallpaper_provider.dart';
 import 'package:vianasoft_stay/core/models/hierarchical_hostel_model.dart';
-import 'csv_helper_stub.dart'
-    if (dart.library.html) 'csv_helper_web.dart'
-    if (dart.library.io) 'csv_helper_mobile.dart';
 
 enum AddHostelMode { initial, manual, csv }
+
 
 class AddHostelDialog extends StatefulWidget {
   final HierarchicalHostel? hostel;
@@ -260,6 +262,11 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -271,8 +278,9 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
         ),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F2ED),
+            color: isDark ? const Color(0xFF131D2E) : const Color(0xFFF5F2ED),
             borderRadius: BorderRadius.circular(24),
+            border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
           ),
           child: _mode == AddHostelMode.initial 
               ? Padding(
@@ -283,19 +291,22 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Add Hostel', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
-                          IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                          Text('Add Hostel', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context), 
+                            icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.black87),
+                          ),
                         ],
                       ),
-                      const Divider(),
-                      _buildSelectionView(),
+                      Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                      _buildSelectionView(isDark),
                     ],
                   ),
                 )
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_mode == AddHostelMode.manual) _buildStepNavigator(),
+                    if (_mode == AddHostelMode.manual) _buildStepNavigator(isDark),
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.all(24.0),
@@ -308,14 +319,17 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                                   _isEditMode 
                                       ? 'Edit Hostel' 
                                       : (_mode == AddHostelMode.csv ? 'CSV Import' : 'Add New Hostel'),
-                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)),
+                                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744)),
                                 ),
-                                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                                IconButton(
+                                  onPressed: () => Navigator.pop(context), 
+                                  icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.black87),
+                                ),
                               ],
                             ),
-                            const Divider(height: 20),
+                            Divider(height: 20, color: isDark ? Colors.white12 : Colors.grey.shade300),
                             Expanded(
-                              child: _buildContent(),
+                              child: _buildContent(isDark),
                             ),
                           ],
                         ),
@@ -328,13 +342,13 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Widget _buildStepNavigator() {
+  Widget _buildStepNavigator(bool isDark) {
     final stepTitles = ['Basic', 'Floors', 'Wings', 'Rooms', 'Review'];
     return Container(
       width: 240,
-      decoration: const BoxDecoration(
-        color: Color(0xFF141E2E),
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F1520) : const Color(0xFF141E2E),
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(24),
           bottomLeft: Radius.circular(24),
         ),
@@ -369,12 +383,12 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                       decoration: BoxDecoration(
                         color: isCompleted
                             ? const Color(0xFFD4AF37)
-                            : (isActive ? Colors.white : Colors.transparent),
+                            : (isActive ? (isDark ? const Color(0xFFD4AF37) : Colors.white) : Colors.transparent),
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: isCompleted 
                               ? const Color(0xFFD4AF37) 
-                              : (isActive ? Colors.white : Colors.white24),
+                              : (isActive ? (isDark ? const Color(0xFFD4AF37) : Colors.white) : Colors.white24),
                           width: 2,
                         ),
                       ),
@@ -395,7 +409,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                     Text(
                       stepTitles[index],
                       style: TextStyle(
-                        color: isActive ? Colors.white : (isCompleted ? Colors.white70 : Colors.white30),
+                        color: isActive ? (isDark ? const Color(0xFFD4AF37) : Colors.white) : (isCompleted ? Colors.white70 : Colors.white30),
                         fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                         fontSize: 14,
                       ),
@@ -410,32 +424,34 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(bool isDark) {
     if (_mode == AddHostelMode.csv) {
-      return _buildCSVUploadView();
+      return _buildCSVUploadView(isDark);
     } else {
-      return _buildManualStepper();
+      return _buildManualStepper(isDark);
     }
   }
 
-  Widget _buildSelectionView() {
+  Widget _buildSelectionView(bool isDark) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         const SizedBox(height: 16),
         _buildSelectionCard(
           title: 'Manual Setup',
-          description: 'Configure hostel, floors, and rooms.',
+          description: 'Configure hostel, floors, and rooms manually step-by-step.',
           icon: Icons.list_alt_rounded,
-          color: const Color(0xFF1A2744),
+          color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+          isDark: isDark,
           onTap: () => setState(() => _mode = AddHostelMode.manual),
         ),
         const SizedBox(height: 16),
         _buildSelectionCard(
-          title: 'CSV Import',
-          description: 'Bulk import from a CSV file.',
+          title: 'Bulk Excel / CSV Import',
+          description: 'Bulk import rooms using sample Excel with Room Type dropdowns (4 columns: Floor, Wing, Room No, Room Type).',
           icon: Icons.upload_file_rounded,
           color: const Color(0xFFD4AF37),
+          isDark: isDark,
           onTap: () => setState(() => _mode = AddHostelMode.csv),
         ),
         const SizedBox(height: 16),
@@ -448,6 +464,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     required String description,
     required IconData icon,
     required Color color,
+    required bool isDark,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -457,12 +474,12 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
         width: double.infinity,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+            BoxShadow(color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03), blurRadius: 10, offset: const Offset(0, 4)),
           ],
-          border: Border.all(color: color.withValues(alpha: 0.1), width: 1),
+          border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : color.withValues(alpha: 0.1), width: 1),
         ),
         child: Row(
           children: [
@@ -481,35 +498,35 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                 children: [
                   Text(
                     title,
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : color),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     description,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : Colors.grey.shade600),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: color.withValues(alpha: 0.5), size: 24),
+            Icon(Icons.chevron_right, color: isDark ? Colors.white38 : color.withValues(alpha: 0.5), size: 24),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildManualStepper() {
+  Widget _buildManualStepper(bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
           child: _isLoading 
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
+            ? Center(child: CircularProgressIndicator(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)))
             : SingleChildScrollView(
-                child: _buildCurrentStepContent(),
+                child: _buildCurrentStepContent(isDark),
               ),
         ),
-        const Divider(),
+        Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
@@ -518,10 +535,11 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                 OutlinedButton(
                   onPressed: _handleStepCancel,
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF1A2744)),
+                    side: BorderSide(color: isDark ? Colors.white38 : const Color(0xFF1A2744)),
+                    foregroundColor: isDark ? Colors.white : const Color(0xFF1A2744),
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                   ),
-                  child: const Text('Back', style: TextStyle(color: Color(0xFF1A2744))),
+                  child: const Text('Back'),
                 )
               else if (!_isEditMode)
                 TextButton(
@@ -548,8 +566,8 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                 ElevatedButton(
                   onPressed: _submitHostel,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A2744),
-                    foregroundColor: Colors.white,
+                    backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                    foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                   ),
                   child: _isLoading
@@ -570,63 +588,76 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Widget _buildCurrentStepContent() {
+  Widget _buildCurrentStepContent(bool isDark) {
     switch (_currentStep) {
       case 0:
-        return _buildStepBasic();
+        return _buildStepBasic(isDark);
       case 1:
-        return _buildStepFloors();
+        return _buildStepFloors(isDark);
       case 2:
-        return _buildStepWings();
+        return _buildStepWings(isDark);
       case 3:
-        return _buildStepRooms();
+        return _buildStepRooms(isDark);
       case 4:
-        return _buildStepReview();
+        return _buildStepReview(isDark);
       default:
         return const SizedBox();
     }
   }
 
-  Widget _buildStepBasic() {
+  Widget _buildStepBasic(bool isDark) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Basic Hostel Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+          Text('Basic Hostel Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
           const SizedBox(height: 20),
-          _buildCampusDropdown(),
+          _buildCampusDropdown(isDark),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: hostelController.text.isEmpty ? null : hostelController.text,
-            isExpanded: true,
-            decoration: const InputDecoration(
+          TextField(
+            controller: hostelController,
+            enabled: !_isEditMode,
+            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+            decoration: InputDecoration(
               labelText: 'Hostel Name',
-              prefixIcon: Icon(Icons.home, size: 18),
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+              hintText: 'Enter new hostel name (e.g. Ganga Hostel)',
+              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+              prefixIcon: Icon(Icons.home_work_rounded, size: 18, color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade700),
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
-            items: _hostelsList.map((h) => DropdownMenuItem(value: h['name'], child: Text(h['name']!, style: const TextStyle(fontSize: 14)))).toList(),
-            onChanged: _isEditMode ? null : (v) {
-              setState(() {
-                hostelController.text = v!;
-                final match = _hostelsList.firstWhere((element) => element['name'] == v);
-                codeController.text = match['code']!;
-              });
-              _fetchRoomsFromMaster(codeController.text);
+            onChanged: (val) {
+              if (!_isEditMode && codeController.text.isEmpty && val.isNotEmpty) {
+                final clean = val.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
+                final code = clean.length >= 3 ? clean.substring(0, 3) : clean;
+                setState(() => codeController.text = 'T-$code');
+              }
             },
           ),
           const SizedBox(height: 16),
-          _buildDropdownField(),
+          _buildDropdownField(isDark),
           const SizedBox(height: 16),
           TextField(
             controller: codeController,
-            readOnly: true,
-            decoration: const InputDecoration(
+            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+            decoration: InputDecoration(
               labelText: 'Building Code',
-              prefixIcon: Icon(Icons.code, size: 18),
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+              hintText: 'e.g. T-40 or G-01',
+              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+              prefixIcon: Icon(Icons.code, size: 18, color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade700),
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
           ),
         ],
@@ -634,21 +665,64 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Widget _buildStepFloors() {
+  Widget _buildStepFloors(bool isDark) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Floors Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+          Text('Floors Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
           const SizedBox(height: 8),
-          const Text('These floors are automatically populated from the Room Master data source.', style: TextStyle(fontSize: 13, color: Colors.black54)),
-          const SizedBox(height: 20),
+          Text('Add all floors for this hostel (e.g. Ground Floor, First Floor, Second Floor).', style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : Colors.black54)),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: floorController,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: InputDecoration(
+                    labelText: 'Floor Name',
+                    labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                    hintText: 'e.g. Ground Floor, First Floor',
+                    hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: () {
+                  final f = floorController.text.trim();
+                  if (f.isNotEmpty && !floors.any((x) => x['name']?.toLowerCase() == f.toLowerCase())) {
+                    setState(() {
+                      floors.add({'name': f, 'code': _getFloorCode(f)});
+                      floorController.clear();
+                      if (selectedFloor.isEmpty || selectedFloor == 'All') selectedFloor = f;
+                    });
+                  }
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add Floor'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                  foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           if (floors.isEmpty)
-            const Center(
+            Center(
               child: Padding(
-                padding: EdgeInsets.all(32.0),
-                child: Text('No floors loaded. Please select a valid hostel in Step 1.', style: TextStyle(color: Colors.red)),
+                padding: const EdgeInsets.all(24.0),
+                child: Text('No floors added yet. Please type a floor name above and click "Add Floor".', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey)),
               ),
             )
           else
@@ -656,9 +730,11 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
               spacing: 8,
               runSpacing: 8,
               children: floors.map((f) => Chip(
-                backgroundColor: Colors.white,
-                label: Text('${f['name']} (${f['code']})', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
-                side: const BorderSide(color: Color(0xFF1A2744)),
+                backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                label: Text('${f['name']} (${f['code']})', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
+                side: BorderSide(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)),
+                deleteIcon: Icon(Icons.close, size: 16, color: isDark ? Colors.white70 : Colors.black87),
+                onDeleted: () => setState(() => floors.remove(f)),
               )).toList(),
             ),
         ],
@@ -666,21 +742,64 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Widget _buildStepWings() {
+  Widget _buildStepWings(bool isDark) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Wings / Blocks Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+          Text('Wings / Blocks Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
           const SizedBox(height: 8),
-          const Text('These wings/blocks are automatically populated from the Room Master data source.', style: TextStyle(fontSize: 13, color: Colors.black54)),
-          const SizedBox(height: 20),
+          Text('Add wings or blocks for this hostel (e.g. Block A, Wing 1, General).', style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : Colors.black54)),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: wingController,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: InputDecoration(
+                    labelText: 'Wing / Block Name',
+                    labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                    hintText: 'e.g. Block A, Wing 1, General',
+                    hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: () {
+                  final w = wingController.text.trim();
+                  if (w.isNotEmpty && !wings.any((x) => x['name']?.toLowerCase() == w.toLowerCase())) {
+                    setState(() {
+                      wings.add({'name': w, 'code': w});
+                      wingController.clear();
+                      if (selectedWing.isEmpty) selectedWing = w;
+                    });
+                  }
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add Wing'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD4AF37),
+                  foregroundColor: const Color(0xFF1A2744),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           if (wings.isEmpty)
-            const Center(
+            Center(
               child: Padding(
-                padding: EdgeInsets.all(32.0),
-                child: Text('No wings loaded. Please select a valid hostel in Step 1.', style: TextStyle(color: Colors.red)),
+                padding: const EdgeInsets.all(24.0),
+                child: Text('No wings added yet. Please type a wing/block name above and click "Add Wing".', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey)),
               ),
             )
           else
@@ -688,9 +807,11 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
               spacing: 8,
               runSpacing: 8,
               children: wings.map((w) => Chip(
-                backgroundColor: Colors.white,
+                backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                 label: Text('${w['name']} (${w['code']})', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD4AF37))),
                 side: const BorderSide(color: Color(0xFFD4AF37)),
+                deleteIcon: Icon(Icons.close, size: 16, color: isDark ? Colors.white70 : Colors.black87),
+                onDeleted: () => setState(() => wings.remove(w)),
               )).toList(),
             ),
         ],
@@ -698,7 +819,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Widget _buildStepRooms() {
+  Widget _buildStepRooms(bool isDark) {
     final filteredRooms = (selectedFloor == 'All' || selectedFloor.isEmpty)
         ? rooms
         : rooms.where((r) => r['floor'] == selectedFloor).toList();
@@ -708,43 +829,61 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Rooms Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+          Text('Rooms Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
           const SizedBox(height: 20),
           
-          // Form to manually add a room if needed
+          // Form to manually add a room
           Card(
-            color: Colors.white,
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
             elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200)),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Add Manual Room Override', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text('Add Room to Hostel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: selectedRoomNo,
-                          decoration: const InputDecoration(labelText: 'Room No', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
-                          items: _getAvailableRoomsForSelectedFloor().map((r) => DropdownMenuItem(value: r, child: Text(r, style: const TextStyle(fontSize: 12)))).toList(),
-                          onChanged: (v) => setState(() => selectedRoomNo = v),
+                        child: TextField(
+                          controller: roomController,
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                          decoration: InputDecoration(
+                            labelText: 'Room Number',
+                            labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                            hintText: 'e.g. 101, 102, R01',
+                            hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                            filled: true,
+                            fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          initialValue: selectedFloor.isEmpty ? 'All' : selectedFloor,
-                          decoration: const InputDecoration(labelText: 'Floor', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
+                          initialValue: selectedFloor.isEmpty ? (floors.isNotEmpty ? floors.first['name'] : 'All') : selectedFloor,
+                          dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                          decoration: InputDecoration(
+                            labelText: 'Floor',
+                            labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                            filled: true,
+                            fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                          ),
                           items: [
-                            const DropdownMenuItem(value: 'All', child: Text('All', style: TextStyle(fontSize: 12))),
-                            ...floors.map((f) => DropdownMenuItem(value: f['name'], child: Text(f['name']!, style: const TextStyle(fontSize: 12)))),
+                            DropdownMenuItem(value: 'All', child: Text('All Floors', style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87))),
+                            ...floors.map((f) => DropdownMenuItem(value: f['name'], child: Text(f['name']!, style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87)))),
                           ],
                           onChanged: (v) => setState(() {
                             selectedFloor = v!;
-                            selectedRoomNo = null;
                           }),
                         ),
                       ),
@@ -752,8 +891,18 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                       Expanded(
                         child: DropdownButtonFormField<String>(
                           initialValue: selectedWing.isEmpty && wings.isNotEmpty ? wings.first['name'] : (selectedWing.isNotEmpty ? selectedWing : null),
-                          decoration: const InputDecoration(labelText: 'Wing', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
-                          items: wings.map((w) => DropdownMenuItem(value: w['name'], child: Text(w['name']!, style: const TextStyle(fontSize: 12)))).toList(),
+                          dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                          decoration: InputDecoration(
+                            labelText: 'Wing / Block',
+                            labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                            filled: true,
+                            fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                          ),
+                          items: wings.map((w) => DropdownMenuItem(value: w['name'], child: Text(w['name']!, style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87)))).toList(),
                           onChanged: (v) => setState(() => selectedWing = v!),
                         ),
                       ),
@@ -765,8 +914,20 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                       Expanded(
                         child: DropdownButtonFormField<String>(
                           initialValue: _roomType,
-                          decoration: const InputDecoration(labelText: 'Facility / Room Type', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
-                          items: _externalRoomTypes.map((t) => DropdownMenuItem(value: t['name'].toString(), child: Text(t['name'].toString(), style: const TextStyle(fontSize: 12)))).toList(),
+                          dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                          decoration: InputDecoration(
+                            labelText: 'Facility / Room Type',
+                            labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                            filled: true,
+                            fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                          ),
+                          items: _externalRoomTypes.isNotEmpty 
+                              ? _externalRoomTypes.map((t) => DropdownMenuItem(value: t['name'].toString(), child: Text(t['name'].toString(), style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87)))).toList()
+                              : ['4 IN 1 AC', '6 IN 1 NON AC', '2 IN 1 AC', 'Standard AC', 'Standard Non AC'].map((t) => DropdownMenuItem(value: t, child: Text(t, style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87)))).toList(),
                           onChanged: (v) => setState(() => _roomType = v!),
                         ),
                       ),
@@ -776,8 +937,8 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                         icon: const Icon(Icons.add, size: 14),
                         label: const Text('Add Room'),
                         style: ElevatedButton.styleFrom(
-                           backgroundColor: const Color(0xFF1A2744),
-                           foregroundColor: Colors.white,
+                           backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                           foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                         ),
                       ),
@@ -788,40 +949,40 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
             ),
           ),
           const SizedBox(height: 20),
-          Text('Rooms List (Total: ${filteredRooms.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1A2744))),
+          Text('Rooms List (Total: ${filteredRooms.length})', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isDark ? Colors.white : const Color(0xFF1A2744))),
           const SizedBox(height: 8),
-          _buildRoomsList(),
+          _buildRoomsList(isDark),
         ],
       ),
     );
   }
 
-  Widget _buildStepReview() {
+  Widget _buildStepReview(bool isDark) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Review Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+          Text('Review Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
           const SizedBox(height: 20),
           _buildReviewSection('Hostel Details', [
             'Campus: $selectedCampus',
             'Name: ${hostelController.text} (${typeController.text})',
             'Building Code: ${codeController.text}',
-          ]),
+          ], isDark),
           _buildReviewSection('Structure', [
             'Floors: ${floors.length} floors detected',
             'Wings: ${wings.length} blocks detected',
-          ]),
+          ], isDark),
           _buildReviewSection('Rooms Summary', [
             'Total Rooms to Create: ${rooms.length}',
-          ]),
+          ], isDark),
         ],
       ),
     );
   }
 
-  Widget _buildCSVUploadView() {
+  Widget _buildCSVUploadView(bool isDark) {
     return Column(
       children: [
         Expanded(
@@ -833,46 +994,63 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                   flex: 4,
                   child: Card(
                     elevation: 0,
-                    color: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Hostel Basic Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          Text('Hostel Basic Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isDark ? Colors.white : Colors.black87)),
                           const SizedBox(height: 12),
-                          _buildCampusDropdown(),
+                          _buildCampusDropdown(isDark),
                           const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            initialValue: hostelController.text.isEmpty ? null : hostelController.text,
-                            isExpanded: true,
-                            decoration: const InputDecoration(
+                          TextField(
+                            controller: hostelController,
+                            enabled: !_isEditMode,
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            decoration: InputDecoration(
                               labelText: 'Hostel Name',
-                              prefixIcon: Icon(Icons.home, size: 18),
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                              hintText: 'e.g. Ganga Hostel',
+                              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                              prefixIcon: Icon(Icons.home_work_rounded, size: 18, color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade700),
+                              filled: true,
+                              fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                             ),
-                            items: _hostelsList.map((h) => DropdownMenuItem(value: h['name'], child: Text(h['name']!, style: const TextStyle(fontSize: 14)))).toList(),
-                            onChanged: _isEditMode ? null : (v) {
-                              setState(() {
-                                hostelController.text = v!;
-                                final match = _hostelsList.firstWhere((element) => element['name'] == v);
-                                codeController.text = match['code']!;
-                              });
+                            onChanged: (val) {
+                              if (!_isEditMode && codeController.text.isEmpty && val.isNotEmpty) {
+                                final clean = val.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
+                                final code = clean.length >= 3 ? clean.substring(0, 3) : clean;
+                                setState(() => codeController.text = 'T-$code');
+                              }
                             },
                           ),
                           const SizedBox(height: 12),
-                          _buildDropdownField(),
+                          _buildDropdownField(isDark),
                           const SizedBox(height: 12),
                           TextField(
                             controller: codeController,
-                            readOnly: true,
-                            decoration: const InputDecoration(
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            decoration: InputDecoration(
                               labelText: 'Building Code',
-                              prefixIcon: Icon(Icons.code, size: 18),
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+                              hintText: 'e.g. T-40 or G-01',
+                              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                              prefixIcon: Icon(Icons.code, size: 18, color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade700),
+                              filled: true,
+                              fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+                              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                             ),
                           ),
                         ],
@@ -886,57 +1064,120 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
                   child: Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.grey.shade200),
+                      border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
                     ),
-                    child: Column(
+                    child: Stack(
                       children: [
-                        Icon(Icons.upload_file_rounded, size: 48, color: Colors.grey.shade400),
-                        const SizedBox(height: 12),
-                        const Text('Upload Rooms CSV', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Format: Floor, Wing, RoomNo, Capacity, Facility',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                          textAlign: TextAlign.center,
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: Tooltip(
+                            message: 'How to import rooms? Click for steps',
+                            child: InkWell(
+                              onTap: _showImportInstructionsDialog,
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFD4AF37).withValues(alpha: 0.12),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.help_outline_rounded, color: Color(0xFFD4AF37), size: 20),
+                              ),
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            ElevatedButton.icon(
-                              onPressed: _pickCSVAndProcess,
-                              icon: const Icon(Icons.file_upload_outlined, size: 18),
-                              label: const Text('Choose CSV File'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFD4AF37),
-                                foregroundColor: const Color(0xFF1A2744),
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                            Icon(Icons.description_rounded, size: 48, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Bulk Import Rooms (Excel / CSV)',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744)),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF0F1520) : const Color(0xFFF5F2ED),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: isDark ? const Color(0xFFD4AF37).withOpacity(0.4) : const Color(0xFFD4AF37).withValues(alpha: 0.4)),
+                              ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    'Required 4 Columns in Document:',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Floor  |  Wing  |  Room No  |  Room Type',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: isDark ? Colors.white : const Color(0xFF2A4A8C)),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                const csvContent = "Floor,Wing,RoomNo,Capacity,Facility\nF01,W01,101,4,4 IN 1 AC\nF01,W01,102,6,6 IN 1 NON AC\nF02,W02,201,2,2 IN 1 AC";
-                                downloadCSV(csvContent, "hostel_import_template.csv");
-                              },
-                              icon: const Icon(Icons.download_rounded, size: 18, color: Color(0xFFD4AF37)),
-                              label: const Text('Sample'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFFD4AF37),
-                                side: const BorderSide(color: Color(0xFFD4AF37), width: 1.5),
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: _pickFileAndProcess,
+                                    icon: const Icon(Icons.file_upload_outlined, size: 18),
+                                    label: const Text('Choose CSV / Excel'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: isDark ? const Color(0xFF0F1520) : const Color(0xFF1A2744),
+                                      foregroundColor: Colors.white,
+                                      side: isDark ? const BorderSide(color: Colors.white24) : null,
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: _openSampleGoogleSheet,
+                                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                                    label: const Text('Sample Template'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFFD4AF37),
+                                      foregroundColor: const Color(0xFF1A2744),
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
+                            if (rooms.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.check_circle_rounded, color: Colors.green, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '${rooms.length} rooms ready for onboarding!',
+                                      style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
-                        if (rooms.isNotEmpty) ...[
-                          const SizedBox(height: 20),
-                          Text('${rooms.length} rooms ready!', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 14)),
-                        ],
                       ],
                     ),
                   ),
@@ -945,7 +1186,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
             ),
           ),
         ),
-        const Divider(),
+        Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
@@ -963,8 +1204,8 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
               ElevatedButton(
                 onPressed: (rooms.isEmpty || hostelController.text.trim().isEmpty) ? null : _submitHostel,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A2744),
-                  foregroundColor: Colors.white,
+                  backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                  foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                 ),
                 child: _isLoading
@@ -978,16 +1219,171 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Future<void> _pickCSVAndProcess() async {
+  void _showImportInstructionsDialog() {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.read<WallpaperProvider>();
+    } catch (_) {}
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: isDark ? BorderSide(color: Colors.white.withOpacity(0.14)) : BorderSide.none,
+        ),
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+        contentPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD4AF37).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.help_outline_rounded, color: Color(0xFFD4AF37), size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Bulk Import Instructions',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744)),
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.close, size: 20, color: isDark ? Colors.white70 : Colors.grey),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
+              const SizedBox(height: 12),
+              _buildStepItem(
+                stepNum: '1',
+                title: 'Open Sample Template',
+                desc: 'Click "Sample Template" to open the Google Sheet in your browser.',
+                isDark: isDark,
+              ),
+              const SizedBox(height: 12),
+              _buildStepItem(
+                stepNum: '2',
+                title: 'Fill Hostel Rooms Data',
+                desc: 'Fill in the Floor, Wing, Room No, and select Room Type from the dropdown.',
+                isDark: isDark,
+              ),
+              const SizedBox(height: 12),
+              _buildStepItem(
+                stepNum: '3',
+                title: 'Download File',
+                desc: 'In Google Sheets, go to File → Download → Comma Separated Values (.csv) or Microsoft Excel (.xlsx).',
+                isDark: isDark,
+              ),
+              const SizedBox(height: 12),
+              _buildStepItem(
+                stepNum: '4',
+                title: 'Upload and Finish',
+                desc: 'Click "Choose CSV / Excel" in the app and upload your file. The rooms will be automatically parsed and populated for hostel creation.',
+                isDark: isDark,
+              ),
+              const SizedBox(height: 18),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                    foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  ),
+                  child: const Text('Got it'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepItem({required String stepNum, required String title, required String desc, bool isDark = false}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            stepNum,
+            style: TextStyle(color: isDark ? const Color(0xFF1A2744) : Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? Colors.white : const Color(0xFF1A2744)),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                desc,
+                style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87, height: 1.3),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openSampleGoogleSheet() async {
+    const url = 'https://docs.google.com/spreadsheets/d/1TJkFLYjxoMaJvVOdZ_a-4QYQY8ZW-fkR5BUmGufr--E/edit?usp=sharing';
+    final uri = Uri.parse(url);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('Error opening Google Sheet: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open link: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFileAndProcess() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: ['xlsx', 'xls', 'csv', 'txt'],
+        withData: true,
       );
 
       if (result == null || result.files.isEmpty) return;
 
       final file = result.files.first;
+      final ext = file.extension?.toLowerCase() ?? '';
       
       List<int>? fileBytes = file.bytes;
       if (fileBytes == null && !kIsWeb && file.path != null) {
@@ -995,143 +1391,249 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
         fileBytes = await ioFile.readAsBytes();
       }
 
-      if (fileBytes == null) {
+      if (fileBytes == null || fileBytes.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to read CSV file content'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('Failed to read file content'), backgroundColor: Colors.red),
         );
         return;
       }
 
-      final csvString = utf8.decode(fileBytes);
-      final List<List<dynamic>> csvData = const CsvToListConverter().convert(csvString);
+      List<List<dynamic>> rows = [];
 
-      if (csvData.length < 2) {
+      if (ext == 'xlsx' || ext == 'xls') {
+        try {
+          final excel = excel_pkg.Excel.decodeBytes(fileBytes);
+          excel_pkg.Sheet? targetSheet;
+          if (excel.tables.containsKey('Hostel Rooms')) {
+            targetSheet = excel.tables['Hostel Rooms'];
+          } else {
+            final activeKey = excel.tables.keys.firstWhere((k) => k != 'LookupData', orElse: () => excel.tables.keys.first);
+            targetSheet = excel.tables[activeKey];
+          }
+
+          if (targetSheet != null) {
+            for (var row in targetSheet.rows) {
+              final rowValues = row.map((cell) => cell?.value?.toString().trim() ?? '').toList();
+              if (rowValues.any((v) => v.isNotEmpty)) {
+                rows.add(rowValues);
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Error parsing Excel: $e');
+        }
+      }
+
+      // If rows are still empty (e.g. file is CSV or fallback)
+      if (rows.isEmpty) {
+        String csvString = utf8.decode(fileBytes, allowMalformed: true);
+        if (csvString.startsWith('\uFEFF')) {
+          csvString = csvString.substring(1);
+        }
+        csvString = csvString.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+
+        if (csvString.isNotEmpty) {
+          final firstLine = csvString.split('\n').first;
+          final delimiter = firstLine.contains(';') && !firstLine.contains(',') ? ';' : (firstLine.contains('\t') ? '\t' : ',');
+          try {
+            rows = CsvToListConverter(
+              eol: '\n',
+              fieldDelimiter: delimiter,
+              shouldParseNumbers: false,
+            ).convert(csvString);
+          } catch (e) {
+            debugPrint('CsvToListConverter failed, falling back to line split: $e');
+          }
+
+          if (rows.isEmpty || rows.length < 2) {
+            final lines = csvString.split('\n').where((l) => l.trim().isNotEmpty).toList();
+            if (lines.length >= 2) {
+              rows = lines.map((l) => l.split(delimiter).map((c) => c.trim().replaceAll('"', '')).toList()).toList();
+            }
+          }
+        }
+      }
+
+      if (rows.length < 2) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('CSV file is empty or invalid'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('Document must have 1 header row (Floor, Wing, Room No, Room Type) and at least 1 room data row'),
+            backgroundColor: Colors.red,
+          ),
         );
         return;
       }
 
-      _processImportedCSV(csvData);
+      _processImportedRows(rows);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Error reading file: $e'), backgroundColor: Colors.red),
       );
     }
   }
 
-  void _processImportedCSV(List<List<dynamic>> csvData) {
-    final header = csvData[0].map((h) => h.toString().toLowerCase().trim()).toList();
+  void _processImportedRows(List<List<dynamic>> rowData) {
+    if (rowData.isEmpty) return;
+
+    final header = rowData[0].map((h) => h.toString().toLowerCase().trim().replaceAll('"', '')).toList();
     
-    int? floorIdx, wingIdx, roomNoIdx, capacityIdx, facilityIdx;
+    int? floorIdx, wingIdx, roomNoIdx, roomTypeIdx;
     
     for (int i = 0; i < header.length; i++) {
       final col = header[i];
-      if (col.contains('floor')) { floorIdx = i; }
-      else if (col.contains('wing')) { wingIdx = i; }
-      else if (col.contains('room')) { roomNoIdx = i; }
-      else if (col.contains('capacity')) { capacityIdx = i; }
-      else if (col.contains('facility')) { facilityIdx = i; }
+      if (col.contains('floor')) {
+        floorIdx = i;
+      } else if (col.contains('wing') || col.contains('block')) {
+        wingIdx = i;
+      } else if (col.contains('room') && (col.contains('no') || col.contains('number') || col.contains('num') || !col.contains('type'))) {
+        roomNoIdx = i;
+      } else if (col.contains('type') || col.contains('facility') || col.contains('category')) {
+        roomTypeIdx = i;
+      }
     }
 
+    // Default column order: Floor(0), Wing(1), Room No(2), Room Type(3)
     floorIdx ??= 0;
     wingIdx ??= 1;
     roomNoIdx ??= 2;
-    capacityIdx ??= 3;
-    facilityIdx ??= 4;
+    roomTypeIdx ??= 3;
 
     final List<Map<String, dynamic>> importedRooms = [];
     final Set<String> importedFloors = {};
     final Set<String> importedWings = {};
 
-    for (int i = 1; i < csvData.length; i++) {
-      final row = csvData[i];
-      if (row.isEmpty || row[0].toString().isEmpty) continue;
+    for (int i = 1; i < rowData.length; i++) {
+      final row = rowData[i];
+      if (row.isEmpty || row.every((c) => c.toString().trim().isEmpty)) continue;
 
       try {
-        final floorName = row.length > floorIdx ? row[floorIdx]?.toString().trim() ?? '' : '';
-        final wingName = row.length > wingIdx ? row[wingIdx]?.toString().trim() ?? '' : '';
-        final roomNo = row.length > roomNoIdx ? row[roomNoIdx]?.toString().trim() ?? '' : '';
-        final facility = row.length > facilityIdx ? row[facilityIdx]?.toString().trim() ?? 'AC' : 'AC';
-        final capacity = row.length > capacityIdx 
-            ? (int.tryParse(row[capacityIdx]?.toString() ?? '') ?? _extractCapacity(facility)) 
-            : _extractCapacity(facility);
+        final floorName = row.length > floorIdx ? row[floorIdx]?.toString().trim().replaceAll('"', '') ?? '' : '';
+        final wingName = row.length > wingIdx ? row[wingIdx]?.toString().trim().replaceAll('"', '') ?? '' : '';
+        final roomNo = row.length > roomNoIdx ? row[roomNoIdx]?.toString().trim().replaceAll('"', '') ?? '' : '';
+        final roomType = row.length > roomTypeIdx ? row[roomTypeIdx]?.toString().trim().replaceAll('"', '') ?? '4 IN 1 AC' : '4 IN 1 AC';
 
-        if (floorName.isEmpty || wingName.isEmpty || roomNo.isEmpty) continue;
+        if (floorName.isEmpty || roomNo.isEmpty) continue;
+        final validWing = wingName.isNotEmpty ? wingName : 'General';
+        final validRoomType = roomType.isNotEmpty ? roomType : '4 IN 1 AC';
+        final capacity = _extractCapacity(validRoomType);
 
         importedFloors.add(floorName);
-        importedWings.add(wingName);
+        importedWings.add(validWing);
 
-        final bCode = codeController.text.isEmpty ? 'T32' : codeController.text;
-        final roomCode = "$bCode-$floorName-$wingName-R$roomNo";
+        final bCode = codeController.text.trim().isNotEmpty ? codeController.text.trim() : 'H';
+        final fCode = _getFloorCode(floorName);
+        final roomCode = "$bCode-$fCode-$validWing-R$roomNo";
 
         importedRooms.add({
           'room_number': roomNo,
           'room_code': roomCode,
           'capacity': capacity,
           'floor': floorName,
-          'wing': wingName,
+          'wing': validWing,
           'amount': 0.0,
-          'type': facility,
+          'type': validRoomType,
         });
       } catch (e) {
         debugPrint('Error parsing row $i: $e');
       }
     }
 
+    if (importedRooms.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No valid room rows found in the document. Please verify the 4 columns: Floor, Wing, Room No, Room Type.'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final floorOrder = {
+      'ground': 0, 'first': 1, 'second': 2, 'third': 3, 'fourth': 4,
+      'fifth': 5, 'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9,
+      'tenth': 10, 'eleventh': 11, 'twelfth': 12, 'thirteenth': 13,
+      'fourteenth': 14, 'fifteenth': 15
+    };
+
+    final sortedFloors = importedFloors.map((f) => {'name': f, 'code': _getFloorCode(f)}).toList()
+      ..sort((a, b) {
+        final aOrder = floorOrder[a['name']!.toLowerCase()] ?? 99;
+        final bOrder = floorOrder[b['name']!.toLowerCase()] ?? 99;
+        return aOrder.compareTo(bOrder);
+      });
+
     setState(() {
       rooms = importedRooms;
-      floors = importedFloors.map((f) => {'name': f, 'code': f}).toList();
+      floors = sortedFloors;
       wings = importedWings.map((w) => {'name': w, 'code': w}).toList();
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Imported ${rooms.length} rooms'), backgroundColor: Colors.green),
+      SnackBar(
+        content: Text('Successfully imported ${rooms.length} rooms (${floors.length} floors, ${wings.length} wings)!'),
+        backgroundColor: Colors.green,
+      ),
     );
   }
 
-  Widget _buildCampusDropdown() {
+  Widget _buildCampusDropdown(bool isDark) {
     return DropdownButtonFormField<String>(
       initialValue: selectedCampus,
       isExpanded: true,
-      decoration: const InputDecoration(
+      dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+      decoration: InputDecoration(
         labelText: 'Campus',
-        prefixIcon: Icon(Icons.location_on, size: 18),
-        border: OutlineInputBorder(),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+        prefixIcon: Icon(Icons.location_on, size: 18, color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade700),
+        filled: true,
+        fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
-      items: ['Thandalam Campus', 'City Campus'].map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 14)))).toList(),
+      items: ['Thandalam Campus', 'City Campus'].map((c) => DropdownMenuItem(value: c, child: Text(c, style: TextStyle(fontSize: 14, color: isDark ? Colors.white : Colors.black87)))).toList(),
       onChanged: (v) => setState(() => selectedCampus = v!),
     );
   }
 
-  Widget _buildDropdownField() {
+  Widget _buildDropdownField(bool isDark) {
     return DropdownButtonFormField<String>(
       initialValue: typeController.text,
       isExpanded: true,
-      decoration: const InputDecoration(
+      dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+      decoration: InputDecoration(
         labelText: 'Type',
-        prefixIcon: Icon(Icons.people_outline, size: 18),
-        border: OutlineInputBorder(),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        labelStyle: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744)),
+        prefixIcon: Icon(Icons.people_outline, size: 18, color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade700),
+        filled: true,
+        fillColor: isDark ? const Color(0xFF0F1520) : Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
-      items: ['Girls', 'Boys'].map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 14)))).toList(),
+      items: ['Girls', 'Boys'].map((t) => DropdownMenuItem(value: t, child: Text(t, style: TextStyle(fontSize: 14, color: isDark ? Colors.white : Colors.black87)))).toList(),
       onChanged: (v) => setState(() => typeController.text = v!),
     );
   }
 
-  Widget _buildRoomsList() {
+  Widget _buildRoomsList(bool isDark) {
     final filteredRooms = (selectedFloor == 'All' || selectedFloor.isEmpty)
         ? rooms
         : rooms.where((r) => r['floor'] == selectedFloor).toList();
 
-    if (filteredRooms.isEmpty) return const SizedBox(height: 50, child: Center(child: Text('No rooms configuration loaded.', style: TextStyle(color: Colors.grey))));
+    if (filteredRooms.isEmpty) return SizedBox(height: 50, child: Center(child: Text('No rooms configuration loaded.', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey))));
     return Container(
       height: 250,
-      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12), color: Colors.white),
+      decoration: BoxDecoration(
+        border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade200), 
+        borderRadius: BorderRadius.circular(12), 
+        color: isDark ? const Color(0xFF0F1520) : Colors.white,
+      ),
       child: ListView.builder(
         shrinkWrap: true,
         itemCount: filteredRooms.length,
@@ -1139,8 +1641,8 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
           final room = filteredRooms[index];
           return ListTile(
             dense: true,
-            title: Text('Room: ${room['room_number']}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
-            subtitle: Text('Floor: ${room['floor']} | Wing: ${room['wing']} | Type: ${room['type']}', style: const TextStyle(fontSize: 11, color: Colors.black54)),
+            title: Text('Room: ${room['room_number']}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1A2744))),
+            subtitle: Text('Floor: ${room['floor']} | Wing: ${room['wing']} | Type: ${room['type']}', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54)),
             trailing: IconButton(
               icon: const Icon(Icons.delete, size: 18, color: Colors.red),
               onPressed: () => setState(() {
@@ -1155,19 +1657,19 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
     );
   }
 
-  Widget _buildReviewSection(String title, List<String> details) {
+  Widget _buildReviewSection(String title, List<String> details, bool isDark) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1A2744))),
+          Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744))),
           const SizedBox(height: 6),
           ...details.map((d) => Padding(
             padding: const EdgeInsets.symmetric(vertical: 2.0),
-            child: Text(d, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+            child: Text(d, style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87)),
           )),
-          const Divider(),
+          Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
         ],
       ),
     );
@@ -1187,32 +1689,39 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
   }
 
   void _addRoom() {
-    if (selectedRoomNo == null || selectedRoomNo!.isEmpty) return;
+    final roomNo = roomController.text.trim().isNotEmpty ? roomController.text.trim() : selectedRoomNo;
+    if (roomNo == null || roomNo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a room number'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
     
     final masterMatch = _masterRooms.firstWhere(
-      (r) => r['room_number'] == selectedRoomNo,
+      (r) => r['room_number'] == roomNo,
       orElse: () => <String, dynamic>{},
     );
     
-    final targetFloor = masterMatch.isNotEmpty ? masterMatch['floor'] : (selectedFloor == 'All' ? (floors.isNotEmpty ? floors.first['name']! : '') : selectedFloor);
-    final targetWing = masterMatch.isNotEmpty ? masterMatch['wing'] : selectedWing;
+    final targetFloor = masterMatch.isNotEmpty ? masterMatch['floor'] : (selectedFloor == 'All' ? (floors.isNotEmpty ? floors.first['name']! : 'Ground') : selectedFloor);
+    final targetWing = masterMatch.isNotEmpty ? masterMatch['wing'] : (selectedWing.isNotEmpty ? selectedWing : (wings.isNotEmpty ? wings.first['name']! : 'General'));
     final targetType = masterMatch.isNotEmpty ? masterMatch['type'] : _roomType;
     
-    final fCode = floors.isNotEmpty ? (floors.firstWhere((f) => f['name'] == targetFloor, orElse: () => floors.first)['code'] ?? targetFloor) : targetFloor;
-    final wCode = wings.isNotEmpty ? (wings.firstWhere((w) => w['name'] == targetWing, orElse: () => wings.first)['code'] ?? targetWing) : targetWing;
+    final fCode = floors.isNotEmpty ? (floors.firstWhere((f) => f['name'] == targetFloor, orElse: () => {'code': targetFloor})['code'] ?? targetFloor) : targetFloor;
+    final wCode = wings.isNotEmpty ? (wings.firstWhere((w) => w['name'] == targetWing, orElse: () => {'code': targetWing})['code'] ?? targetWing) : targetWing;
+    final bCode = codeController.text.trim().isNotEmpty ? codeController.text.trim() : 'H';
 
-    final code = "${codeController.text}-$fCode-$wCode-R$selectedRoomNo";
+    final code = "$bCode-$fCode-$wCode-R$roomNo";
 
-    if (rooms.any((r) => r['room_number'] == selectedRoomNo && r['floor'] == targetFloor)) {
+    if (rooms.any((r) => r['room_number'] == roomNo && r['floor'] == targetFloor)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Room already added'), backgroundColor: Colors.orange),
+        const SnackBar(content: Text('Room already added on this floor'), backgroundColor: Colors.orange),
       );
       return;
     }
 
     setState(() {
       rooms.add({
-        'room_number': selectedRoomNo,
+        'room_number': roomNo,
         'room_code': code,
         'capacity': masterMatch.isNotEmpty
             ? (int.tryParse(masterMatch['capacity']?.toString() ?? '') ?? _extractCapacity(targetType))
@@ -1222,6 +1731,7 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
         'amount': 0.0,
         'type': targetType,
       });
+      roomController.clear();
       selectedRoomNo = null;
     });
   }
@@ -1264,10 +1774,40 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
 
       if (response['success'] == true) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_isEditMode ? 'Updated!' : 'Created!'), backgroundColor: Colors.green),
-          );
+          final hName = hostelController.text.trim();
+          final rCount = rooms.length;
           Navigator.pop(context, true);
+
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Colors.green, size: 28),
+                  const SizedBox(width: 8),
+                  Text(_isEditMode ? 'Hostel Updated' : 'Hostel Created Successfully', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Text(
+                _isEditMode 
+                    ? '$hName has been updated.'
+                    : 'Hostel "$hName" has been created with $rCount rooms!\n\nAll newly created rooms are now available in Room Master. You can now select and configure room types and fee structures directly in Room Master.',
+                style: const TextStyle(fontSize: 14, color: Colors.black87, height: 1.4),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A2744),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
         }
       } else {
         throw Exception(response['message']);
@@ -1284,11 +1824,20 @@ class _AddHostelDialogState extends State<AddHostelDialog> {
   }
 
   int _extractCapacity(String name) {
-    if (name.contains('8 IN 1')) return 8;
-    if (name.contains('6 IN 1')) return 6;
-    if (name.contains('4 IN 1')) return 4;
-    if (name.contains('2 IN 1')) return 2;
-    return 0; // Default
+    final match = RegExp(r'(\d+)\s*(?:IN\s*1|in\s*1|sharing|bed|beds|seater|seaters|share|-sharing|-bed|-seater)', caseSensitive: false).firstMatch(name);
+    if (match != null) {
+      final cap = int.tryParse(match.group(1)!);
+      if (cap != null && cap > 0) return cap;
+    }
+    if (name.contains('8 IN 1') || name.contains('8')) return 8;
+    if (name.contains('6 IN 1') || name.contains('6')) return 6;
+    if (name.contains('4 IN 1') || name.contains('4')) return 4;
+    if (name.contains('3 IN 1') || name.contains('3')) return 3;
+    if (name.contains('2 IN 1') || name.contains('2')) return 2;
+    if (name.contains('1 IN 1') || name.toLowerCase().contains('single')) return 1;
+    if (name.toLowerCase().contains('double')) return 2;
+    if (name.toLowerCase().contains('triple')) return 3;
+    return 4; // Default fallback
   }
 
   @override

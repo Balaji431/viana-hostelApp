@@ -1,1 +1,5 @@
 Action: [delete_hostel], Hex: 64656c6574655f686f7374656c
+Action: [delete_hostel], Hex: 64656c6574655f686f7374656c
+Action: [delete_hostel], Hex: 64656c6574655f686f7374656c
+Action: [delete_hostel], Hex: 64656c6574655f686f7374656c
+Action: [delete_hostel], Hex: 64656c6574655f686f7374656c

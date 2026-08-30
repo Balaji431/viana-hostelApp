@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -12,7 +11,7 @@ import 'app_logger.dart';
 class ApiService {
   // Simply change this single URL to switch between environments:
 
-  static const String baseUrl = 'https://vstay.saveetha.com/api/';
+  static const String baseUrl = 'http://localhost:8081/';
 
   static String? currentUserId;
   static String? currentUsername;
@@ -37,8 +36,11 @@ class ApiService {
 
   static String _buildUrl(String endpoint) {
     String effectiveBaseUrl = baseUrl;
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && effectiveBaseUrl.contains('localhost')) {
-      effectiveBaseUrl = effectiveBaseUrl.replaceAll('localhost', '172.19.27.133');
+    if (kIsWeb && !kDebugMode) {
+      final origin = Uri.base.origin;
+      if (origin.isNotEmpty && !origin.startsWith('file://')) {
+        effectiveBaseUrl = '$origin/';
+      }
     }
 
     final cleanBaseUrl = effectiveBaseUrl.endsWith('/')
@@ -192,8 +194,9 @@ class ApiService {
     return json.decode(response.body);
   }
 
-  static Future<Map<String, dynamic>> getHostelHierarchy(int hostelId) async {
-    return await getRequest('admin_v2/get_hostel_hierarchy.php?hostel_id=$hostelId');
+  static Future<Map<String, dynamic>> getHostelHierarchy(dynamic hostelId) async {
+    final param = Uri.encodeComponent(hostelId.toString());
+    return await getRequest('admin_v2/get_hostel_hierarchy.php?hostel_id=$param&hostel_name=$param');
   }
 
   static Future<Map<String, dynamic>> updateHierarchy(Map<String, dynamic> data) async {
@@ -1201,8 +1204,67 @@ class ApiService {
     return await postRequest('temporary_stay/submit_request.php', data);
   }
 
-  static Future<Map<String, dynamic>> fetchAdminTemporaryStayRequests({String status = 'pending'}) async {
-    return await getRequest('temporary_stay/manage_requests.php?status=${Uri.encodeComponent(status)}');
+  static Future<Map<String, dynamic>> fetchAdminTemporaryStayRequests({
+    String status = 'pending',
+    String? wardenId,
+    String? wardenName,
+  }) async {
+    String url = 'temporary_stay/manage_requests.php?status=${Uri.encodeComponent(status)}';
+    if (wardenId != null && wardenId.isNotEmpty) {
+      url += '&warden_id=${Uri.encodeComponent(wardenId)}';
+    }
+    if (wardenName != null && wardenName.isNotEmpty) {
+      url += '&warden_name=${Uri.encodeComponent(wardenName)}';
+    }
+    return await getRequest(url);
+  }
+
+  static Future<Map<String, dynamic>> fetchWalletInfo({
+    required String email,
+    String? requestId,
+    String? regNo,
+    int? studentId,
+  }) async {
+    String url = 'temporary_stay/wallet.php?email=${Uri.encodeComponent(email)}';
+    if (requestId != null && requestId.isNotEmpty) {
+      url += '&request_id=${Uri.encodeComponent(requestId)}';
+    }
+    if (regNo != null && regNo.isNotEmpty) {
+      url += '&reg_no=${Uri.encodeComponent(regNo)}';
+    }
+    if (studentId != null && studentId > 0) {
+      url += '&student_id=$studentId';
+    }
+    return await getRequest(url);
+  }
+
+  static Future<Map<String, dynamic>> addWalletFunds({
+    required String email,
+    required double amount,
+    String paymentMethod = 'UPI / NetBanking',
+    String? regNo,
+    int? studentId,
+  }) async {
+    final body = <String, dynamic>{
+      'action': 'add_funds',
+      'email': email,
+      'amount': amount,
+      'payment_method': paymentMethod,
+    };
+    if (regNo != null && regNo.isNotEmpty) body['reg_no'] = regNo;
+    if (studentId != null && studentId > 0) body['student_id'] = studentId;
+    return await postRequest('temporary_stay/wallet.php', body);
+  }
+
+  static Future<Map<String, dynamic>> payStayFromWallet({
+    required String email,
+    required String requestId,
+  }) async {
+    return await postRequest('temporary_stay/wallet.php', {
+      'action': 'pay_stay',
+      'email': email,
+      'request_id': requestId,
+    });
   }
 
   static Future<Map<String, dynamic>> updateTemporaryStayStatus({
@@ -1314,5 +1376,47 @@ class ApiService {
       AppLogger.error("Error searching warden room: $e");
       return {'success': false, 'message': 'Network error: $e'};
     }
+  }
+
+  static Future<Map<String, dynamic>> renewHostelWithWallet({
+    required String regNo,
+    required String email,
+    required int studentId,
+    required double amount,
+  }) async {
+    return await postRequest('student/renew_hostel_wallet.php', {
+      'reg_no': regNo,
+      'email': email,
+      'student_id': studentId,
+      'amount': amount,
+    });
+  }
+
+  static Future<Map<String, dynamic>> createRazorpayOrder({
+    required String email,
+    required double amount,
+    String name = 'Student',
+  }) async {
+    return await postRequest('payments/razorpay_create_order.php', {
+      'email': email,
+      'amount': amount,
+      'name': name,
+    });
+  }
+
+  static Future<Map<String, dynamic>> verifyRazorpayPayment({
+    required String paymentId,
+    required String orderId,
+    required String signature,
+    required String email,
+    required double amount,
+  }) async {
+    return await postRequest('payments/razorpay_verify.php', {
+      'razorpay_payment_id': paymentId,
+      'razorpay_order_id': orderId,
+      'razorpay_signature': signature,
+      'email': email,
+      'amount': amount,
+    });
   }
 }

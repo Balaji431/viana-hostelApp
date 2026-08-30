@@ -1,6 +1,8 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../wallpaper_provider.dart';
 
 class GlassmorphicJellyNavbar extends StatefulWidget {
   final int currentIndex;
@@ -187,6 +189,37 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
+    final navBgColor = wallpaper?.navBarBackgroundColor ??
+        (isDark ? const Color(0xFF101928).withOpacity(0.85) : const Color(0xFFF5F0E6).withOpacity(0.85));
+    final navBorderColor = wallpaper?.navBarBorderColor ??
+        const Color(0xFFD4AF37).withOpacity(0.3);
+    final unselectedColor = wallpaper?.navUnselectedColor ??
+        (isDark ? Colors.white60 : const Color(0xFF4A4A4A));
+    final pillGradient = wallpaper?.navPillGradient ??
+        (isDark
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.22),
+                  Colors.white.withOpacity(0.08),
+                ],
+              )
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFFF5F0E6).withOpacity(0.65),
+                  const Color(0xFFF5F0E6).withOpacity(0.35),
+                ],
+              ));
+
     final double horizontalMargin = widget.totalTabs >= 6 ? 8.0 : 16.0;
     final double bottomMargin = widget.totalTabs >= 6 ? 12.0 : 20.0;
     final double iconSize = widget.totalTabs >= 6 ? 20.0 : 24.0;
@@ -200,7 +233,7 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
         borderRadius: BorderRadius.circular(32),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.12),
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),
@@ -212,10 +245,10 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
           filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F0E6).withOpacity(0.85), // premium light cream glass overlay
+              color: navBgColor,
               borderRadius: BorderRadius.circular(32),
               border: Border.all(
-                color: const Color(0xFFD4AF37).withOpacity(0.3),
+                color: navBorderColor,
                 width: 1.0,
               ),
             ),
@@ -246,17 +279,10 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                const Color(0xFFF5F0E6).withOpacity(0.65),
-                                const Color(0xFFF5F0E6).withOpacity(0.35),
-                              ],
-                            ),
+                            gradient: pillGradient,
                             borderRadius: BorderRadius.circular(22),
                             border: Border.all(
-                              color: const Color(0xFFD4AF37).withOpacity(0.35),
+                              color: const Color(0xFFD4AF37).withOpacity(0.4),
                               width: 1.2,
                             ),
                             boxShadow: [
@@ -305,7 +331,7 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
                                         isHighlighted ? tab.activeIcon : tab.icon,
                                         color: isHighlighted
                                             ? const Color(0xFFD4AF37)
-                                            : const Color(0xFF4A4A4A),
+                                            : unselectedColor,
                                         size: iconSize,
                                       ),
                                     ),
@@ -316,7 +342,7 @@ class _GlassmorphicJellyNavbarState extends State<GlassmorphicJellyNavbar>
                                     style: TextStyle(
                                       color: isHighlighted
                                           ? const Color(0xFFD4AF37)
-                                          : const Color(0xFF4A4A4A),
+                                          : unselectedColor,
                                       fontSize: labelFontSize,
                                       fontWeight: isHighlighted
                                           ? FontWeight.w700

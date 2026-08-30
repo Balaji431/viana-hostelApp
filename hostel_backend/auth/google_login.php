@@ -107,7 +107,7 @@ try {
                   rm.room_code = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
                   OR REPLACE(REPLACE(TRIM(rm.room_code), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
               )
-              WHERE u.email = :email LIMIT 0,1";
+              WHERE LOWER(u.email) = LOWER(:email) LIMIT 0,1";
 
     $stmt = $db->prepare($query);
     $stmt->bindParam(':email', $email);
@@ -187,6 +187,28 @@ try {
         $total_fee = $room_amount + $room_food + $room_caution;
         $renew_amount = $room_amount + $room_food;
 
+        // Resolve available_roles for dual-role access (e.g. Warden + Maintenance)
+        $available_roles = [strtolower($final_role)];
+        if (in_array(strtolower($final_role), ['warden', 'maintenance', 'security', 'staff'])) {
+            $bio_check = trim($row['register_no']);
+            
+            $maintCheck = $db->prepare("SELECT COUNT(*) FROM maintenance_users WHERE bio_id = :bio");
+            $maintCheck->execute([':bio' => $bio_check]);
+            if ($maintCheck->fetchColumn() > 0 && !in_array('maintenance', $available_roles)) {
+                $available_roles[] = 'maintenance';
+            }
+            
+            $wardenCheck = $db->prepare("SELECT COUNT(*) FROM staff_users WHERE bio_id = :bio AND LOWER(role) = 'warden'");
+            $wardenCheck->execute([':bio' => $bio_check]);
+            if ($wardenCheck->fetchColumn() > 0 && !in_array('warden', $available_roles)) {
+                $available_roles[] = 'warden';
+            }
+            
+            if (strtolower($row['role']) === 'warden' && !in_array('warden', $available_roles)) {
+                $available_roles[] = 'warden';
+            }
+        }
+
         $user_data = [
             "id" => $row['id'],
             "username" => $row['register_no'],
@@ -196,6 +218,7 @@ try {
             "dob" => $row['dob'],
             "address" => $row['address'],
             "role" => $final_role,
+            "available_roles" => array_values(array_unique($available_roles)),
             "institution" => $row['institution'] ?? 'N/A',
             "hostel_name" => $hostel,
             "room_allocation" => $row['room_allocation'] ?? 'N/A',
@@ -225,6 +248,51 @@ try {
             "hostel_type" => $row['HostelType'] ?? 'Boys',
             "token" => generateJWT($row['id'], $row['register_no'], $final_role)
         ];
+
+        // Attach Temporary Stay details if exists
+        try {
+            $stmtTsr = $db->prepare("SELECT * FROM temporary_stay_requests WHERE LOWER(email) = LOWER(:email) OR full_name = :full_name ORDER BY id DESC LIMIT 1");
+            $stmtTsr->execute([':email' => $email, ':full_name' => $row['full_name']]);
+            $tsrRow = $stmtTsr->fetch(PDO::FETCH_ASSOC);
+            if ($tsrRow) {
+                if (!empty($tsrRow['hold_expires_at']) && $tsrRow['hold_status'] === 'held') {
+                    $rem = strtotime($tsrRow['hold_expires_at']) - time();
+                    $tsrRow['hold_remaining_seconds'] = max(0, $rem);
+                }
+                $user_data['temporary_stay_request'] = $tsrRow;
+                if ($final_role === 'guest' || strpos($row['register_no'], 'TEMP_') === 0 || strpos($row['register_no'], 'TEMP-') === 0) {
+                    $user_data['role'] = 'guest';
+                }
+                if (!empty($tsrRow['room_no']) && ($user_data['room_no'] === 'N/A' || empty($user_data['room_no']))) {
+                    $user_data['room_no'] = $tsrRow['room_no'];
+                    $user_data['room_code'] = $tsrRow['room_code'] ?? $tsrRow['room_no'];
+                    $user_data['room_allocation'] = $tsrRow['room_no'];
+                }
+                if (!empty($tsrRow['hostel_name']) && ($user_data['hostel_name'] === 'N/A' || empty($user_data['hostel_name']))) {
+                    $user_data['hostel_name'] = $tsrRow['hostel_name'];
+                }
+                if (!empty($tsrRow['amount'])) {
+                    $user_data['total_fee'] = (float)$tsrRow['amount'];
+                    $user_data['room_amount'] = (float)$tsrRow['amount'];
+                    $user_data['renew_amount'] = (float)$tsrRow['amount'];
+                }
+                if (!empty($tsrRow['warden_name'])) {
+                    $user_data['warden'] = $tsrRow['warden_name'];
+                }
+                if (!empty($tsrRow['from_date'])) {
+                    $user_data['valid_from'] = $tsrRow['from_date'];
+                    $user_data['check_in_date'] = $tsrRow['from_date'];
+                }
+                if (!empty($tsrRow['to_date'])) {
+                    $user_data['valid_to'] = $tsrRow['to_date'];
+                    $user_data['renewal_date'] = $tsrRow['to_date'];
+                    $nowDay = strtotime(date('Y-m-d'));
+                    $toDay = strtotime($tsrRow['to_date']);
+                    $calcDays = (int)(($toDay - $nowDay) / 86400);
+                    $user_data['remaining_days'] = $calcDays > 0 ? $calcDays : (int)($tsrRow['duration_value'] ?? 1);
+                }
+            }
+        } catch (Exception $eTsr) {}
         
         logActivity($row['id'], $row['register_no'], $final_role, 'LOGIN', 'users', null, ['login_time' => date('Y-m-d H:i:s')]);
         logAudit($row['id'], $row['register_no'], $final_role, 'LOGIN_SUCCESS', 'Authentication', null, [
@@ -528,6 +596,134 @@ try {
             sendResponse(true, "Login successful", $user_data);
             exit();
         }
+    }
+
+    // 3.8. Search in temporary_stay_requests (Guest / Short Stay resident)
+    $stmtTsrOnly = $db->prepare("SELECT * FROM temporary_stay_requests WHERE LOWER(email) = LOWER(:email) ORDER BY id DESC LIMIT 1");
+    $stmtTsrOnly->execute([':email' => $email]);
+    if ($stmtTsrOnly->rowCount() > 0) {
+        $tsr = $stmtTsrOnly->fetch(PDO::FETCH_ASSOC);
+
+        $reqId = $tsr['request_id'];
+        $fullName = !empty($tsr['full_name']) ? $tsr['full_name'] : 'Guest Resident';
+        $phone = $tsr['phone'] ?? '';
+        $gender = $tsr['gender'] ?? 'Male';
+        $genderType = (stripos($gender, 'female') !== false || stripos($tsr['hostel_name'], 'girls') !== false) ? 'Girls' : 'Boys';
+        $hostel = $tsr['hostel_name'] ?? 'Temporary Hostel';
+        $roomType = $tsr['room_type'] ?? 'Standard Room';
+        $roomNo = $tsr['room_no'] ?? 'Pending Allocation';
+        $fromDate = $tsr['from_date'] ?? date('Y-m-d');
+        $toDate = $tsr['to_date'] ?? date('Y-m-d', strtotime('+3 days'));
+        $dummyPass = password_hash('welcome123', PASSWORD_BCRYPT);
+
+        // Check or create user in users table
+        $checkUser = $db->prepare("SELECT id, username FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1");
+        $checkUser->execute([$email]);
+        $existingU = $checkUser->fetch(PDO::FETCH_ASSOC);
+
+        if ($existingU) {
+            $existingUid = $existingU['id'];
+            $reqId = $existingU['username'];
+        } else {
+            $insU = $db->prepare("INSERT INTO users (
+                username, password, full_name, email, role, phone_number, HostelName, HostelType, RoomType, RoomId, Status, is_active, Gender, Academic, IsBiometric
+            ) VALUES (
+                :username, :password, :full_name, :email, 'guest', :phone, :hostel_name, :hostel_type, :room_type, :room_id, 'active', 1, :gender, 'Temporary Stay', 'No'
+            )");
+            $insU->execute([
+                ':username' => $reqId,
+                ':password' => $dummyPass,
+                ':full_name' => $fullName,
+                ':email' => $email,
+                ':phone' => $phone,
+                ':hostel_name' => $hostel,
+                ':hostel_type' => $genderType,
+                ':room_type' => $roomType,
+                ':room_id' => $roomNo,
+                ':gender' => $gender
+            ]);
+            $existingUid = $db->lastInsertId();
+
+            $insP = $db->prepare("INSERT INTO profile (
+                user_id, reg_no, full_name, email, personal_phone, hostel_name, room_allocation, valid_from, valid_to, profile_pic
+            ) VALUES (
+                :user_id, :reg_no, :full_name, :email, :phone, :hostel_name, :room_no, :valid_from, :valid_to, 'profile.png'
+            )");
+            $insP->execute([
+                ':user_id' => $existingUid,
+                ':reg_no' => $reqId,
+                ':full_name' => $fullName,
+                ':email' => $email,
+                ':phone' => $phone,
+                ':hostel_name' => $hostel,
+                ':room_no' => $roomNo,
+                ':valid_from' => $fromDate,
+                ':valid_to' => $toDate
+            ]);
+        }
+
+        if (!empty($tsr['hold_expires_at']) && $tsr['hold_status'] === 'held') {
+            $rem = strtotime($tsr['hold_expires_at']) - time();
+            $tsr['hold_remaining_seconds'] = max(0, $rem);
+        }
+
+        $nowDay = strtotime(date('Y-m-d'));
+        $toDay = strtotime($toDate);
+        $calcDays = (int)(($toDay - $nowDay) / 86400);
+        $remDays = $calcDays > 0 ? $calcDays : (int)($tsr['duration_value'] ?? 1);
+
+        $user_data = [
+            "id" => $existingUid,
+            "username" => $reqId,
+            "full_name" => $fullName,
+            "register_no" => $reqId,
+            "phone" => $phone,
+            "email" => $email,
+            "dob" => "2000-01-01",
+            "address" => "Temporary Stay Resident",
+            "role" => "guest",
+            "institution" => "Saveetha Institute of Medical and Technical Sciences",
+            "hostel_name" => $hostel,
+            "room_allocation" => $roomNo,
+            "profile_pic" => "profile.png",
+            "valid_from" => $fromDate,
+            "valid_to" => $toDate,
+            "conduct" => "Good",
+            "conduct_remarks" => "",
+            "biometric_id" => "N/A",
+            "warden" => $tsr['warden_name'] ?? "",
+            "group_name" => "",
+            "floor_name" => "",
+            "room_no" => $roomNo,
+            "room_code" => $tsr['room_code'] ?? $roomNo,
+            "block" => "N/A",
+            "wing" => "N/A",
+            "room_type" => $roomType,
+            "room_facility" => "Standard",
+            "room_bath_attached" => "No",
+            "room_amount" => (float)($tsr['amount'] ?? 0),
+            "room_food" => 0,
+            "room_caution" => 0,
+            "total_fee" => (float)($tsr['amount'] ?? 0),
+            "renew_amount" => (float)($tsr['amount'] ?? 0),
+            "check_in_date" => $fromDate,
+            "renewal_date" => $toDate,
+            "remaining_days" => $remDays,
+            "hostel_type" => $genderType,
+            "temporary_stay_request" => $tsr,
+            "token" => generateJWT($existingUid, $reqId, 'guest')
+        ];
+
+        logActivity($existingUid, $reqId, 'guest', 'LOGIN', 'users', null, ['login_time' => date('Y-m-d H:i:s')]);
+        logAudit($existingUid, $reqId, 'guest', 'LOGIN_SUCCESS', 'Authentication', null, [
+            'registration_no' => $reqId,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'ip_address' => getClientIp(),
+            'source' => 'Google Temporary Stay Login'
+        ]);
+
+        sendResponse(true, "Login successful", $user_data);
+        exit();
     }
 
     // 4. Not found anywhere

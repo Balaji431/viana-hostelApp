@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
+import '../shared/wallpaper_provider.dart';
 import 'fee_manager_screen.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 import '../core/styles.dart';
@@ -96,7 +97,7 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
     return count;
   }
 
-  Widget _buildHostelCard(dynamic hostel, int index) {
+  Widget _buildHostelCard(dynamic hostel, int index, bool isDark) {
     final theme = _navyGoldTheme;
     final icon = _hostelIcons[index % _hostelIcons.length];
     final rawName = hostel['name'] ?? 'Unknown Hostel';
@@ -111,7 +112,7 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
           context,
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) => FeeManagerScreen(
-              hostelId: int.parse(hostel['id'].toString()),
+              hostelId: int.tryParse(hostel['id'].toString()) ?? 0,
               hostelName: hostel['name'],
             ),
             transitionDuration: Duration.zero,
@@ -122,19 +123,17 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
       child: Container(
         margin: const EdgeInsets.only(bottom: 14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.black.withOpacity(0.08), width: 1),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.08),
+            width: 1,
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.07),
+              color: Colors.black.withOpacity(isDark ? 0.35 : 0.07),
               blurRadius: 12,
               offset: const Offset(0, 5),
-            ),
-            BoxShadow(
-              color: Colors.white.withOpacity(0.8),
-              blurRadius: 1,
-              offset: const Offset(0, -1),
             ),
           ],
         ),
@@ -145,7 +144,15 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
               // ── Coloured gradient header strip ──────────────────────
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(gradient: theme.gradient),
+                decoration: BoxDecoration(
+                  gradient: isDark
+                      ? const LinearGradient(
+                          colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : theme.gradient,
+                ),
                 child: Row(
                   children: [
                     // Icon badge
@@ -197,29 +204,31 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
                 ),
               ),
               // ── Stats footer ────────────────────────────────────────
-              Padding(
+              Container(
+                color: isDark ? const Color(0xFF131D2E).withOpacity(0.7) : Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
                     _buildStat(
                       Icons.price_change_outlined,
                       '$feeTypes fee type${feeTypes == 1 ? '' : 's'}',
-                      theme.badge,
+                      const Color(0xFFD4AF37),
+                      isDark,
                     ),
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: theme.badge.withOpacity(0.15),
+                        color: const Color(0xFFD4AF37).withOpacity(0.18),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: theme.badge.withOpacity(0.4)),
+                        border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4)),
                       ),
                       child: Text(
                         'Manage Fees →',
                         style: GoogleFonts.outfit(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                          color: isDark ? const Color(0xFFD4AF37) : Colors.black87,
                         ),
                       ),
                     ),
@@ -233,7 +242,7 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
     );
   }
 
-  Widget _buildStat(IconData icon, String label, Color color) {
+  Widget _buildStat(IconData icon, String label, Color color, bool isDark) {
     return Row(
       children: [
         Icon(icon, size: 16, color: color),
@@ -242,7 +251,7 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
           label,
           style: GoogleFonts.inter(
             fontSize: 12,
-            color: Colors.grey.shade700,
+            color: isDark ? Colors.white70 : Colors.grey.shade700,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -252,6 +261,9 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     Widget body = _isLoading
         ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B2B48)))
         : _hostels.isEmpty
@@ -278,7 +290,7 @@ class _HostelFeeSelectorScreenState extends State<HostelFeeSelectorScreen> {
                     : null,
                 itemCount: _hostels.length,
                 itemBuilder: (context, index) =>
-                    _buildHostelCard(_hostels[index], index),
+                    _buildHostelCard(_hostels[index], index, isDark),
               );
 
     if (widget.isEmbedded) return body;

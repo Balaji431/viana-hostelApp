@@ -124,6 +124,26 @@ class CategoryProvider with ChangeNotifier {
     }
   }
 
+  List<String> get staffRoleNames {
+    final Set<String> rolesSet = {'Warden', 'Security', 'Maintenance'};
+    for (var c in _categories) {
+      if ((c['is_staff_role'] ?? 1) == 1) {
+        String name = c['name']?.toString().trim() ?? '';
+        if (name.isNotEmpty) {
+          if (name.toLowerCase().contains('warden')) {
+            name = 'Warden';
+          } else if (name.toLowerCase().contains('secur')) {
+            name = 'Security';
+          } else if (name.toLowerCase().contains('maint')) {
+            name = 'Maintenance';
+          }
+          rolesSet.add(name);
+        }
+      }
+    }
+    return rolesSet.toList();
+  }
+
   void setCategories(List<Map<String, dynamic>> categories) {
     _categories = categories;
     notifyListeners();
@@ -161,7 +181,7 @@ class CategoryProvider with ChangeNotifier {
     final now = DateTime.now();
     if (!force &&
         _lastFetchTime != null &&
-        now.difference(_lastFetchTime!) < const Duration(milliseconds: 300) &&
+        now.difference(_lastFetchTime!) < const Duration(seconds: 5) &&
         _lastWardenUsername == wardenUsername &&
         _lastStudentUsername == studentUsername) {
       return;

@@ -4,6 +4,7 @@ import '../../core/api_service.dart';
 import '../../core/styles.dart';
 import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../widgets/warden_widgets.dart';
 import '../widgets/warden_modals.dart';
 import '../../admin/hostel_fee_selector_screen.dart';
@@ -26,9 +27,12 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
   Widget build(BuildContext context) {
     super.build(context);
     final user = context.watch<UserProvider>();
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     final showInternalAppBar = (user.role == UserRole.warden || user.role == UserRole.admin);
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: showInternalAppBar
           ? SkeuomorphicNavBar(
               title: user.role == UserRole.admin ? 'Fee Management' : 'Management',
@@ -38,27 +42,35 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
       body: LinenGridBackground(
         child: CustomScrollView(
           slivers: [
-            if (user.role != UserRole.admin) SliverToBoxAdapter(child: _buildProfileHeader()),
-            if (user.role == UserRole.warden) SliverToBoxAdapter(child: _buildSubTabSelector()),
+            if (user.role != UserRole.admin) SliverToBoxAdapter(child: _buildProfileHeader(isDark)),
+            if (user.role == UserRole.warden) SliverToBoxAdapter(child: _buildSubTabSelector(isDark)),
             // Warden-only: sub-tab section label pinned header
             if (user.role == UserRole.warden)
               SliverPersistentHeader(
                 pinned: true,
                 delegate: _ManagementHeaderDelegate(
                   child: Container(
-                    color: const Color(0xFFF5F0E8),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF0F172A).withOpacity(0.95) : const Color(0xFFF5F0E8),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: isDark ? Colors.white.withOpacity(0.08) : Colors.black12,
+                          width: 1,
+                        ),
+                      ),
+                    ),
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     child: Row(
                       children: [
                         if (_activeSubTab == 0) ...[
-                          const Icon(Icons.shield_outlined, size: 18, color: Color(0xFF1B2B48)),
+                          Icon(Icons.shield_outlined, size: 18, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48)),
                           const SizedBox(width: 8),
                         ],
                         Text(
                           _activeSubTab == 0 ? 'Student Conduct' : (_activeSubTab == 1 ? 'Payment History' : 'Renewal Logs'),
                           style: TextStyle(
                             fontSize: _activeSubTab == 0 ? 15 : 12,
-                            color: _activeSubTab == 0 ? const Color(0xFF1B2B48) : Colors.grey,
+                            color: _activeSubTab == 0 ? (isDark ? Colors.white : const Color(0xFF1B2B48)) : (isDark ? Colors.white60 : Colors.grey),
                             fontWeight: FontWeight.bold,
                             letterSpacing: _activeSubTab == 0 ? null : 1.2,
                           ),
@@ -92,10 +104,20 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
     }
   }
 
-  Widget _buildProfileHeader() {
+  Widget _buildProfileHeader(bool isDark) {
     final user = context.watch<UserProvider>();
-    String name = user.userName;
-    String initials = name.isNotEmpty ? name.split(' ').where((s)=>s.isNotEmpty).map((l)=>l[0]).take(2).join().toUpperCase() : "?";
+    final String name = user.userName.isNotEmpty ? user.userName : 'Warden';
+    final String displayId = user.username.isNotEmpty ? "ID: ${user.username}" : (user.institution.isNotEmpty && user.institution != 'N/A' ? user.institution : "ID: Warden");
+
+    String initials = 'W';
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isNotEmpty) {
+      if (parts.length > 1 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+        initials = '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+      } else if (parts[0].isNotEmpty) {
+        initials = parts[0].length >= 2 ? parts[0].substring(0, 2).toUpperCase() : parts[0][0].toUpperCase();
+      }
+    }
     
     List<String> assignmentParts = [];
     if (user.hostelName.isNotEmpty && user.hostelName != 'N/A') {
@@ -112,34 +134,82 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
         : "";
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 25),
-      decoration: const BoxDecoration(
-        gradient: SkeuomorphicColors.royalContentGradient,
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+        gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
+        border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))) : null,
       ),
       child: Row(
         children: [
           Container(
-            width: 56, height: 56,
-            decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SkeuomorphicColors.goldGlossyGradient),
-            child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: SkeuomorphicColors.goldGlossyGradient,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+              border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+            ),
+            child: Center(
+              child: Text(
+                initials,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF1B2B48),
+                  fontFamily: 'Lato',
+                ),
+              ),
+            ),
           ),
-          const SizedBox(width: 15),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: SkeuomorphicStyles.playfairHeader.copyWith(fontSize: 18, color: Colors.white), overflow: TextOverflow.ellipsis),
                 Text(
-                  (user.institution.isNotEmpty && user.institution != 'N/A' ? user.institution : "ID: ${user.username}"), 
-                  style: SkeuomorphicStyles.latoBody.copyWith(fontSize: 13, color: Colors.white70),
+                  name.toUpperCase(),
+                  style: const TextStyle(
+                    fontFamily: 'Lato',
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 0.2,
+                  ),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 1),
+                Text(
+                  displayId,
+                  style: TextStyle(
+                    fontFamily: 'Lato',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : SkeuomorphicColors.residenceMutedText,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 if (assignmentText.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     "Assigned: $assignmentText",
-                    style: SkeuomorphicStyles.latoBody.copyWith(fontSize: 12, color: const Color(0xFFD4AF37), fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontFamily: 'Lato',
+                      fontSize: 11,
+                      color: Color(0xFFD4AF37),
+                      fontWeight: FontWeight.bold,
+                    ),
                     overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ],
               ],
@@ -150,7 +220,7 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
     );
   }
 
-  Widget _buildSubTabSelector() {
+  Widget _buildSubTabSelector(bool isDark) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Padding(
@@ -158,18 +228,18 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildSubTabItem('Conduct', 0),
+            _buildSubTabItem('Conduct', 0, isDark),
             const SizedBox(width: 10),
-            _buildSubTabItem('Payments', 1),
+            _buildSubTabItem('Payments', 1, isDark),
             const SizedBox(width: 10),
-            _buildSubTabItem('Renewals', 2),
+            _buildSubTabItem('Renewals', 2, isDark),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSubTabItem(String label, int index) {
+  Widget _buildSubTabItem(String label, int index, bool isDark) {
     bool active = _activeSubTab == index;
     return GestureDetector(
       onTap: () => setState(() => _activeSubTab = index),
@@ -177,8 +247,19 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: active 
           ? BoxDecoration(gradient: SkeuomorphicColors.goldGlossyGradient, borderRadius: BorderRadius.circular(10), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))])
-          : BoxDecoration(color: const Color(0xFFF0EFEA), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.black12)),
-        child: Text(label, style: TextStyle(color: active ? const Color(0xFF1B2B48) : Colors.black54, fontWeight: FontWeight.bold, fontSize: 13)),
+          : BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF0EFEA), 
+              borderRadius: BorderRadius.circular(10), 
+              border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
+            ),
+        child: Text(
+          label, 
+          style: TextStyle(
+            color: active ? const Color(0xFF1B2B48) : (isDark ? Colors.white70 : Colors.black54), 
+            fontWeight: FontWeight.bold, 
+            fontSize: 13,
+          ),
+        ),
       ),
     );
   }
@@ -190,7 +271,7 @@ class _ManagementHeaderDelegate extends SliverPersistentHeaderDelegate {
   @override double get minExtent => 45;
   @override double get maxExtent => 45;
   @override Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => SizedBox.expand(child: child);
-  @override bool shouldRebuild(_ManagementHeaderDelegate oldDelegate) => false;
+  @override bool shouldRebuild(_ManagementHeaderDelegate oldDelegate) => true;
 }
 
 class _ConductSubSliver extends StatefulWidget {
@@ -382,6 +463,9 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
       }
     }).toList();
 
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return SliverMainAxisGroup(
       slivers: [
         SliverToBoxAdapter(
@@ -389,23 +473,25 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10).copyWith(top: 15),
             child: Column(
               children: [
-                _buildCascadingDropdowns(availableFloors, availableWings, availableRooms),
+                _buildCascadingDropdowns(availableFloors, availableWings, availableRooms, isDark),
                 const SizedBox(height: 10),
                 TextField(
                   onChanged: (val) => setState(() => _searchQuery = val),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
                   decoration: InputDecoration(
                     hintText: 'Search name, reg no, or room...',
-                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                    hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+                    prefixIcon: Icon(Icons.search, color: isDark ? Colors.white60 : Colors.grey),
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                     contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
+                      borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: Colors.grey.shade200),
+                      borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade200),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -423,26 +509,32 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildFilterPills(),
+                _buildFilterPills(isDark),
                 const SizedBox(height: 10),
                 Text(
                   '${filtered.length} students',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey, fontFamily: 'Lato'),
+                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey, fontFamily: 'Lato'),
                 ),
               ],
             ),
           ),
         ),
         if (_isLoading)
-          const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
+          SliverFillRemaining(
+            child: Center(
+              child: CircularProgressIndicator(
+                color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+              ),
+            ),
+          )
         else if (filtered.isEmpty)
-          const SliverToBoxAdapter(
+          SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.all(40), 
+              padding: const EdgeInsets.all(40), 
               child: Center(
                 child: Text(
                   "No active users for this selection",
-                  style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 13, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -450,7 +542,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
         else
           SliverList(
             delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildStudentCard(filtered[index]),
+              (context, index) => _buildStudentCard(filtered[index], isDark),
               childCount: filtered.length,
             ),
           ),
@@ -458,7 +550,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     );
   }
 
-  Widget _buildCascadingDropdowns(List<String> availableFloors, List<String> availableWings, List<String> availableRooms) {
+  Widget _buildCascadingDropdowns(List<String> availableFloors, List<String> availableWings, List<String> availableRooms, bool isDark) {
     final currentFloorValue = availableFloors.contains(_selectedFloor) ? _selectedFloor : 'All Floors';
     final currentWingValue = availableWings.contains(_selectedWing) ? _selectedWing : 'All Wings';
     final currentRoomValue = availableRooms.contains(_selectedRoom) ? _selectedRoom : 'All Rooms';
@@ -469,11 +561,13 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
           children: [
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentFloorValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newFloor) {
                     if (newFloor != null) {
                       setState(() {
@@ -498,11 +592,13 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
             const SizedBox(width: 8),
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentWingValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newWing) {
                     if (newWing != null) {
                       setState(() {
@@ -530,11 +626,13 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
           children: [
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentRoomValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newRoom) {
                     if (newRoom != null) {
                       setState(() {
@@ -560,17 +658,20 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     );
   }
 
-  Widget _buildDropdownContainer({required Widget child}) {
+  Widget _buildDropdownContainer({required Widget child, bool isDark = false}) {
     return Container(
       height: 42,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF1B2B48).withValues(alpha: 0.2), width: 1.2),
+        border: Border.all(
+          color: isDark ? Colors.white24 : const Color(0xFF1B2B48).withValues(alpha: 0.2), 
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -580,7 +681,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     );
   }
 
-  Widget _buildFilterPills() {
+  Widget _buildFilterPills(bool isDark) {
     final filters = ['All', 'Good', 'Satisfactory', 'Poor'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -592,8 +693,8 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
             child: Container(
               margin: const EdgeInsets.only(right: 10),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: _getFilterDecoration(f, active),
-              child: Text(f, style: _getFilterTextStyle(f, active)),
+              decoration: _getFilterDecoration(f, active, isDark),
+              child: Text(f, style: _getFilterTextStyle(f, active, isDark)),
             ),
           );
         }).toList(),
@@ -601,13 +702,13 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     );
   }
 
-  BoxDecoration _getFilterDecoration(String f, bool active) {
+  BoxDecoration _getFilterDecoration(String f, bool active, bool isDark) {
     final val = f.trim().toLowerCase();
     if (val == 'all') {
       return BoxDecoration(
-        color: active ? const Color(0xFF1B2B48) : Colors.white,
+        color: active ? const Color(0xFF1B2B48) : (isDark ? const Color(0xFF1E293B) : Colors.white),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF1B2B48), width: 1.2),
+        border: Border.all(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), width: 1.2),
       );
     }
     Color color;
@@ -623,34 +724,34 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
       borderColor = const Color(0xFFEF9A9A);
     } else {
       color = Colors.grey;
-      borderColor = Colors.grey.shade300;
+      borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
     }
 
     return BoxDecoration(
-      color: active ? color : Colors.white,
+      color: active ? color : (isDark ? const Color(0xFF1E293B) : Colors.white),
       borderRadius: BorderRadius.circular(20),
       border: Border.all(color: borderColor, width: 1.2),
     );
   }
 
-  TextStyle _getFilterTextStyle(String f, bool active) {
+  TextStyle _getFilterTextStyle(String f, bool active, bool isDark) {
     final val = f.trim().toLowerCase();
     if (val == 'all') {
       return TextStyle(
-        color: active ? Colors.white : const Color(0xFF1B2B48),
+        color: active ? Colors.white : (isDark ? Colors.white70 : const Color(0xFF1B2B48)),
         fontSize: 12,
         fontWeight: FontWeight.bold,
       );
     }
     Color color;
     if (val == 'good') {
-      color = const Color(0xFF2E7D32);
+      color = isDark ? const Color(0xFF81C784) : const Color(0xFF2E7D32);
     } else if (val == 'satisfactory') {
-      color = const Color(0xFFE65100);
+      color = isDark ? const Color(0xFFFFB74D) : const Color(0xFFE65100);
     } else if (val == 'poor') {
-      color = const Color(0xFFC62828);
+      color = isDark ? const Color(0xFFE57373) : const Color(0xFFC62828);
     } else {
-      color = Colors.grey;
+      color = isDark ? Colors.white60 : Colors.grey;
     }
 
     return TextStyle(
@@ -669,7 +770,7 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
     return const Color(0xFF1B2B48);
   }
 
-  Widget _buildStudentCard(Map<String, dynamic> student) {
+  Widget _buildStudentCard(Map<String, dynamic> student, bool isDark) {
     String name = student['full_name'] ?? student['name'] ?? 'Unknown';
     String room = student['room_no'] ?? 'N/A';
     String conduct = student['conduct'] ?? 'Good';
@@ -678,7 +779,20 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: ListTile(
         onTap: () async {
           final result = await showDialog(
@@ -705,8 +819,21 @@ class _ConductSubSliverState extends State<_ConductSubSliver> {
           decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SkeuomorphicColors.goldGlossyGradient),
           child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ),
-        title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-        subtitle: Text(isCheckedOut ? 'Checked-out / Deallocated' : 'Room $room', style: TextStyle(color: isCheckedOut ? Colors.red.shade700 : Colors.grey.shade600, fontWeight: isCheckedOut ? FontWeight.bold : null)),
+        title: Text(
+          name, 
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : const Color(0xFF1B2B48),
+          ), 
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          isCheckedOut ? 'Checked-out / Deallocated' : 'Room $room', 
+          style: TextStyle(
+            color: isCheckedOut ? Colors.red.shade400 : (isDark ? Colors.white60 : Colors.grey.shade600), 
+            fontWeight: isCheckedOut ? FontWeight.bold : null,
+          ),
+        ),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(color: _getColor(conduct).withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
@@ -908,6 +1035,9 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
       return true;
     }).toList();
 
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return SliverMainAxisGroup(
       slivers: [
         SliverToBoxAdapter(
@@ -918,26 +1048,33 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.payments_outlined, color: Colors.grey[600], size: 20),
+                    Icon(Icons.payments_outlined, color: isDark ? const Color(0xFFD4AF37) : Colors.grey[600], size: 20),
                     const SizedBox(width: 8),
-                    Text('Student Payments', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                    Text(
+                      'Student Payments', 
+                      style: TextStyle(
+                        fontSize: 16, 
+                        fontWeight: FontWeight.bold, 
+                        color: isDark ? Colors.white : Colors.grey[700],
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                _buildCascadingDropdowns(availableFloors, availableWings, availableRooms),
+                _buildCascadingDropdowns(availableFloors, availableWings, availableRooms, isDark),
                 const SizedBox(height: 12),
-                _buildSearchBar(),
+                _buildSearchBar(isDark),
                 const SizedBox(height: 12),
-                _buildFilterPills(),
+                _buildFilterPills(isDark),
                 const SizedBox(height: 8),
-                Text('${filteredStudents.length} students', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                Text('${filteredStudents.length} students', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
               ],
             ),
           ),
         ),
         SliverList(
           delegate: SliverChildBuilderDelegate(
-            (context, index) => _buildStudentPaymentCard(filteredStudents[index]),
+            (context, index) => _buildStudentPaymentCard(filteredStudents[index], isDark),
             childCount: filteredStudents.length,
           ),
         ),
@@ -945,7 +1082,7 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
     );
   }
 
-  Widget _buildCascadingDropdowns(List<String> availableFloors, List<String> availableWings, List<String> availableRooms) {
+  Widget _buildCascadingDropdowns(List<String> availableFloors, List<String> availableWings, List<String> availableRooms, bool isDark) {
     final currentFloorValue = availableFloors.contains(_selectedFloor) ? _selectedFloor : 'All Floors';
     final currentWingValue = availableWings.contains(_selectedWing) ? _selectedWing : 'All Wings';
     final currentRoomValue = availableRooms.contains(_selectedRoom) ? _selectedRoom : 'All Rooms';
@@ -956,11 +1093,13 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
           children: [
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentFloorValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newFloor) {
                     if (newFloor != null) {
                       setState(() {
@@ -985,11 +1124,13 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
             const SizedBox(width: 8),
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentWingValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newWing) {
                     if (newWing != null) {
                       setState(() {
@@ -1017,11 +1158,13 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
           children: [
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentRoomValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newRoom) {
                     if (newRoom != null) {
                       setState(() {
@@ -1047,17 +1190,20 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
     );
   }
 
-  Widget _buildDropdownContainer({required Widget child}) {
+  Widget _buildDropdownContainer({required Widget child, bool isDark = false}) {
     return Container(
       height: 42,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF1B2B48).withValues(alpha: 0.2), width: 1.2),
+        border: Border.all(
+          color: isDark ? Colors.white24 : const Color(0xFF1B2B48).withValues(alpha: 0.2), 
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1067,29 +1213,40 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.black12)),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white, 
+        borderRadius: BorderRadius.circular(15), 
+        border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
+      ),
       child: TextField(
         onChanged: (v) => setState(() => _searchQuery = v),
-        decoration: const InputDecoration(hintText: 'Search name or room...', prefixIcon: Icon(Icons.search, size: 20), border: InputBorder.none, contentPadding: EdgeInsets.symmetric(vertical: 12)),
+        style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'Search name or room...', 
+          hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+          prefixIcon: Icon(Icons.search, size: 20, color: isDark ? Colors.white60 : Colors.grey), 
+          border: InputBorder.none, 
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        ),
       ),
     );
   }
 
-  Widget _buildFilterPills() {
+  Widget _buildFilterPills(bool isDark) {
     return Row(
       children: [
-        _filterPill('All'),
+        _filterPill('All', isDark),
         const SizedBox(width: 10),
-        _filterPill('Paid'),
+        _filterPill('Paid', isDark),
         const SizedBox(width: 10),
-        _filterPill('Pending'),
+        _filterPill('Pending', isDark),
       ],
     );
   }
 
-  Widget _filterPill(String label) {
+  Widget _filterPill(String label, bool isDark) {
     bool active = _filterStatus == label;
     return GestureDetector(
       onTap: () => setState(() => _filterStatus = label),
@@ -1097,14 +1254,20 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           gradient: active ? SkeuomorphicColors.royalContentGradient : null,
-          color: active ? null : Colors.white,
+          color: active ? null : (isDark ? const Color(0xFF1E293B) : Colors.white),
           borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: active ? Colors.transparent : (label == 'Paid' ? Colors.green.withOpacity(0.3) : (label == 'Pending' ? Colors.orange.withOpacity(0.3) : Colors.black12))),
+          border: Border.all(
+            color: active 
+                ? Colors.transparent 
+                : (label == 'Paid' ? Colors.green.withOpacity(0.3) : (label == 'Pending' ? Colors.orange.withOpacity(0.3) : (isDark ? Colors.white24 : Colors.black12))),
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: active ? Colors.white : (label == 'Paid' ? Colors.green : (label == 'Pending' ? Colors.orange : Colors.grey)),
+            color: active 
+                ? Colors.white 
+                : (label == 'Paid' ? (isDark ? const Color(0xFF81C784) : Colors.green) : (label == 'Pending' ? (isDark ? const Color(0xFFFFB74D) : Colors.orange) : (isDark ? Colors.white70 : Colors.grey))),
             fontSize: 12,
             fontWeight: FontWeight.bold
           ),
@@ -1113,7 +1276,7 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
     );
   }
 
-  Widget _buildStudentPaymentCard(Map<String, dynamic> student) {
+  Widget _buildStudentPaymentCard(Map<String, dynamic> student, bool isDark) {
     String reg = (student['register_number'] ?? student['student_id'] ?? student['id'] ?? '').toString().trim();
     String fullName = (student['full_name'] ?? student['name'] ?? '').toString().trim().toUpperCase();
     String room = student['room_no'] ?? 'N/A';
@@ -1138,21 +1301,41 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          decoration: SkeuomorphicStyles.skeuomorphicCard,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
           child: ExpansionTile(
             leading: Container(
               width: 42, height: 42,
               decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SkeuomorphicColors.goldGlossyGradient),
               child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold))),
             ),
-            title: Text(fullName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            subtitle: Text('Room $room • ${payments.length} payment${payments.length == 1 ? '' : 's'}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            title: Text(
+              fullName, 
+              style: TextStyle(
+                fontWeight: FontWeight.bold, 
+                fontSize: 15,
+                color: isDark ? Colors.white : const Color(0xFF1B2B48),
+              ),
+            ),
+            subtitle: Text('Room $room • ${payments.length} payment${payments.length == 1 ? '' : 's'}', style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey)),
             children: [
               if (payments.isEmpty)
-                const Padding(padding: EdgeInsets.all(20), child: Text("No payment history recorded", style: TextStyle(color: Colors.grey, fontSize: 12)))
+                Padding(padding: const EdgeInsets.all(20), child: Text("No payment history recorded", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey, fontSize: 12)))
               else
                 Column(
-                  children: payments.map((p) => _buildPaymentDetailItem(p)).toList(),
+                  children: payments.map((p) => _buildPaymentDetailItem(p, isDark)).toList(),
                 ),
               const SizedBox(height: 10),
             ],
@@ -1162,24 +1345,24 @@ class _PaymentsSubSliverState extends State<_PaymentsSubSliver> {
     );
   }
 
-  Widget _buildPaymentDetailItem(Map<String, dynamic> p) {
+  Widget _buildPaymentDetailItem(Map<String, dynamic> p, bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.1)))),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.grey.withOpacity(0.1)))),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('₹${p['amount']}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-              Text(p['booking_date']?.toString().split(' ')[0] ?? 'N/A', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              Text('₹${p['amount']}', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? const Color(0xFF81C784) : Colors.green)),
+              Text(p['booking_date']?.toString().split(' ')[0] ?? 'N/A', style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey)),
             ],
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(color: (p['status']?.toString().toLowerCase() == 'success' ? Colors.green : Colors.red).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-            child: Text(p['status'] ?? 'Success', style: TextStyle(color: p['status']?.toString().toLowerCase() == 'success' ? Colors.green : Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+            decoration: BoxDecoration(color: (p['status']?.toString().toLowerCase() == 'success' ? Colors.green : Colors.red).withOpacity(isDark ? 0.25 : 0.1), borderRadius: BorderRadius.circular(8)),
+            child: Text(p['status'] ?? 'Success', style: TextStyle(color: p['status']?.toString().toLowerCase() == 'success' ? (isDark ? const Color(0xFF81C784) : Colors.green) : (isDark ? const Color(0xFFEF9A9A) : Colors.red), fontSize: 10, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1255,7 +1438,6 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
                 }
                 return map;
               })
-              .where((r) => (r['status'] ?? '').toString().toLowerCase() == 'pending')
               .toList();
         }
         _isLoading = false;
@@ -1281,7 +1463,21 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const SliverToBoxAdapter(child: Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator())));
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
+    if (_isLoading) {
+      return SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(40), 
+            child: CircularProgressIndicator(
+              color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48),
+            ),
+          ),
+        ),
+      );
+    }
 
     // 1. Extract available floors (from renewals, students, & locations)
     final rawFloors = <String>{};
@@ -1297,9 +1493,9 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
       final f = (l['floor_name'] ?? l['floor'] ?? '').toString().trim();
       if (f.isNotEmpty) rawFloors.add(f);
     }
-    final sortedFloorsList = rawFloors.toList();
-    sortedFloorsList.sort((a, b) => _floorOrder(a).compareTo(_floorOrder(b)));
-    final availableFloors = ['All Floors', ...sortedFloorsList];
+    final sortedFloors = rawFloors.toList();
+    sortedFloors.sort((a, b) => _floorOrder(a).compareTo(_floorOrder(b)));
+    final availableFloors = ['All Floors', ...sortedFloors];
 
     // 2. Extract available wings (Filtered by Selected Floor)
     final rawWings = <String>{};
@@ -1321,36 +1517,36 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
       final w = _extractWing(l);
       if (w.isNotEmpty) rawWings.add(w);
     }
-    final sortedWingsList = rawWings.toList();
-    sortedWingsList.sort();
-    final availableWings = ['All Wings', ...sortedWingsList];
+    final sortedWings = rawWings.toList();
+    sortedWings.sort();
+    final availableWings = ['All Wings', ...sortedWings];
 
     // 3. Extract available rooms (Filtered by Selected Floor AND Selected Wing)
     final rawRooms = <String>{};
     for (var r in _renewals) {
       final f = (r['floor_name'] ?? r['floor'] ?? '').toString().trim();
-      final room = (r['room_number'] ?? r['room_no'] ?? '').toString().trim();
+      final rm = (r['room_number'] ?? r['room_no'] ?? '').toString().trim();
       if (_selectedFloor != 'All Floors' && f.toLowerCase() != _selectedFloor.toLowerCase()) continue;
       if (_selectedWing != 'All Wings' && _extractWing(r).toLowerCase() != _selectedWing.toLowerCase()) continue;
-      if (room.isNotEmpty && room.toLowerCase() != 'unallocated') rawRooms.add(room);
+      if (rm.isNotEmpty && rm.toLowerCase() != 'unallocated') rawRooms.add(rm);
     }
     for (var s in _students) {
       final f = (s['floor'] ?? s['floor_name'] ?? '').toString().trim();
-      final room = (s['room_no'] ?? s['room_code'] ?? '').toString().trim();
+      final rm = (s['room_no'] ?? s['room_code'] ?? '').toString().trim();
       if (_selectedFloor != 'All Floors' && f.toLowerCase() != _selectedFloor.toLowerCase()) continue;
       if (_selectedWing != 'All Wings' && _extractWing(s).toLowerCase() != _selectedWing.toLowerCase()) continue;
-      if (room.isNotEmpty && room.toLowerCase() != 'unallocated') rawRooms.add(room);
+      if (rm.isNotEmpty && rm.toLowerCase() != 'unallocated') rawRooms.add(rm);
     }
     for (var l in _locations) {
       final f = (l['floor_name'] ?? l['floor'] ?? '').toString().trim();
-      final room = (l['room_number'] ?? l['room_no'] ?? '').toString().trim();
+      final rm = (l['room_number'] ?? l['room_no'] ?? '').toString().trim();
       if (_selectedFloor != 'All Floors' && f.toLowerCase() != _selectedFloor.toLowerCase()) continue;
       if (_selectedWing != 'All Wings' && _extractWing(l).toLowerCase() != _selectedWing.toLowerCase()) continue;
-      if (room.isNotEmpty && room.toLowerCase() != 'unallocated') rawRooms.add(room);
+      if (rm.isNotEmpty && rm.toLowerCase() != 'unallocated') rawRooms.add(rm);
     }
-    final sortedRoomsList = rawRooms.toList();
-    sortedRoomsList.sort();
-    final availableRooms = ['All Rooms', ...sortedRoomsList];
+    final sortedRooms = rawRooms.toList();
+    sortedRooms.sort();
+    final availableRooms = ['All Rooms', ...sortedRooms];
 
     // 4. Filter renewals
     final filteredRenewals = _renewals.where((r) {
@@ -1402,34 +1598,41 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.history_edu, color: Colors.grey[600], size: 20),
+                    Icon(Icons.history_edu, color: isDark ? const Color(0xFFD4AF37) : Colors.grey[600], size: 20),
                     const SizedBox(width: 8),
-                    Text('Pending Renewals', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                    Text(
+                      'Renewal Logs & Requests', 
+                      style: TextStyle(
+                        fontSize: 16, 
+                        fontWeight: FontWeight.bold, 
+                        color: isDark ? Colors.white : Colors.grey[700],
+                      ),
+                    ),
                     const Spacer(),
-                    Text('${filteredRenewals.length} pending', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text('${filteredRenewals.length} records', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
                   ],
                 ),
                 const SizedBox(height: 12),
-                _buildCascadingDropdowns(availableFloors, availableWings, availableRooms),
+                _buildCascadingDropdowns(availableFloors, availableWings, availableRooms, isDark),
                 const SizedBox(height: 12),
-                _buildSearchBar(),
+                _buildSearchBar(isDark),
               ],
             ),
           ),
         ),
         if (filteredRenewals.isEmpty)
-          const SliverToBoxAdapter(
+          SliverToBoxAdapter(
             child: Center(
               child: Padding(
-                padding: EdgeInsets.all(40),
-                child: Text("No pending renewal requests found", style: TextStyle(color: Colors.grey, fontSize: 14)),
+                padding: const EdgeInsets.all(40),
+                child: Text("No renewal records found", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 14)),
               ),
             ),
           )
         else
           SliverList(
             delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildRenewalCard(filteredRenewals[index]),
+              (context, index) => _buildRenewalCard(filteredRenewals[index], isDark),
               childCount: filteredRenewals.length,
             ),
           ),
@@ -1437,7 +1640,7 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
     );
   }
 
-  Widget _buildCascadingDropdowns(List<String> availableFloors, List<String> availableWings, List<String> availableRooms) {
+  Widget _buildCascadingDropdowns(List<String> availableFloors, List<String> availableWings, List<String> availableRooms, bool isDark) {
     final currentFloorValue = availableFloors.contains(_selectedFloor) ? _selectedFloor : 'All Floors';
     final currentWingValue = availableWings.contains(_selectedWing) ? _selectedWing : 'All Wings';
     final currentRoomValue = availableRooms.contains(_selectedRoom) ? _selectedRoom : 'All Rooms';
@@ -1448,11 +1651,13 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
           children: [
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentFloorValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newFloor) {
                     if (newFloor != null) {
                       setState(() {
@@ -1477,11 +1682,13 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
             const SizedBox(width: 8),
             Expanded(
               child: _buildDropdownContainer(
+                isDark: isDark,
                 child: DropdownButton<String>(
+                  dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                   value: currentWingValue,
                   isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+                  icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
                   onChanged: (newWing) {
                     if (newWing != null) {
                       setState(() {
@@ -1494,7 +1701,7 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
                     return DropdownMenuItem<String>(
                       value: w,
                       child: Text(
-                        w == 'All Wings' ? '🚩 All Wings' : '🛏️ Wing $w',
+                        w == 'All Wings' ? '🚩 All Wings' : '📍 $w Wing',
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
@@ -1505,51 +1712,50 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
           ],
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: _buildDropdownContainer(
-                child: DropdownButton<String>(
-                  value: currentRoomValue,
-                  isExpanded: true,
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF1B2B48), size: 18),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
-                  onChanged: (newRoom) {
-                    if (newRoom != null) {
-                      setState(() {
-                        _selectedRoom = newRoom;
-                      });
-                    }
-                  },
-                  items: availableRooms.map((r) {
-                    return DropdownMenuItem<String>(
-                      value: r,
-                      child: Text(
-                        r == 'All Rooms' ? '🔑 All Rooms (${availableRooms.length - 1})' : '🚪 $r',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
+        _buildDropdownContainer(
+          isDark: isDark,
+          child: DropdownButton<String>(
+            dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+            value: currentRoomValue,
+            isExpanded: true,
+            icon: Icon(Icons.keyboard_arrow_down, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1B2B48), size: 18),
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF1B2B48)),
+            onChanged: (newRoom) {
+              if (newRoom != null) {
+                setState(() {
+                  _selectedRoom = newRoom;
+                });
+              }
+            },
+            items: availableRooms.map((r) {
+              return DropdownMenuItem<String>(
+                value: r,
+                child: Text(
+                  r == 'All Rooms' ? '🔑 All Rooms (${availableRooms.length - 1})' : '🛏 Room $r',
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ),
-          ],
+              );
+            }).toList(),
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildDropdownContainer({required Widget child}) {
+  Widget _buildDropdownContainer({required Widget child, bool isDark = false}) {
     return Container(
       height: 42,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF1B2B48).withValues(alpha: 0.2), width: 1.2),
+        border: Border.all(
+          color: isDark ? Colors.white24 : const Color(0xFF1B2B48).withValues(alpha: 0.2), 
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1559,34 +1765,68 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.black12)),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white, 
+        borderRadius: BorderRadius.circular(15), 
+        border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
+      ),
       child: TextField(
         onChanged: (v) => setState(() => _searchQuery = v),
-        decoration: const InputDecoration(hintText: 'Search name, reg no, or room...', prefixIcon: Icon(Icons.search, size: 20), border: InputBorder.none, contentPadding: EdgeInsets.symmetric(vertical: 12)),
+        style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'Search name, reg no, or room...', 
+          hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+          prefixIcon: Icon(Icons.search, size: 20, color: isDark ? Colors.white60 : Colors.grey), 
+          border: InputBorder.none, 
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        ),
       ),
     );
   }
 
-  Widget _buildRenewalCard(Map<String, dynamic> renewal) {
+  Widget _buildRenewalCard(Map<String, dynamic> renewal, bool isDark) {
     String name = renewal['student_name'] ?? 'Unknown';
     String reg = (renewal['student_reg_no'] ?? 'N/A').toString();
     String room = renewal['room_number'] ?? 'N/A';
     String date = renewal['requested_at']?.toString().split(' ')[0] ?? 'N/A';
+    String status = (renewal['status'] ?? 'pending').toString().toLowerCase();
+    String remarks = renewal['remarks'] ?? '';
     String initials = name.isNotEmpty ? name.split(' ').where((s)=>s.isNotEmpty).map((l)=>l[0]).take(2).join().toUpperCase() : "?";
+    final isApproved = status == 'approved' || status == 'completed';
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isApproved 
+              ? const Color(0xFF10B981) 
+              : (isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06)),
+          width: isApproved ? 1.5 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isApproved ? const Color(0xFF10B981).withOpacity(0.15) : Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       padding: const EdgeInsets.all(15),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
                 width: 42, height: 42,
-                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SkeuomorphicColors.goldGlossyGradient),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle, 
+                  gradient: isApproved ? const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF059669)]) : SkeuomorphicColors.goldGlossyGradient,
+                ),
                 child: Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold))),
               ),
               const SizedBox(width: 12),
@@ -1594,48 +1834,110 @@ class _RenewalsSubSliverState extends State<_RenewalsSubSliver> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                    Text('Reg No: $reg • Room $room', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            name, 
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold, 
+                              fontSize: 15,
+                              color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                            ),
+                          ),
+                        ),
+                        if (isApproved)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF059669),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text('RENEWED', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text('Reg No: $reg • Room $room', style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey)),
                   ],
                 ),
               ),
-              Text(date, style: const TextStyle(fontSize: 10, color: Colors.grey)),
             ],
           ),
-          const SizedBox(height: 15),
-          const Divider(height: 1, color: Colors.black12),
+          if (remarks.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: isApproved ? const Color(0xFF10B981).withOpacity(0.08) : Colors.black.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 14, color: isApproved ? const Color(0xFF10B981) : Colors.grey),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      remarks,
+                      style: TextStyle(fontSize: 11.5, color: isApproved ? const Color(0xFF065F46) : Colors.grey.shade700, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Divider(height: 1, color: isDark ? Colors.white12 : Colors.black12),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _handleAction(renewal, 'reject'),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF1E293B),
-                    side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.5),
-                    shape: const StadiumBorder(),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          if (isApproved)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 16),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Renewal Confirmed',
+                      style: TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 12.5),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _handleAction(renewal, 'approve'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                    elevation: 2,
-                    shape: const StadiumBorder(),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                Text('Date: $date', style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey)),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _handleAction(renewal, 'reject'),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                      foregroundColor: isDark ? const Color(0xFFEF9A9A) : const Color(0xFF1E293B),
+                      side: BorderSide(color: isDark ? Colors.white24 : const Color(0xFFCBD5E1), width: 1.5),
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   ),
-                  child: const Text('Approve', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _handleAction(renewal, 'approve'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      elevation: 2,
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text('Approve', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );

@@ -119,7 +119,7 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
       if (mounted) {
         _fetchMessages(silent: true);
       }

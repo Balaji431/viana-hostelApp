@@ -68,10 +68,10 @@ function buildPayload(array $row, bool $hasRoomAllocation = true): array
 
 function checkHasRoomInNewApi(PDO $conn, string $registerNo): bool
 {
-    // Student has room allocation if they exist in new_api (booked-rooms external, API 1)
+    // Student has room allocation if they exist in vstudy_payments with a room_number
     // OR if they have a non-null RoomId in users table
     $stmt = $conn->prepare(
-        "SELECT COUNT(*) FROM new_api WHERE TRIM(register_number) = TRIM(:reg) AND room_number IS NOT NULL AND room_number != ''"
+        "SELECT COUNT(*) FROM vstudy_payments WHERE TRIM(roll_number) = TRIM(:reg) AND room_number IS NOT NULL AND room_number != ''"
     );
     $stmt->execute([':reg' => $registerNo]);
     if ((int)$stmt->fetchColumn() > 0) return true;

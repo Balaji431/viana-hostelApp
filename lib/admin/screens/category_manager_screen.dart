@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../shared/category_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../core/styles.dart';
 
@@ -23,54 +24,56 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
     final provider = context.watch<CategoryProvider>();
 
-    Widget content = LinenGridBackground(
-      child: provider.isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
-          : ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-              children: [
-                ...provider.categories.map((cat) => _buildEnhancedCategoryCard(cat, provider)),
-                const SizedBox(height: 16),
-                _buildAddCategoryButton(),
-                const SizedBox(height: 80),
-              ],
-            ),
-    );
+    Widget content = provider.isLoading
+        ? Center(child: CircularProgressIndicator(color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)))
+        : ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            children: [
+              ...provider.categories.map((cat) => _buildEnhancedCategoryCard(cat, provider, isDark)),
+              const SizedBox(height: 16),
+              _buildAddCategoryButton(isDark),
+              const SizedBox(height: 80),
+            ],
+          );
 
-    if (!widget.showAppBar) return content;
+    if (!widget.showAppBar) return LinenGridBackground(child: content);
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: SkeuomorphicNavBar(
-        title: 'Category Management',
-        onBack: () => Navigator.of(context).pop(),
-        rightAction: IconButton(
-          icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-          onPressed: () => provider.fetchCategories(),
-          constraints: const BoxConstraints(),
-          padding: EdgeInsets.zero,
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: SkeuomorphicNavBar(
+          title: 'Category Management',
+          onBack: () => Navigator.of(context).pop(),
+          rightAction: IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+            onPressed: () => provider.fetchCategories(),
+            constraints: const BoxConstraints(),
+            padding: EdgeInsets.zero,
+          ),
         ),
+        body: content,
       ),
-      body: content,
     );
   }
 
-  Widget _buildAddCategoryButton() {
+  Widget _buildAddCategoryButton(bool isDark) {
     return GestureDetector(
-      onTap: () => _showEditCategoryDialog(null),
+      onTap: () => _showEditCategoryDialog(null, isDark),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: const Color(0xFFFFFBEE),
+          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFBEE),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: const Color(0xFFB08900).withValues(alpha: 0.55),
+            color: isDark ? const Color(0xFFD4AF37).withValues(alpha: 0.55) : const Color(0xFFB08900).withValues(alpha: 0.55),
             width: 1.5,
           ),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 3)),
+            BoxShadow(color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04), blurRadius: 8, offset: const Offset(0, 3)),
           ],
         ),
         child: Row(
@@ -90,10 +93,10 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
               child: const Icon(Icons.add, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 14),
-            const Text(
+            Text(
               'Add New Category',
               style: TextStyle(
-                color: Color(0xFFB08900),
+                color: isDark ? const Color(0xFFD4AF37) : const Color(0xFFB08900),
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
                 fontFamily: 'Lato',
@@ -105,17 +108,18 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
     );
   }
 
-  Widget _buildEnhancedCategoryCard(Map<String, dynamic> cat, CategoryProvider provider) {
+  Widget _buildEnhancedCategoryCard(Map<String, dynamic> cat, CategoryProvider provider, bool isDark) {
     final Color accentColor = provider.getColor(cat['color_hex'] ?? cat['color']);
     final List<dynamic> codes = cat['codes'] ?? [];
     
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 15, offset: const Offset(0, 8)),
+          BoxShadow(color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.04), blurRadius: 15, offset: const Offset(0, 8)),
         ],
       ),
       child: Column(
@@ -137,7 +141,7 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.1),
+                        color: accentColor.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(provider.getIconData(cat['icon_name'] ?? cat['icon'] ?? ''), color: accentColor, size: 28),
@@ -149,34 +153,44 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                         children: [
                           Text(
                             cat['name'] ?? 'Unnamed',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1A2744)),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold, 
+                              fontSize: 18, 
+                              color: isDark ? Colors.white : const Color(0xFF1A2744),
+                            ),
                           ),
                           Text(
                             '${codes.length} request types',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey.shade600),
                           ),
                           if ((cat['is_staff_role'] ?? 1) == 1)
                             Container(
                               margin: const EdgeInsets.only(top: 4),
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
-                              child: Text('STAFF ROLE', style: TextStyle(color: Colors.blue.shade700, fontSize: 9, fontWeight: FontWeight.bold)),
+                              decoration: BoxDecoration(
+                                color: isDark ? Colors.blue.shade900.withValues(alpha: 0.4) : Colors.blue.shade50, 
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'STAFF ROLE', 
+                                style: TextStyle(color: isDark ? Colors.blue.shade300 : Colors.blue.shade700, fontSize: 9, fontWeight: FontWeight.bold),
+                              ),
                             ),
                         ],
                       ),
                     ),
                     _buildSubActionBtn(
                       icon: Icons.edit_outlined,
-                      color: Colors.grey.shade50,
-                      iconColor: Colors.grey.shade700,
-                      onTap: () => _showEditCategoryDialog(cat),
+                      color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade50,
+                      iconColor: isDark ? Colors.white70 : Colors.grey.shade700,
+                      onTap: () => _showEditCategoryDialog(cat, isDark),
                     ),
                     const SizedBox(width: 8),
                     _buildSubActionBtn(
                       icon: Icons.delete_outline,
-                      color: const Color(0xFFFFEBEE),
-                      iconColor: Colors.redAccent,
-                      onTap: () => _confirmDelete(cat),
+                      color: isDark ? const Color(0xFF3B1E22) : const Color(0xFFFFEBEE),
+                      iconColor: isDark ? const Color(0xFFFF6B6B) : Colors.redAccent,
+                      onTap: () => _confirmDelete(cat, isDark),
                     ),
                   ],
                 ),
@@ -188,9 +202,9 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                     children: codes.map((code) => Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.05),
+                        color: accentColor.withValues(alpha: isDark ? 0.15 : 0.05),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: accentColor.withValues(alpha: 0.2)),
+                        border: Border.all(color: accentColor.withValues(alpha: isDark ? 0.35 : 0.2)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -226,14 +240,19 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
     );
   }
 
-  void _confirmDelete(Map<String, dynamic> cat) async {
+  void _confirmDelete(Map<String, dynamic> cat, bool isDark) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Category?'),
-        content: Text('Are you sure you want to remove "${cat['name']}"?'),
+        backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+        ),
+        title: Text('Delete Category?', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+        content: Text('Are you sure you want to remove "${cat['name']}"?', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey))),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -249,7 +268,7 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
     }
   }
 
-  void _showEditCategoryDialog(Map<String, dynamic>? category) {
+  void _showEditCategoryDialog(Map<String, dynamic>? category, bool isDark) {
     final provider = context.read<CategoryProvider>();
     
     // If editing an existing category, fetch the latest data from the provider
@@ -362,17 +381,21 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
               child: Container(
                 width: 550,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: isDark ? const Color(0xFF131D2E) : Colors.white,
                   borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.transparent),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15), blurRadius: 20, offset: const Offset(0, 8)),
+                  ],
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                   Container(
                     padding: const EdgeInsets.all(24),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1A2744),
-                      borderRadius: BorderRadius.only(topLeft: Radius.circular(28), topRight: Radius.circular(28)),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF0F1520) : const Color(0xFF1A2744),
+                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(28), topRight: Radius.circular(28)),
                     ),
                     child: Row(
                       children: [
@@ -392,21 +415,30 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Category Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                          Text('Category Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFFD4AF37) : Colors.grey)),
                           const SizedBox(height: 8),
                           TextField(
                             controller: nameController,
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
                             decoration: InputDecoration(
                               filled: true,
-                              fillColor: Colors.grey.shade50,
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              fillColor: isDark ? const Color(0xFF0F1520) : Colors.grey.shade50,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12), 
+                                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.transparent),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12), 
+                                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.transparent),
+                              ),
                               hintText: 'e.g. Warden',
+                              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade400),
                               errorText: errorMessage,
                             ),
                           ),
                           
                           const SizedBox(height: 24),
-                          const Text('Icon', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                          Text('Icon', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFFD4AF37) : Colors.grey)),
                           const SizedBox(height: 12),
                           GridView.builder(
                             shrinkWrap: true,
@@ -420,13 +452,15 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                                 onTap: () => setDialogState(() => selectedIcon = item['name']),
                                 child: Container(
                                   decoration: BoxDecoration(
-                                    color: isSelected ? currentAccentColor : Colors.grey.shade50,
+                                    color: isSelected ? currentAccentColor : (isDark ? const Color(0xFF1E293B) : Colors.grey.shade50),
                                     borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: isSelected ? currentAccentColor : Colors.grey.shade200),
+                                    border: Border.all(
+                                      color: isSelected ? currentAccentColor : (isDark ? Colors.white24 : Colors.grey.shade200),
+                                    ),
                                   ),
                                   child: Icon(
                                     item['icon'] as IconData?,
-                                    color: isSelected ? Colors.white : Colors.grey.shade600,
+                                    color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.grey.shade600),
                                     size: 20,
                                   ),
                                 ),
@@ -435,7 +469,7 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                           ),
                           
                           const SizedBox(height: 24),
-                          const Text('Color Theme', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                          Text('Color Theme', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFFD4AF37) : Colors.grey)),
                           const SizedBox(height: 12),
                           Wrap(
                             spacing: 8,
@@ -447,7 +481,7 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                                   decoration: BoxDecoration(
-                                    color: provider.getColor(c['hex']).withValues(alpha: 0.2),
+                                    color: provider.getColor(c['hex']).withValues(alpha: isDark ? 0.25 : 0.2),
                                     borderRadius: BorderRadius.circular(10),
                                     border: Border.all(color: provider.getColor(c['hex']).withValues(alpha: 1.0), width: isSelected ? 2 : 1),
                                   ),
@@ -466,29 +500,29 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                           
                           const SizedBox(height: 32),
                           SwitchListTile(
-                            title: const Text('Available as Staff Role', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                            subtitle: const Text('Enable this to allow registering staff members for this role.', style: TextStyle(fontSize: 12)),
+                            title: Text('Available as Staff Role', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isDark ? Colors.white : Colors.black87)),
+                            subtitle: Text('Enable this to allow registering staff members for this role.', style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey.shade600)),
                             value: isStaffRole,
-                            activeThumbColor: currentAccentColor,
+                            activeColor: currentAccentColor,
                             contentPadding: EdgeInsets.zero,
                             onChanged: (val) => setDialogState(() => isStaffRole = val),
                           ),
                           
                           const SizedBox(height: 32),
-                          const Text('Preview', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                          Text('Preview', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFFD4AF37) : Colors.grey)),
                           const SizedBox(height: 8),
                           Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
+                              color: isDark ? const Color(0xFF0F1520) : Colors.grey.shade50,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.grey.shade200),
+                              border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade200),
                             ),
                             child: Row(
                               children: [
                                 Container(
                                   padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(color: currentAccentColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                                  decoration: BoxDecoration(color: currentAccentColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
                                   child: Icon(
                                     availableIcons.firstWhere(
                                       (i) => i['name'] == selectedIcon,
@@ -501,8 +535,11 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(nameController.text.isEmpty ? 'Category Name' : nameController.text, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                    Text('${codes.length} request types', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                    Text(
+                                      nameController.text.isEmpty ? 'Category Name' : nameController.text, 
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+                                    ),
+                                    Text('${codes.length} request types', style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey.shade600)),
                                   ],
                                 ),
                               ],
@@ -510,17 +547,21 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                           ),
                           
                           const SizedBox(height: 32),
-                          const Text('Request Types', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                          Text('Request Types', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFFD4AF37) : Colors.grey)),
                           const SizedBox(height: 12),
                           ...codes.asMap().entries.map((entry) => Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade50, 
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: isDark ? Colors.white12 : Colors.transparent),
+                            ),
                             child: Row(
                               children: [
-                                const Icon(Icons.label_outline, size: 14, color: Colors.grey),
+                                Icon(Icons.label_outline, size: 14, color: isDark ? const Color(0xFFD4AF37) : Colors.grey),
                                 const SizedBox(width: 12),
-                                Expanded(child: Text(entry.value, style: const TextStyle(fontSize: 14))),
+                                Expanded(child: Text(entry.value, style: TextStyle(fontSize: 14, color: isDark ? Colors.white : Colors.black87))),
                                 IconButton(icon: const Icon(Icons.close, size: 16, color: Colors.redAccent), onPressed: () => setDialogState(() => codes.removeAt(entry.key))),
                               ],
                             ),
@@ -531,17 +572,20 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                               Expanded(
                                 child: TextField(
                                   controller: newCodeController,
+                                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
                                   decoration: InputDecoration(
                                     hintText: 'New request type...',
+                                    hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade400),
                                     filled: true,
-                                    fillColor: Colors.grey.shade50,
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                    fillColor: isDark ? const Color(0xFF0F1520) : Colors.grey.shade50,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.transparent)),
+                                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.transparent)),
                                   ),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               IconButton(
-                                icon: const Icon(Icons.add_circle, color: Color(0xFF1A2744), size: 32),
+                                icon: Icon(Icons.add_circle, color: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744), size: 32),
                                 onPressed: () {
                                   if (newCodeController.text.isNotEmpty) {
                                     setDialogState(() {
@@ -565,8 +609,12 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () => Navigator.pop(context),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                            child: const Text('Cancel'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16), 
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              side: BorderSide(color: isDark ? Colors.white24 : const Color(0xFF1A2744)),
+                            ),
+                            child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF1A2744))),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -597,11 +645,12 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
                               }
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1A2744),
+                              backgroundColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+                              foregroundColor: isDark ? const Color(0xFF1A2744) : Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                             ),
-                            child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            child: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ),
                       ],
@@ -614,15 +663,15 @@ class _CategoryManagerScreenState extends State<CategoryManagerScreen> {
           } catch (e) {
             // Fallback dialog in case of any rendering errors
             return Dialog(
-              backgroundColor: Colors.white,
+              backgroundColor: isDark ? const Color(0xFF131D2E) : Colors.white,
               child: Container(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Error loading category', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text('Error loading category', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
                     const SizedBox(height: 16),
-                    Text('An error occurred: $e'),
+                    Text('An error occurred: $e', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
                     const SizedBox(height: 16),
                     ElevatedButton(
                       onPressed: () => Navigator.pop(context),

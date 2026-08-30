@@ -17,10 +17,14 @@ import '../warden/screens/warden_chat_interface.dart';
 import 'auth_wrapper.dart';
 import 'main_layout.dart';
 import 'role_guard.dart';
+import 'screens/privacy_policy_screen.dart';
 import 'user_provider.dart';
 
 Widget buildDeferredRoutePage(BuildContext context, RouteSettings settings) {
   switch (settings.name) {
+    case '/privacy-policy':
+    case '/privacy_policy':
+      return const PrivacyPolicyScreen();
     case '/chat':
       return _buildChatRoute(context, settings.arguments);
     case '/security_chat':

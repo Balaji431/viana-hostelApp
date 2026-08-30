@@ -85,7 +85,7 @@ try {
         throw new Exception("Failed to record checkout information: " . $insert_stmt->error);
     }
 
-    // 4. Decrement occupied_rooms in hostel_rooms if an allocation existed
+    // 4. Decrement occupied_rooms in hostel_rooms and rooms_groups_details if an allocation existed
     if ($room_allocation && $room_allocation !== 'unallocated') {
         $update_room_sql = "UPDATE hostel_rooms 
                             SET occupied_rooms = GREATEST(0, occupied_rooms - 1), 
@@ -94,6 +94,14 @@ try {
         $room_stmt = $conn->prepare($update_room_sql);
         $room_stmt->bind_param("s", $room_allocation);
         $room_stmt->execute();
+
+        $update_rgd_sql = "UPDATE rooms_groups_details 
+                           SET occupied_beds = GREATEST(0, occupied_beds - 1), 
+                               available_beds = LEAST(total_beds, available_beds + 1) 
+                           WHERE TRIM(room_number) = TRIM(?)";
+        $rgd_stmt = $conn->prepare($update_rgd_sql);
+        $rgd_stmt->bind_param("s", $room_allocation);
+        $rgd_stmt->execute();
     } elseif ($current_room_id && $current_room_id > 0) {
         $update_room_sql = "UPDATE hostel_rooms 
                             SET occupied_rooms = GREATEST(0, occupied_rooms - 1), 

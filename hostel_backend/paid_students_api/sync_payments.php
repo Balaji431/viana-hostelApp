@@ -148,7 +148,7 @@ try {
     $stmt_upsert = $conn->prepare($upsert_sql);
 
     // Prepare statements for users and profile check/insert/update
-    $stmt_check_user = $conn->prepare("SELECT id, role, Status FROM users WHERE username = :username");
+    $stmt_check_user = $conn->prepare("SELECT id, role, Status, email_override FROM users WHERE username = :username");
     
     // Insert user
     $insert_user_sql = "INSERT INTO users (
@@ -160,7 +160,7 @@ try {
     )";
     $stmt_insert_user = $conn->prepare($insert_user_sql);
     
-    // Update user
+    // email_override=1 → do NOT overwrite email/phone set manually by admin
     $update_user_sql = "UPDATE users SET 
         full_name = :full_name,
         Gender = :gender,
@@ -168,14 +168,12 @@ try {
         Institution = :institution,
         Course = :course,
         Academic = :academic,
-        email = COALESCE(:email, email),
-        phone_number = COALESCE(:phone_number, phone_number)
+        email = IF(email_override = 1, email, COALESCE(:email, email)),
+        phone_number = IF(email_override = 1, phone_number, COALESCE(:phone_number, phone_number))
         WHERE username = :username";
     $stmt_update_user = $conn->prepare($update_user_sql);
 
-    // Profile statements
-    $stmt_check_profile = $conn->prepare("SELECT id FROM profile WHERE reg_no = :reg_no");
-    $stmt_insert_profile = $conn->prepare("INSERT INTO profile (reg_no, full_name, institution, email, personal_phone) VALUES (:reg_no, :full_name, :institution, :email, :phone_number)");
+    // Profile also respects override — handler below will check $emailOverride before passing email
     $stmt_update_profile = $conn->prepare("UPDATE profile SET full_name = :full_name, institution = :institution, email = COALESCE(:email, email), personal_phone = COALESCE(:phone_number, personal_phone) WHERE reg_no = :reg_no");
 
     foreach ($records as $record) {

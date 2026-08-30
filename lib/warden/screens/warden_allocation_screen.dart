@@ -223,7 +223,7 @@ class _WardenAllocationScreenState extends State<WardenAllocationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-
+      backgroundColor: Colors.transparent,
       body: ds.LinenBackground(
         child: Column(
           children: [

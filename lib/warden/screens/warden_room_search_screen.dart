@@ -2,7 +2,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/api_service.dart';
+import '../../core/styles.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
+import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../widgets/warden_widgets.dart';
 
 class WardenRoomSearchScreen extends StatefulWidget {
   final bool isDialog;
@@ -248,6 +252,8 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<UserProvider>(context);
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
 
     final String query = _searchController.text.trim().toLowerCase();
     final matchingRooms = _roomDetails.where((r) {
@@ -266,35 +272,25 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
       backgroundColor: Colors.transparent,
       appBar: widget.isDialog
           ? null
-          : AppBar(
-              backgroundColor: const Color(0xFF141E2E),
-              elevation: 0,
-              title: Row(
-                children: const [
-                  Icon(Icons.search, color: Color(0xFFD4AF37), size: 22),
-                  SizedBox(width: 10),
-                  Text('Warden Room Search', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                ],
-              ),
-              centerTitle: false,
+          : const SkeuomorphicNavBar(
+              title: 'Room Search',
             ),
-      body: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF5F7FA),
-        ),
+      body: LinenBackground(
         child: Column(
           children: [
             // Header Search Box
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: const Color(0xFF1A2744),
+                color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+                gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
                 borderRadius: const BorderRadius.only(
                   bottomLeft: Radius.circular(24),
                   bottomRight: Radius.circular(24),
                 ),
+                border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))) : null,
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 10, offset: const Offset(0, 4))
+                  BoxShadow(color: Colors.black.withOpacity(isDark ? 0.35 : 0.15), blurRadius: 10, offset: const Offset(0, 4))
                 ],
               ),
               child: Column(
@@ -338,7 +334,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                           hintText: 'Click or type room number (e.g. T30-F01-WE-R10)...',
                           hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
                           filled: true,
-                          fillColor: Colors.white.withOpacity(0.1),
+                          fillColor: isDark ? const Color(0xFF1E293B).withOpacity(0.6) : Colors.white.withOpacity(0.1),
                           prefixIcon: const Icon(Icons.meeting_room_outlined, color: Color(0xFFD4AF37)),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.search, color: Colors.white),
@@ -350,7 +346,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                             },
                           ),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.white.withOpacity(0.2))),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.white.withOpacity(0.2))),
                           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5)),
                         ),
                       ),
@@ -361,11 +357,12 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                         Container(
                           constraints: const BoxConstraints(maxHeight: 200),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF5F7FA),
+                            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF5F7FA),
                             borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: isDark ? Colors.white24 : Colors.transparent),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
+                                color: Colors.black.withOpacity(isDark ? 0.35 : 0.2),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -397,7 +394,9 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                     margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
                                     decoration: BoxDecoration(
-                                      color: isSelected ? const Color(0xFF4A80D6) : Colors.white,
+                                      color: isSelected 
+                                          ? const Color(0xFF4A80D6) 
+                                          : (isDark ? const Color(0xFF0F1520) : Colors.white),
                                       borderRadius: BorderRadius.circular(10),
                                       boxShadow: isSelected
                                           ? [BoxShadow(color: const Color(0xFF4A80D6).withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]
@@ -408,7 +407,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                         Icon(
                                           Icons.door_sliding_outlined,
                                           size: 18,
-                                          color: isSelected ? Colors.white : const Color(0xFF1A2744),
+                                          color: isSelected ? Colors.white : (isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)),
                                         ),
                                         const SizedBox(width: 10),
                                         Text(
@@ -416,7 +415,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                           style: TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 13,
-                                            color: isSelected ? Colors.white : const Color(0xFF1A2744),
+                                            color: isSelected ? Colors.white : (isDark ? Colors.white : const Color(0xFF1A2744)),
                                           ),
                                         ),
                                       ],
@@ -437,7 +436,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
             // Results Section
             Expanded(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)))
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37)))
                   : SingleChildScrollView(
                       padding: const EdgeInsets.all(20),
                       child: Column(
@@ -452,6 +451,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                     icon: Icons.hotel,
                                     label: 'Total: $_totalBeds',
                                     filterKey: 'total',
+                                    isDark: isDark,
                                   ),
                                 ),
                                 const SizedBox(width: 6),
@@ -460,6 +460,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                     icon: Icons.person_pin,
                                     label: 'Occupied: $occupiedCount',
                                     filterKey: 'occupied',
+                                    isDark: isDark,
                                   ),
                                 ),
                                 const SizedBox(width: 6),
@@ -468,6 +469,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                     icon: Icons.meeting_room_outlined,
                                     label: 'Vacancy: $vacantCount',
                                     filterKey: 'vacancy',
+                                    isDark: isDark,
                                   ),
                                 ),
                               ],
@@ -480,22 +482,30 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                 width: double.infinity,
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
+                                  color: isDark ? const Color(0xFF1E293B) : Colors.blue.shade50,
                                   borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: Colors.blue.shade200),
+                                  border: Border.all(color: isDark ? Colors.white24 : Colors.blue.shade200),
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.king_bed_outlined, size: 20, color: Colors.blue.shade900),
+                                    Icon(Icons.king_bed_outlined, size: 20, color: isDark ? const Color(0xFFD4AF37) : Colors.blue.shade900),
                                     const SizedBox(width: 10),
                                     Text(
                                       'Room Type: ',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blue.shade900),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold, 
+                                        fontSize: 13, 
+                                        color: isDark ? Colors.white : Colors.blue.shade900,
+                                      ),
                                     ),
                                     Expanded(
                                       child: Text(
                                         _roomType,
-                                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.blue.shade800),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600, 
+                                          fontSize: 13, 
+                                          color: isDark ? const Color(0xFFD4AF37) : Colors.blue.shade800,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -504,7 +514,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                               const SizedBox(height: 16),
                             ],
 
-                            // SECTION 3: BED CARDS LIST (Occupied Dark Blue Cards + Vacant White Glass Cards)
+                            // SECTION 3: BED CARDS LIST
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -514,7 +524,11 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                       : (_activeBedFilter == 'vacancy'
                                           ? 'Vacant Bed Cards ($vacantCount)'
                                           : 'Room Bed Allocation Cards ($_totalBeds Total)'),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1A2744)),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold, 
+                                    fontSize: 16, 
+                                    color: isDark ? Colors.white : const Color(0xFF1A2744),
+                                  ),
                                 ),
                               ],
                             ),
@@ -529,11 +543,9 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                                 itemBuilder: (context, index) {
                                   if (index < occupiedCount) {
-                                    // Occupied Bed: Dark Blue Student Card
                                     return _buildStudentCard(context, _students[index]);
                                   } else {
-                                    // Vacant Bed: White Glass Card with Room Code
-                                    return _buildVacantBedCard(context, _searchedRoomNumber, index - occupiedCount);
+                                    return _buildVacantBedCard(context, _searchedRoomNumber, index - occupiedCount, isDark);
                                   }
                                 },
                               ),
@@ -549,7 +561,7 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                   },
                                 )
                               else
-                                _buildEmptyStateCard('No occupied beds in this room.'),
+                                _buildEmptyStateCard('No occupied beds in this room.', isDark),
                             ] else if (_activeBedFilter == 'vacancy') ...[
                               if (vacantCount > 0)
                                 ListView.separated(
@@ -558,11 +570,11 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                                   itemCount: vacantCount,
                                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                                   itemBuilder: (context, index) {
-                                    return _buildVacantBedCard(context, _searchedRoomNumber, index);
+                                    return _buildVacantBedCard(context, _searchedRoomNumber, index, isDark);
                                   },
                                 )
                               else
-                                _buildEmptyStateCard('This room is fully occupied! Zero vacant beds remaining.'),
+                                _buildEmptyStateCard('This room is fully occupied! Zero vacant beds remaining.', isDark),
                             ],
                           ],
 
@@ -572,23 +584,23 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                               width: double.infinity,
                               padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
-                                color: Colors.red.shade50,
+                                color: isDark ? const Color(0xFF3B1219) : Colors.red.shade50,
                                 borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.red.shade200),
+                                border: Border.all(color: Colors.red.shade300),
                               ),
                               child: Column(
                                 children: [
-                                  Icon(Icons.shield_outlined, color: Colors.red.shade700, size: 48),
+                                  Icon(Icons.shield_outlined, color: Colors.red.shade400, size: 48),
                                   const SizedBox(height: 12),
                                   Text(
                                     'Access Denied',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.red.shade900),
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isDark ? Colors.white : Colors.red.shade900),
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
                                     _message,
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.red.shade800, fontSize: 14),
+                                    style: TextStyle(color: isDark ? Colors.white70 : Colors.red.shade800, fontSize: 14),
                                   ),
                                 ],
                               ),
@@ -600,23 +612,34 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
                               width: double.infinity,
                               padding: const EdgeInsets.all(30),
                               decoration: BoxDecoration(
-                                color: Colors.white,
+                                color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
                                 borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.grey.shade200),
+                                border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade200),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
                               child: Column(
                                 children: [
-                                  Icon(Icons.search_outlined, color: const Color(0xFFD4AF37), size: 54),
+                                  const Icon(Icons.search_outlined, color: Color(0xFFD4AF37), size: 54),
                                   const SizedBox(height: 16),
-                                  const Text(
+                                  Text(
                                     'Select or Search a Room Number',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1A2744)),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold, 
+                                      fontSize: 16, 
+                                      color: isDark ? Colors.white : const Color(0xFF1A2744),
+                                    ),
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
                                     'Click or type in the search bar above to dropdown your assigned rooms and view student details.',
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                                    style: TextStyle(color: isDark ? Colors.white70 : Colors.grey.shade600, fontSize: 13),
                                   ),
                                 ],
                               ),
@@ -646,19 +669,19 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
     return content;
   }
 
-  Widget _buildEmptyStateCard(String message) {
+  Widget _buildEmptyStateCard(String message, [bool isDark = false]) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade200),
       ),
       child: Center(
         child: Text(
           message,
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 14, fontWeight: FontWeight.w500),
+          style: TextStyle(color: isDark ? Colors.white70 : Colors.grey.shade600, fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ),
     );
@@ -668,11 +691,18 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
     required IconData icon,
     required String label,
     required String filterKey,
+    bool isDark = false,
   }) {
     final bool isSelected = _activeBedFilter == filterKey;
-    Color bgColor = isSelected ? const Color(0xFF1A2744) : Colors.white;
-    Color textColor = isSelected ? Colors.white : const Color(0xFF1A2744);
-    Color borderColor = isSelected ? const Color(0xFF1A2744) : Colors.grey.shade300;
+    Color bgColor = isSelected 
+        ? (isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)) 
+        : (isDark ? const Color(0xFF1E293B) : Colors.white);
+    Color textColor = isSelected 
+        ? (isDark ? const Color(0xFF1B2B48) : Colors.white) 
+        : (isDark ? Colors.white : const Color(0xFF1A2744));
+    Color borderColor = isSelected 
+        ? (isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744)) 
+        : (isDark ? Colors.white24 : Colors.grey.shade300);
 
     return Material(
       color: Colors.transparent,
@@ -779,15 +809,18 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
   }
 
   // VACANT BED CARD (White Glass Card with Room Code Badge)
-  Widget _buildVacantBedCard(BuildContext context, String roomNo, int bedIndex) {
+  Widget _buildVacantBedCard(BuildContext context, String roomNo, int bedIndex, [bool isDark = false]) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade300, width: 1.2),
+        border: Border.all(
+          color: isDark ? Colors.white24 : Colors.grey.shade300, 
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.04),
             blurRadius: 8,
             offset: const Offset(0, 3),
           )
@@ -798,8 +831,8 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
         children: [
           CircleAvatar(
             radius: 18,
-            backgroundColor: Colors.grey.shade100,
-            child: Icon(Icons.bed_outlined, color: Colors.grey.shade600, size: 20),
+            backgroundColor: isDark ? Colors.white12 : Colors.grey.shade100,
+            child: Icon(Icons.bed_outlined, color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade600, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -808,12 +841,16 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
               children: [
                 Text(
                   'Vacant Bed Slot #${bedIndex + 1}',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.grey.shade800),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold, 
+                    fontSize: 15, 
+                    color: isDark ? Colors.white : Colors.grey.shade800,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   'Available for Student Allocation',
-                  style: TextStyle(color: Colors.green.shade700, fontSize: 12, fontWeight: FontWeight.w500),
+                  style: TextStyle(color: isDark ? const Color(0xFF81C784) : Colors.green.shade700, fontSize: 12, fontWeight: FontWeight.w500),
                 ),
               ],
             ),
@@ -821,13 +858,17 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.shade300),
+              border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300),
             ),
             child: Text(
               roomNo,
-              style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.bold, fontSize: 12),
+              style: TextStyle(
+                color: isDark ? const Color(0xFFD4AF37) : Colors.grey.shade700, 
+                fontWeight: FontWeight.bold, 
+                fontSize: 12,
+              ),
             ),
           ),
         ],

@@ -19,6 +19,7 @@ import 'package:flutter/services.dart';
 import '../../shared/widgets/calendar_modal.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/widgets/complaint_feedback_dialogs.dart';
+import '../../shared/wallpaper_provider.dart';
 
 class WardenChatScreen extends StatefulWidget {
   final String? requestId;
@@ -153,7 +154,7 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
       if (mounted) _fetchMessages(silent: true);
     });
   }
@@ -516,6 +517,12 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return LinenGridBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -574,12 +581,14 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                 margin: const EdgeInsets.all(12),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF0F0),
+                  color: isDark ? const Color(0xFF7F1D1D).withOpacity(0.35) : const Color(0xFFFFF0F0),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFFFCCCC)),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFFEF4444).withOpacity(0.4) : const Color(0xFFFFCCCC),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
+                      color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     )
@@ -587,13 +596,17 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: isDark ? const Color(0xFFF87171) : const Color(0xFFD32F2F),
+                      size: 24,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         '${widget.department} has not been assigned to your hostel block/wing yet. Please contact the administrator.',
-                        style: const TextStyle(
-                          color: Color(0xFFD32F2F),
+                        style: TextStyle(
+                          color: isDark ? const Color(0xFFFCA5A5) : const Color(0xFFD32F2F),
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
@@ -677,6 +690,12 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
   }
 
   Widget _buildSubHeader() {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     final user = context.read<UserProvider>();
     final rawRoom = user.isParent 
         ? user.linkedStudentRoom 
@@ -699,7 +718,14 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05)))),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : Colors.white,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
+          ),
+        ),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -707,7 +733,13 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
             child: Text(
               labelText, 
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D), letterSpacing: 0.5, fontFamily: 'Lato'),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : const Color(0xFF5D5D5D),
+                letterSpacing: 0.5,
+                fontFamily: 'Lato',
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -729,6 +761,12 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
   }
 
   Widget _buildFilterChips() {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     final filters = ['All'];
     final wardenCodes = context.read<CategoryProvider>().categories.where((c) => c['name'] == widget.department).expand((c) => (c['codes'] as List).map((code) => code.toString())).toList();
     filters.addAll(wardenCodes.where((c) => c != 'Calls'));
@@ -736,7 +774,7 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
     return Container(
       height: 50,
       padding: const EdgeInsets.symmetric(vertical: 8),
-      color: const Color(0xFFF0EDE5),
+      color: isDark ? const Color(0xFF0F172A).withOpacity(0.9) : const Color(0xFFF0EDE5),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 15),
@@ -751,11 +789,26 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
               margin: const EdgeInsets.only(right: 10),
               padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF1B2B48) : Colors.white,
+                color: isSelected
+                    ? (isDark ? const Color(0xFF3B82F6) : const Color(0xFF1B2B48))
+                    : (isDark ? Colors.white.withOpacity(0.08) : Colors.white),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: isSelected ? Colors.transparent : Colors.black.withOpacity(0.1)),
+                border: Border.all(
+                  color: isSelected
+                      ? Colors.transparent
+                      : (isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.1)),
+                ),
               ),
-              child: Text(filters[index], style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : const Color(0xFF5D5D5D))),
+              child: Text(
+                filters[index],
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected
+                      ? Colors.white
+                      : (isDark ? Colors.white70 : const Color(0xFF5D5D5D)),
+                ),
+              ),
             ),
           );
         },
@@ -895,32 +948,38 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
   }
 
   Widget _buildBottomInputDesign() {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     final user = context.read<UserProvider>();
     
     if (!_isAssigned) {
       return Container(
         padding: const EdgeInsets.fromLTRB(15, 12, 15, 30),
-        decoration: const BoxDecoration(
-          color: Color(0xFFF9F9F9),
-          border: Border(top: BorderSide(color: Colors.black12)),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0F172A).withOpacity(0.95) : const Color(0xFFF9F9F9),
+          border: Border(top: BorderSide(color: isDark ? Colors.white.withOpacity(0.1) : Colors.black12)),
         ),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.grey.shade100,
+            color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade300),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.lock_outline, color: Colors.grey.shade600, size: 18),
+              Icon(Icons.lock_outline, color: isDark ? Colors.white60 : Colors.grey.shade600, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Chat disabled: ${widget.department} not assigned',
                   style: TextStyle(
-                    color: Colors.grey.shade600,
+                    color: isDark ? Colors.white70 : Colors.grey.shade600,
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
@@ -936,29 +995,30 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
     if (_currentFilter != 'All') {
       return Container(
         padding: const EdgeInsets.fromLTRB(15, 10, 15, 30),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: Colors.black12)),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF131D2E).withOpacity(0.95) : Colors.white,
+          border: Border(top: BorderSide(color: isDark ? Colors.white.withOpacity(0.1) : Colors.black12)),
         ),
         child: GestureDetector(
           onTap: _showCategoryPicker,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
+              border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
+              children: [
                 Expanded(
                   child: Text(
                     'Select a request category...',
+                    style: TextStyle(color: isDark ? Colors.white70 : Colors.black87),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Icon(Icons.keyboard_arrow_down),
+                Icon(Icons.keyboard_arrow_down, color: isDark ? Colors.white70 : Colors.grey),
               ],
             ),
           ),
@@ -968,7 +1028,10 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(15, 10, 15, 30),
-      decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.black12))),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.95) : Colors.white,
+        border: Border(top: BorderSide(color: isDark ? Colors.white.withOpacity(0.1) : Colors.black12)),
+      ),
       child: Column(
         children: [
           if (!user.isParent)
@@ -978,9 +1041,9 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
+                  border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -988,11 +1051,16 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                     Expanded(
                       child: Text(
                         _selectedCategory ?? 'Select a request category...', 
-                        style: TextStyle(color: _selectedCategory == null ? Colors.grey : const Color(0xFF1B2B48), fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: _selectedCategory == null 
+                              ? (isDark ? Colors.white60 : Colors.grey) 
+                              : (isDark ? Colors.white : const Color(0xFF1B2B48)), 
+                          fontWeight: FontWeight.bold,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+                    Icon(Icons.keyboard_arrow_down, color: isDark ? Colors.white70 : Colors.grey),
                   ],
                 ),
               ),
@@ -1002,17 +1070,22 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25), border: Border.all(color: Colors.grey.shade300)),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
+                    borderRadius: BorderRadius.circular(25),
+                    border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
+                  ),
                   child: TextField(
                     controller: _messageController,
                     enabled: _currentFilter == 'All',
-                    decoration: const InputDecoration(
+                    style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14),
+                    decoration: InputDecoration(
                       border: InputBorder.none,
                       focusedBorder: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       filled: false,
                       hintText: 'Type a message',
-                      hintStyle: TextStyle(color: Colors.black, fontSize: 14),
+                      hintStyle: TextStyle(color: isDark ? Colors.white60 : Colors.black54, fontSize: 14),
                     ),
                   ),
                 ),
@@ -1025,14 +1098,14 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
                   decoration: BoxDecoration(
                     color: (_isTyping && !_isSending)
                         ? Colors.blue
-                        : Colors.grey.shade200,
+                        : (isDark ? Colors.white12 : Colors.grey.shade200),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.send,
                     color: (_isTyping && !_isSending)
                         ? Colors.white
-                        : Colors.grey,
+                        : (isDark ? Colors.white38 : Colors.grey),
                     size: 20,
                   ),
                 ),
@@ -1045,6 +1118,12 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
   }
 
   void _showCategoryPicker() {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     final catProvider = context.read<CategoryProvider>();
     final wardenCat = catProvider.getCategoryByName('Warden');
     final allCodes = wardenCat != null 
@@ -1059,24 +1138,36 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
       useRootNavigator: false,
       builder: (context) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+            border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF3B5998),
-                  borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFF3B5998),
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+                  border: isDark ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))) : null,
                 ),
-                child: const Text('Select a request category...', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                child: const Text(
+                  'Select a request category...',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
               ),
               ...codes.map((cat) => ListTile(
-                title: Text(cat),
+                title: Text(
+                  cat,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                trailing: Icon(Icons.arrow_forward_ios_rounded, size: 14, color: isDark ? Colors.white38 : Colors.grey),
                 onTap: () {
                   Navigator.pop(context);
                   setState(() => _selectedCategory = cat);
@@ -1092,7 +1183,16 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
   }
 
   void _showNewRequestModal(String category) {
-    showDialog(context: context, builder: (context) => _NewRequestDialog(category: category, onSubmit: (details) { _addRequest(category, details); setState(() => _selectedCategory = null); }));
+    showDialog(
+      context: context,
+      builder: (context) => _NewRequestDialog(
+        category: category,
+        onSubmit: (details) {
+          _addRequest(category, details);
+          setState(() => _selectedCategory = null);
+        },
+      ),
+    );
   }
 }
 
@@ -1135,24 +1235,30 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
   }
 
   void _showImageSourcePicker() {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.read<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
             ListTile(
-              leading: const Icon(Icons.camera_alt, color: Color(0xFF1B2B48)),
-              title: const Text('Take Photo with Camera'),
+              leading: Icon(Icons.camera_alt, color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1B2B48)),
+              title: Text('Take Photo with Camera', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
               onTap: () {
                 Navigator.pop(ctx);
                 _pickImage(ImageSource.camera);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library, color: Color(0xFF1B2B48)),
-              title: const Text('Choose from Gallery'),
+              leading: Icon(Icons.photo_library, color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1B2B48)),
+              title: Text('Choose from Gallery', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
               onTap: () {
                 Navigator.pop(ctx);
                 _pickImage(ImageSource.gallery);
@@ -1220,9 +1326,18 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: isDark ? BorderSide(color: Colors.white.withOpacity(0.14)) : BorderSide.none,
+      ),
       child: Container(
         padding: const EdgeInsets.all(20),
         constraints: const BoxConstraints(maxWidth: 400),
@@ -1236,30 +1351,35 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
                 Expanded(
                   child: Text(
                     'New ${widget.category}',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48), fontFamily: 'Lato'),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                      fontFamily: 'Lato',
+                    ),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1B2B48), size: 24),
+                  icon: Icon(Icons.camera_alt_outlined, color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1B2B48), size: 24),
                   onPressed: _showImageSourcePicker,
                   tooltip: 'Attach mandatory document/photo',
                 ),
               ],
             ),
             const SizedBox(height: 15),
-            _buildTextField(_purposeController, "Purpose of Leave / Request...", maxLines: 3),
+            _buildTextField(_purposeController, "Purpose of Leave / Request...", isDark, maxLines: 3),
             if (_isLeaveRequest) ...[
               const SizedBox(height: 10),
-              _buildTextField(_destinationController, "Destination"),
+              _buildTextField(_destinationController, "Destination", isDark),
               const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
-                    child: _buildDateButton("Departure", _fromDate, (date) => setState(() => _fromDate = date)),
+                    child: _buildDateButton("Departure", _fromDate, (date) => setState(() => _fromDate = date), isDark),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: _buildDateButton("Return", _toDate, (date) => setState(() => _toDate = date)),
+                    child: _buildDateButton("Return", _toDate, (date) => setState(() => _toDate = date), isDark),
                   ),
                 ],
               ),
@@ -1270,20 +1390,24 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
+                  color: isDark ? const Color(0xFF064E3B).withOpacity(0.5) : Colors.green.shade50,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.green.shade200),
+                  border: Border.all(color: isDark ? const Color(0xFF059669) : Colors.green.shade200),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                    Icon(Icons.check_circle, color: isDark ? const Color(0xFF34D399) : Colors.green, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _selectedImage!.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.green),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? const Color(0xFF34D399) : Colors.green,
+                        ),
                       ),
                     ),
                     IconButton(
@@ -1299,23 +1423,34 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
+                  color: isDark ? const Color(0xFF78350F).withOpacity(0.35) : Colors.amber.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.amber.shade300),
+                  border: Border.all(color: isDark ? const Color(0xFFD97706).withOpacity(0.6) : Colors.amber.shade300),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.camera_alt, color: Colors.amber.shade800, size: 18),
+                    Icon(Icons.camera_alt, color: isDark ? const Color(0xFFFBBF24) : Colors.amber.shade800, size: 18),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Document/Photo is Mandatory *',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? const Color(0xFFFDE68A) : Colors.amber.shade900,
+                        ),
                       ),
                     ),
                     TextButton(
                       onPressed: _showImageSourcePicker,
-                      child: const Text('Attach', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      child: Text(
+                        'Attach',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: isDark ? const Color(0xFF60A5FA) : null,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1325,11 +1460,11 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.red.shade50,
+                  color: isDark ? const Color(0xFF7F1D1D).withOpacity(0.4) : Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
+                  border: Border.all(color: isDark ? const Color(0xFFEF4444) : Colors.red.shade200),
                 ),
-                child: Text(_errorMessage, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                child: Text(_errorMessage, style: TextStyle(color: isDark ? const Color(0xFFFCA5A5) : Colors.red, fontSize: 12)),
               ),
             ],
             const SizedBox(height: 20),
@@ -1338,13 +1473,13 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
               children: [
                 TextButton(
                   onPressed: _isUploading ? null : () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : null)),
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
                   onPressed: _isUploading ? null : _handleSubmit,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1B2B48),
+                    backgroundColor: isDark ? const Color(0xFF2563EB) : const Color(0xFF1B2B48),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
@@ -1360,22 +1495,30 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint, {int maxLines = 1}) {
+  Widget _buildTextField(TextEditingController controller, String hint, bool isDark, {int maxLines = 1}) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
+      style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14),
       decoration: InputDecoration(
         hintText: hint,
+        hintStyle: TextStyle(color: isDark ? Colors.white54 : Colors.grey, fontSize: 14),
         filled: true,
-        fillColor: Colors.grey.shade50,
+        fillColor: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade50,
         contentPadding: const EdgeInsets.all(12),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
+        ),
       ),
     );
   }
 
-  Widget _buildDateButton(String label, DateTime? date, Function(DateTime) onSelect) {
+  Widget _buildDateButton(String label, DateTime? date, Function(DateTime) onSelect, bool isDark) {
     return InkWell(
       onTap: () async {
         final picked = await showDialog<DateTime>(
@@ -1387,18 +1530,22 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.grey.shade50,
+          color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.shade300),
+          border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+            Text(label, style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey)),
             const SizedBox(height: 4),
             Text(
               date == null ? "Select Date" : DateFormat('dd/MM/yy').format(date),
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: date == null ? Colors.grey : const Color(0xFF1B2B48)),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: date == null ? (isDark ? Colors.white60 : Colors.grey) : (isDark ? Colors.white : const Color(0xFF1B2B48)),
+              ),
             ),
           ],
         ),

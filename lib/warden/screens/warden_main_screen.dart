@@ -58,7 +58,7 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
       const WardenManagementTab(),
     ];
 
-    final bool useSwipeView = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final bool useSwipeView = !kIsWeb;
 
     return Scaffold(
       body: useSwipeView

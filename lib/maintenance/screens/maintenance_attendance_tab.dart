@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/styles.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../warden/widgets/warden_widgets.dart' show LinenBackground;
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 
@@ -55,6 +57,9 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: const SkeuomorphicNavBar(
@@ -68,10 +73,10 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildAttendanceCard(),
+                  _buildAttendanceCard(isDark),
                   const SizedBox(height: 25),
-                  _buildHistoryHeader(),
-                  _buildAttendanceHistory(),
+                  _buildHistoryHeader(isDark),
+                  _buildAttendanceHistory(isDark),
                   const SizedBox(height: 100),
                 ],
               ),
@@ -82,17 +87,30 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
     );
   }
 
-  Widget _buildAttendanceCard() {
+  Widget _buildAttendanceCard(bool isDark) {
     return Container(
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(25),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: _isCheckedIn ? const Color(0xFF4CAF50) : const Color(0xFF1A2744),
+              color: _isCheckedIn ? const Color(0xFF4CAF50) : (isDark ? const Color(0xFF1E293B) : const Color(0xFF1A2744)),
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
@@ -111,18 +129,22 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
           const SizedBox(height: 20),
           Text(
             _isCheckedIn ? 'Checked In' : 'Not Checked In',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2744)),
+            style: TextStyle(
+              fontSize: 20, 
+              fontWeight: FontWeight.bold, 
+              color: isDark ? Colors.white : const Color(0xFF1A2744),
+            ),
           ),
           const SizedBox(height: 10),
           if (_checkInTime != null)
             Text(
               'Check In: ${DateFormat('hh:mm a').format(_checkInTime!)}',
-              style: const TextStyle(fontSize: 14, color: Colors.grey),
+              style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.grey),
             ),
           if (_checkOutTime != null && !_isCheckedIn)
             Text(
               'Check Out: ${DateFormat('hh:mm a').format(_checkOutTime!)}',
-              style: const TextStyle(fontSize: 14, color: Colors.grey),
+              style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.grey),
             ),
           const SizedBox(height: 25),
           SizedBox(
@@ -145,9 +167,9 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
     );
   }
 
-  Widget _buildHistoryHeader() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 25),
+  Widget _buildHistoryHeader(bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 25),
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(
@@ -155,7 +177,7 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.bold,
-            color: Colors.grey,
+            color: isDark ? const Color(0xFFD4AF37) : Colors.grey,
             letterSpacing: 1.2,
           ),
         ),
@@ -163,16 +185,16 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
     );
   }
 
-  Widget _buildAttendanceHistory() {
+  Widget _buildAttendanceHistory(bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
       child: Column(
-        children: _attendanceHistory.map((record) => _buildHistoryItem(record)).toList(),
+        children: _attendanceHistory.map((record) => _buildHistoryItem(record, isDark)).toList(),
       ),
     );
   }
 
-  Widget _buildHistoryItem(Map<String, dynamic> record) {
+  Widget _buildHistoryItem(Map<String, dynamic> record, bool isDark) {
     Color statusColor;
     switch (record['status']) {
       case 'Present':
@@ -191,7 +213,20 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(15),
-      decoration: SkeuomorphicStyles.skeuomorphicCard,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Row(
         children: [
           Container(
@@ -206,12 +241,16 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
               children: [
                 Text(
                   record['date'],
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1A2744)),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold, 
+                    fontSize: 14, 
+                    color: isDark ? Colors.white : const Color(0xFF1A2744),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   'In: ${record['checkIn']} | Out: ${record['checkOut']}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey),
                 ),
               ],
             ),
@@ -219,7 +258,7 @@ class _MaintenanceAttendanceTabState extends State<MaintenanceAttendanceTab> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.1),
+              color: statusColor.withOpacity(isDark ? 0.25 : 0.1),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(

@@ -40,10 +40,10 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBrEnXPOJwzkYWsbR0UJupBDNfrcHN-vgI',
-    appId: '1:907286443175:ios:455b27a5748703a1e09782',
+    appId: '1:907286443175:ios:9eaf736b4690bcf0e09782',
     messagingSenderId: '907286443175',
     projectId: 'hostel-app-3afa1',
     storageBucket: 'hostel-app-3afa1.firebasestorage.app',
-    iosBundleId: 'com.vianasoft.stay',
+    iosBundleId: 'com.vianasoft.vianastay',
   );
 }

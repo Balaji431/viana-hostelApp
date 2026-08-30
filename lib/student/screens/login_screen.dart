@@ -3,14 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../shared/user_provider.dart';
-import '../../shared/main_layout.dart';
+import '../../shared/screens/privacy_policy_screen.dart' deferred as privacy_screen;
 import '../../core/api_service.dart';
-import '../../core/auth_service.dart';
-import '../widgets/temporary_stay_dialog.dart';
+import '../widgets/temporary_stay_dialog.dart' deferred as temp_dialog;
 
 class LeatherFramePainter extends CustomPainter {
   @override
@@ -149,16 +147,10 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _userController = TextEditingController();
-  final _passController = TextEditingController();
-
-  String? _usernameError;
-  String? _passwordError;
   String? _errorMessage;
-
+  String? _lastGoogleEmail;
+  String? _lastGoogleName;
   bool _isLoading = false;
-  bool _isObscured = true;
-  bool _showCredentials = false;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     clientId: kIsWeb ? '907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com' : null,
@@ -166,131 +158,53 @@ class _LoginScreenState extends State<LoginScreen> {
     scopes: ['email', 'profile'],
   );
 
-  @override
-  void dispose() {
-    _userController.dispose();
-    _passController.dispose();
-    super.dispose();
-  }
+  Future<void> _openTemporaryStayDialog([String? email, String? name]) async {
+    final targetEmail = (email != null && email.isNotEmpty) ? email : (_lastGoogleEmail ?? '');
+    final targetName = (name != null && name.isNotEmpty) ? name : (_lastGoogleName ?? '');
 
-  void _handleLogin() async {
-    final username = _userController.text.trim();
-    final password = _passController.text.trim();
-
-    setState(() {
-      _usernameError = null;
-      _passwordError = null;
-      _errorMessage = null;
-    });
-
-    if (username.isEmpty || password.isEmpty) {
-      setState(() {
-        if (username.isEmpty) _usernameError = 'Required';
-        if (password.isEmpty) _passwordError = 'Required';
-        _errorMessage = 'Please enter both username and password.';
-      });
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      AuthService.login(username, password);
-
-      final response = await ApiService.login(username, password);
-
-      if (response['success'] == true) {
-        final userData = response['data'];
-        if (mounted) {
-          Provider.of<UserProvider>(context, listen: false).login(userData);
+    Map<String, dynamic>? existingRequest;
+    if (targetEmail.isNotEmpty) {
+      setState(() => _isLoading = true);
+      try {
+        final res = await ApiService.checkTemporaryStayEmail(targetEmail);
+        if (res['success'] == true && res['has_request'] == true) {
+          existingRequest = res['request_details'] != null
+              ? Map<String, dynamic>.from(res['request_details'])
+              : null;
         }
-      } else {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = response['message'] ?? 'Login failed';
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Connection error: $e';
-        });
+      } catch (e) {
+        debugPrint('Error checking temporary stay email: $e');
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
-  }
 
-  Widget _buildInputField({
-    required String label,
-    required TextEditingController controller,
-    required String hint,
-    bool isPassword = false,
-    bool isObscured = true,
-    required String? errorText,
-    VoidCallback? onToggleObscure,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF5A4E3E),
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          obscureText: isPassword && isObscured,
-          onSubmitted: (_) => _handleLogin(),
-          style: const TextStyle(fontSize: 14, color: Color(0xFF1B2B48)),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.95),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFFC4B8A6)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFFDCD2C3)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 1.5),
-            ),
-            suffixIcon: isPassword 
-                ? IconButton(
-                    icon: Icon(
-                      isObscured ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.grey,
-                      size: 20,
-                    ),
-                    onPressed: onToggleObscure,
-                  )
-                : null,
-          ),
-        ),
-        if (errorText != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            errorText,
-            style: const TextStyle(color: Color(0xFFC62828), fontSize: 11, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ],
+    await temp_dialog.loadLibrary();
+    if (!mounted) return;
+
+    final result = await showDialog<Map<String, dynamic>?>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => temp_dialog.TemporaryStayDialog(
+        googleEmail: targetEmail,
+        googleName: targetName,
+        existingRequest: existingRequest,
+      ),
     );
+
+    if (result != null && result['auto_login_user'] != null && mounted) {
+      final userData = Map<String, dynamic>.from(result['auto_login_user']);
+      final userProvider = Provider.of<UserProvider>(context, listen: false);
+      userProvider.login(userData);
+    }
   }
 
   Widget _buildErrorBanner() {
     if (_errorMessage == null) return const SizedBox.shrink();
+    final bool isAccountNotFound = _errorMessage!.toLowerCase().contains('no vstay account') ||
+        _errorMessage!.toLowerCase().contains('not found') ||
+        _errorMessage!.toLowerCase().contains('hostel fee');
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       margin: const EdgeInsets.only(bottom: 20),
@@ -302,178 +216,73 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFEF9A9A)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline, color: Color(0xFFC62828), size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _errorMessage!,
-              style: const TextStyle(
-                color: Color(0xFFC62828),
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(Icons.error_outline, color: Color(0xFFC62828), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(
+                    color: Color(0xFFC62828),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (isAccountNotFound) ...[
+            const SizedBox(height: 10),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => _openTemporaryStayDialog(_lastGoogleEmail, _lastGoogleName),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.92),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE57373)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.hotel_rounded, size: 15, color: Color(0xFFC62828)),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Looking for Short Stay? Apply Here ➔',
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: const Color(0xFFC62828),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildSignInButton() {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: _isLoading ? null : _handleLogin,
-        child: Container(
-          width: double.infinity,
-          height: 48,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFBEAA6), Color(0xFFD4AF37), Color(0xFFB8962E)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFF8B7025), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-              BoxShadow(
-                color: Colors.white.withOpacity(0.4),
-                blurRadius: 1,
-                offset: const Offset(0, -1.5),
-                spreadRadius: 0.5,
-              ),
-            ],
-          ),
-          child: Center(
-            child: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF3D2E0A),
-                      strokeWidth: 2.5,
-                    ),
-                  )
-                : const Text(
-                    'Login',
-                    style: TextStyle(
-                      color: Color(0xFF3D2E0A),
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                      shadows: [
-                        Shadow(
-                          color: Colors.white70,
-                          offset: Offset(0, 1),
-                          blurRadius: 1,
-                        ),
-                      ],
-                    ),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
 
 
 
-  Widget _buildAdminStaffLoginButton() {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _showCredentials = true;
-            _errorMessage = null;
-          });
-        },
-        child: Container(
-          width: double.infinity,
-          height: 48,
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F1520),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.lock_outline,
-                color: Colors.white,
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Login with Bio ID',
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBackToGoogleButton() {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _showCredentials = false;
-            _errorMessage = null;
-          });
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(
-                Icons.arrow_back,
-                color: Color(0xFF2D3748),
-                size: 18,
-              ),
-              SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  'Back to sign in',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Color(0xFF2D3748),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                    fontFamily: 'Lato',
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   void _handleGoogleSignIn() async {
     setState(() {
@@ -502,6 +311,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final String googleEmail = googleUser.email;
       final String googleName = googleUser.displayName ?? 'Applicant';
+      _lastGoogleEmail = googleEmail;
+      _lastGoogleName = googleName;
 
       // Direct Google Login for registered VStay users
       final response = await ApiService.googleLogin(
@@ -527,9 +338,15 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     } catch (e) {
       if (mounted) {
+        String msg = e.toString();
+        if (msg.contains('SocketException') || msg.contains('Connection refused') || msg.contains('ClientException')) {
+          msg = 'Unable to connect to server. Please check your connection or verify backend server is running.';
+        } else {
+          msg = 'Google Authentication failed: $e';
+        }
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Google Authentication failed: $e';
+          _errorMessage = msg;
         });
       }
     }
@@ -591,6 +408,8 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -673,56 +492,56 @@ class _LoginScreenState extends State<LoginScreen> {
                               painter: LeatherFramePainter(),
                               child: Padding(
                                 padding: EdgeInsets.symmetric(
-                                  horizontal: isMobile ? 16 : 28,
-                                  vertical: isMobile ? 28 : 40,
+                                  horizontal: isMobile ? 12 : 28,
+                                  vertical: isMobile ? 20 : 36,
                                 ),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                 // Logo Section
-                                 Container(
-                                   width: 84,
-                                   height: 84,
-                                   decoration: BoxDecoration(
-                                     color: Colors.white,
-                                     shape: BoxShape.circle,
-                                     boxShadow: [
-                                       BoxShadow(
-                                         color: Colors.black.withOpacity(0.25),
-                                         blurRadius: 12,
-                                         offset: const Offset(0, 4),
-                                       ),
-                                     ],
-                                   ),
-                                   child: ClipRRect(
-                                     borderRadius: BorderRadius.circular(42),
-                                     child: Image.asset(
-                                       'assets/images/favicon.png',
-                                       width: 84,
-                                       height: 84,
-                                       fit: BoxFit.cover,
-                                       errorBuilder: (context, error, stackTrace) => const Center(
-                                         child: Icon(
-                                           Icons.apartment,
-                                           color: Color(0xFF1B2B48),
-                                           size: 40,
-                                         ),
-                                       ),
-                                     ),
-                                   ),
-                                 ),
-                                 const SizedBox(height: 18),
-                                 const Text(
+                                  // Logo Section - Clean Round Emblem
+                                  Container(
+                                    width: isMobile ? 88 : 96,
+                                    height: isMobile ? 88 : 96,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.white,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.35),
+                                          blurRadius: 16,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipOval(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Image.asset(
+                                          'assets/images/favicon.png',
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (context, error, stackTrace) => const Center(
+                                            child: Icon(
+                                              Icons.apartment,
+                                              color: Color(0xFF1B2B48),
+                                              size: 40,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(height: isMobile ? 12 : 18),
+                                 Text(
                                   'SIMATS VSTAY',
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 24,
+                                    fontSize: isMobile ? 22 : 24,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Helvetica',
                                     letterSpacing: 1.5,
                                   ),
                                 ),
-                                const SizedBox(height: 30),
+                                SizedBox(height: isMobile ? 18 : 28),
                                 // Linen Card
                                 Container(
                                   decoration: BoxDecoration(
@@ -742,7 +561,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       child: CustomPaint(
                                         painter: LinenCardPainter(),
                                         child: Padding(
-                                        padding: const EdgeInsets.all(24),
+                                        padding: EdgeInsets.all(isMobile ? 18 : 24),
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
@@ -757,87 +576,24 @@ class _LoginScreenState extends State<LoginScreen> {
                                               ),
                                             ),
                                             const SizedBox(height: 12),
-                                            if (_showCredentials)
-                                              const Center(
-                                                child: Padding(
-                                                  padding: EdgeInsets.only(top: 4),
-                                                  child: Text(
-                                                    'Admin / Staff / Parent Login',
-                                                    style: TextStyle(
-                                                      color: Colors.black,
-                                                      fontSize: 14,
-                                                      fontWeight: FontWeight.bold,
-                                                      letterSpacing: 0.3,
-                                                    ),
+                                            const Center(
+                                              child: Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 8),
+                                                child: Text(
+                                                  'Sign in with your registered Google account to securely access the SIMATS VStay portal.',
+                                                  style: TextStyle(
+                                                    color: Color(0xFF5F6368),
+                                                    fontSize: 13,
+                                                    height: 1.4,
                                                   ),
-                                                ),
-                                              )
-                                            else
-                                              const Center(
-                                                child: Padding(
-                                                  padding: EdgeInsets.symmetric(horizontal: 8),
-                                                  child: Text(
-                                                    'Authenticate using your registered Google account to securely access the hostel portal.',
-                                                    style: TextStyle(
-                                                      color: Color(0xFF5F6368),
-                                                      fontSize: 13,
-                                                      height: 1.4,
-                                                    ),
-                                                    textAlign: TextAlign.center,
-                                                  ),
+                                                  textAlign: TextAlign.center,
                                                 ),
                                               ),
+                                            ),
                                             const SizedBox(height: 25),
                                             _buildErrorBanner(),
-                                            if (_showCredentials) ...[
-                                              _buildInputField(
-                                                label: 'Bio ID / Username',
-                                                controller: _userController,
-                                                hint: 'Enter Bio ID or Parent Username (e.g. p-2414260003)',
-                                                errorText: _usernameError,
-                                              ),
-                                              const SizedBox(height: 20),
-                                              _buildInputField(
-                                                label: 'Password',
-                                                controller: _passController,
-                                                hint: 'Enter password',
-                                                isPassword: true,
-                                                isObscured: _isObscured,
-                                                onToggleObscure: () => setState(() => _isObscured = !_isObscured),
-                                                errorText: _passwordError,
-                                              ),
-                                              const SizedBox(height: 30),
-                                              _buildSignInButton(),
-                                              const SizedBox(height: 25),
-                                            ] else ...[
-                                              _buildGoogleSignInButton(),
-                                              const SizedBox(height: 25),
-                                            ],
-                                            // Secure Authentication divider
-                                            Row(
-                                              children: [
-                                                Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
-                                                const Padding(
-                                                  padding: EdgeInsets.symmetric(horizontal: 12),
-                                                  child: Text(
-                                                    'SECURE AUTHENTICATION',
-                                                    style: TextStyle(
-                                                      color: Color(0xFF888888),
-                                                      fontSize: 10,
-                                                      fontWeight: FontWeight.bold,
-                                                      letterSpacing: 1.0,
-                                                    ),
-                                                  ),
-                                                ),
-                                                Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 20),
-                                            if (_showCredentials) ...[
-                                              _buildBackToGoogleButton(),
-                                            ] else ...[
-                                              _buildAdminStaffLoginButton(),
-                                            ],
+                                            _buildGoogleSignInButton(),
+                                            const SizedBox(height: 10),
                                           ],
                                         ),
                                       ),
@@ -850,9 +606,15 @@ class _LoginScreenState extends State<LoginScreen> {
                                  cursor: SystemMouseCursors.click,
                                  child: GestureDetector(
                                    onTap: () async {
-                                     final Uri url = Uri.parse('https://balaji431.github.io/viana-hostelApp/privacy_policy.html');
-                                     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-                                       debugPrint('Could not launch $url');
+                                     await privacy_screen.loadLibrary();
+                                     if (context.mounted) {
+                                       Navigator.push(
+                                         context,
+                                         MaterialPageRoute(
+                                           settings: const RouteSettings(name: '/privacy-policy'),
+                                           builder: (_) => privacy_screen.PrivacyPolicyScreen(),
+                                         ),
+                                       );
                                      }
                                    },
                                    child: const Padding(

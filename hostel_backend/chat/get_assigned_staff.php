@@ -43,6 +43,27 @@ try {
         $is_unallocated = true;
     }
 
+    // Check if user has an active temporary stay booking
+    try {
+        $stmtTsr = $db->prepare("SELECT * FROM temporary_stay_requests WHERE LOWER(email) = LOWER((SELECT email FROM users WHERE id = :uid)) OR full_name = (SELECT full_name FROM users WHERE id = :uid2) ORDER BY id DESC LIMIT 1");
+        $stmtTsr->execute([':uid' => $student_id, ':uid2' => $student_id]);
+        $tsrRow = $stmtTsr->fetch(PDO::FETCH_ASSOC);
+        if ($tsrRow) {
+            $is_unallocated = false;
+            if (empty($location)) $location = [];
+            if (!empty($tsrRow['warden_name'])) {
+                $location['profile_warden'] = $tsrRow['warden_name'];
+                $location['rgd_warden'] = $tsrRow['warden_name'];
+            }
+            if (!empty($tsrRow['hostel_name'])) {
+                $location['hostel_name'] = $tsrRow['hostel_name'];
+            }
+            if (!empty($tsrRow['room_no'])) {
+                $location['room_allocation'] = $tsrRow['room_no'];
+            }
+        }
+    } catch (Exception $eTsr) {}
+
     // Get all active staff roles dynamically
     $roles_query = "SELECT name FROM new_categories1 WHERE is_staff_role = 1";
     $roles_stmt = $db->query($roles_query);

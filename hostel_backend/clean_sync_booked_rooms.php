@@ -248,7 +248,7 @@ logMsg("Upserting users and profiles from API...", $log);
 $today   = new DateTime('today', new DateTimeZone('Asia/Kolkata'));
 $pwHash  = password_hash('welcome123', PASSWORD_BCRYPT);
 
-$checkUserStmt = $db->prepare("SELECT id FROM users WHERE username = ?");
+$checkUserStmt = $db->prepare("SELECT id, email_override FROM users WHERE username = ?");
 
 $insertUserStmt = $db->prepare("
     INSERT INTO users (
@@ -265,8 +265,8 @@ $insertUserStmt = $db->prepare("
 $updateUserStmt = $db->prepare("
     UPDATE users SET
         full_name    = ?,
-        email        = ?,
-        phone_number = ?,
+        email        = IF(email_override = 1, email, ?),
+        phone_number = IF(email_override = 1, phone_number, ?),
         Campus       = ?,
         HostelName   = ?,
         HostelType   = ?,
@@ -344,7 +344,9 @@ foreach ($apiStudents as $reg => $b) {
 
     // Upsert user
     $checkUserStmt->execute([$reg]);
-    $userId = $checkUserStmt->fetchColumn();
+    $existingRow   = $checkUserStmt->fetch(PDO::FETCH_ASSOC);
+    $userId        = $existingRow ? $existingRow['id'] : null;
+    $emailOverride = $existingRow ? (int)($existingRow['email_override'] ?? 0) : 0;
 
     if (!$userId) {
         $insertUserStmt->execute([
@@ -368,13 +370,13 @@ foreach ($apiStudents as $reg => $b) {
         $updated++;
     }
 
-    // Upsert profile
+    // Upsert profile — skip email/phone if admin has manually overridden them
     $insertProfileStmt->execute([
         ':full_name'       => $name,
         ':reg_no'          => $reg,
         ':user_id'         => $userId,
-        ':email'           => $email,
-        ':personal_phone'  => $phone,
+        ':email'           => ($emailOverride ? null : $email),
+        ':personal_phone'  => ($emailOverride ? null : $phone),
         ':room_allocation' => $roomNo,
         ':warden'          => $assignedWarden,
         ':hostel_name'     => $hostel,
@@ -447,6 +449,92 @@ foreach ($bookedRooms as $b) {
 
 $newApiCount = (int)$db->query("SELECT COUNT(*) FROM new_api")->fetchColumn();
 logMsg("new_api rebuilt: $newApiCount rows inserted.", $log);
+
+// STEP 7b: Sync GUEST/Non-student bookings into temporary_stay_requests
+logMsg("Syncing guest bookings into temporary_stay_requests...", $log);
+$insertTempGuest = $db->prepare("
+    INSERT INTO temporary_stay_requests (
+        request_id, full_name, email, phone, gender, institution_purpose,
+        doc_type, doc_number, doc_file_path, hostel_name, room_type,
+        room_no, room_code, from_date, to_date, duration_type,
+        duration_value, amount, annual_fee, status, payment_status,
+        payment_txn_id, admin_notes, warden_name, warden_id, warden_bio_id
+    ) VALUES (
+        :request_id, :full_name, :email, :phone, :gender, :institution_purpose,
+        :doc_type, :doc_number, '', :hostel_name, :room_type,
+        :room_no, :room_code, :from_date, :to_date, 'days',
+        :duration_value, :amount, :annual_fee, 'allocated', 'paid',
+        :payment_txn_id, 'Booked via External VStudy API', :warden_name, :warden_id, :warden_bio_id
+    ) ON DUPLICATE KEY UPDATE
+        full_name = VALUES(full_name),
+        email = VALUES(email),
+        gender = VALUES(gender),
+        hostel_name = VALUES(hostel_name),
+        room_type = VALUES(room_type),
+        room_no = VALUES(room_no),
+        room_code = VALUES(room_code),
+        from_date = VALUES(from_date),
+        to_date = VALUES(to_date),
+        status = 'allocated',
+        payment_status = 'paid',
+        warden_name = VALUES(warden_name),
+        warden_id = VALUES(warden_id),
+        warden_bio_id = VALUES(warden_bio_id)
+");
+
+$guestCount = 0;
+foreach ($bookedRooms as $b) {
+    $reg = trim($b['registerNumber'] ?? $b['register_number'] ?? '');
+    $bType = strtoupper(trim($b['bookerType'] ?? ''));
+    if (!$reg || $bType === 'GUEST') {
+        $bId = $b['bookingId'] ?? uniqid('GUEST-');
+        $cIn = !empty($b['checkIn']) ? date('Y-m-d', strtotime($b['checkIn'])) : date('Y-m-d');
+        $cOut = !empty($b['checkOut']) ? date('Y-m-d', strtotime($b['checkOut'])) : date('Y-m-d', strtotime('+7 days'));
+        $durDays = max(1, (int)round((strtotime($cOut) - strtotime($cIn)) / 86400));
+        $fee = is_numeric($b['monthlyFee'] ?? '') ? (float)$b['monthlyFee'] : 0.00;
+        $rNum = $b['roomNumber'] ?? '';
+
+        $wName = null;
+        $wId = null;
+        $wBio = null;
+        if (!empty($rNum)) {
+            $stmtW = $db->prepare("SELECT warden_name, warden_user_id, warden_bio_id FROM rooms_groups_details WHERE room_number = ? LIMIT 1");
+            $stmtW->execute([$rNum]);
+            $wRow = $stmtW->fetch(PDO::FETCH_ASSOC);
+            if ($wRow) {
+                $wName = $wRow['warden_name'] ?? null;
+                $wId = $wRow['warden_user_id'] ?? null;
+                $wBio = $wRow['warden_bio_id'] ?? null;
+            }
+        }
+
+        $insertTempGuest->execute([
+            ':request_id'          => $bId,
+            ':full_name'           => $b['name'] ?? 'Guest',
+            ':email'               => $b['email'] ?? 'guest@vstay.com',
+            ':phone'               => $b['phone'] ?? '',
+            ':gender'              => $b['gender'] ?? 'Female',
+            ':institution_purpose' => 'Short Stay Guest',
+            ':doc_type'            => 'Govt ID Card',
+            ':doc_number'          => 'GUEST-' . substr($bId, 0, 8),
+            ':hostel_name'         => $b['hostelName'] ?? '',
+            ':room_type'           => $b['roomType'] ?? '',
+            ':room_no'             => $rNum,
+            ':room_code'           => $rNum,
+            ':from_date'           => $cIn,
+            ':to_date'             => $cOut,
+            ':duration_value'      => $durDays,
+            ':amount'              => $fee,
+            ':annual_fee'          => $fee,
+            ':payment_txn_id'      => 'TXN-' . substr($bId, 0, 10),
+            ':warden_name'         => $wName,
+            ':warden_id'           => $wId,
+            ':warden_bio_id'       => $wBio,
+        ]);
+        $guestCount++;
+    }
+}
+logMsg("temporary_stay_requests synced: $guestCount guest records.", $log);
 
 // ─────────────────────────────────────────────
 // STEP 8: Recompute occupied_beds / available_beds in room_master

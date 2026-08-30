@@ -232,39 +232,113 @@ try {
             break;
 
         case 'delete_hostel':
-            $id = $data['id'];
+            $id = $data['id'] ?? '';
+            if (empty($id)) {
+                echo json_encode(["success" => false, "message" => "Hostel ID/Name is required for deletion."]);
+                exit();
+            }
+
+            // Resolve exact hostel name
+            $hostelName = is_string($id) ? trim($id) : '';
             
-            // Check if there are any active occupants in this hostel
-            $checkStmt = $pdo->prepare("SELECT SUM(occupied_rooms) FROM hostel_rooms WHERE hostel_id = ?");
-            $checkStmt->execute([$id]);
-            $occupiedCount = (int)($checkStmt->fetchColumn() ?? 0);
-            
+            if (is_numeric($id)) {
+                $name_stmt = $pdo->prepare("SELECT hostel_name FROM hostel_type WHERE id = ?");
+                $name_stmt->execute([$id]);
+                $found = $name_stmt->fetchColumn();
+                if ($found) $hostelName = $found;
+
+                if (!$found) {
+                    $h_stmt = $pdo->prepare("SELECT name FROM hostels WHERE id = ?");
+                    $h_stmt->execute([$id]);
+                    $foundH = $h_stmt->fetchColumn();
+                    if ($foundH) $hostelName = $foundH;
+                }
+            }
+
+            if (empty($hostelName)) {
+                $hostelName = (string)$id;
+            }
+
+            // Check if any students are currently allotted/assigned to this hostel
+            $occupiedCount = 0;
+
+            // 1. Check occupied beds in rooms_groups_details
+            $checkRgd = $pdo->prepare("SELECT COALESCE(SUM(occupied_beds), 0) FROM rooms_groups_details WHERE hostel_name = ?");
+            $checkRgd->execute([$hostelName]);
+            $occupiedCount += (int)($checkRgd->fetchColumn() ?? 0);
+
+            // 2. Check occupied beds in room_master
+            $checkRm = $pdo->prepare("SELECT COALESCE(SUM(occupied_beds), 0) FROM room_master WHERE location_name = ?");
+            $checkRm->execute([$hostelName]);
+            $occupiedCount += (int)($checkRm->fetchColumn() ?? 0);
+
+            // 3. Check legacy hostel_rooms if present
+            try {
+                $checkLegacy = $pdo->prepare("SELECT COALESCE(SUM(occupied_rooms), 0) FROM hostel_rooms WHERE hostel_name = ? OR hostel_id = ?");
+                $checkLegacy->execute([$hostelName, is_numeric($id) ? (int)$id : 0]);
+                $occupiedCount += (int)($checkLegacy->fetchColumn() ?? 0);
+            } catch (Exception $e) {}
+
+            // 4. Check active student bookings / users assigned to this hostel
+            try {
+                $checkUsers = $pdo->prepare("SELECT COUNT(*) FROM users WHERE hostel_name = ? OR (HostelType = ? AND room_no IS NOT NULL AND TRIM(room_no) != '')");
+                $checkUsers->execute([$hostelName, $hostelName]);
+                $occupiedCount += (int)($checkUsers->fetchColumn() ?? 0);
+            } catch (Exception $e) {}
+
             if ($occupiedCount > 0) {
                 echo json_encode([
                     "success" => false,
-                    "message" => "Cannot delete this hostel because it currently has $occupiedCount active student occupants. Please unassign all students first."
+                    "message" => "Cannot delete '$hostelName' because students are currently assigned to it ($occupiedCount active allocation(s)). Please unassign all students before deleting."
                 ]);
                 exit();
             }
 
+            // Perform clean cascading delete across all hierarchy and room master tables
             $pdo->beginTransaction();
-            
-            // 0. Get name to sync deletion
-            $name_stmt = $pdo->prepare("SELECT hostel_name FROM hostel_type WHERE id = ?");
-            $name_stmt->execute([$id]);
-            $hostelName = $name_stmt->fetchColumn();
 
-            // 1. Delete from legacy tables
-            $stmt = $pdo->prepare("DELETE FROM hostel_type WHERE id = ?");
-            $stmt->execute([$id]);
-            $stmt = $pdo->prepare("DELETE FROM hostel_rooms WHERE hostel_id = ?");
-            $stmt->execute([$id]);
+            // 1. Delete from zones / sub_zones / rooms hierarchy (respecting FK constraints)
+            $hStmt = $pdo->prepare("SELECT id FROM hostels WHERE name = ? OR id = ?");
+            $hStmt->execute([$hostelName, is_numeric($id) ? (int)$id : 0]);
+            $hostelDbIds = $hStmt->fetchAll(PDO::FETCH_COLUMN);
 
-            // 2. Sync with hostels table
-            if ($hostelName) {
-                $sync_stmt = $pdo->prepare("DELETE FROM hostels WHERE name = ?");
-                $sync_stmt->execute([$hostelName]);
+            if (!empty($hostelDbIds)) {
+                foreach ($hostelDbIds as $hDbId) {
+                    $zStmt = $pdo->prepare("SELECT id FROM zones WHERE hostel_id = ?");
+                    $zStmt->execute([$hDbId]);
+                    $zoneIds = $zStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                    if (!empty($zoneIds)) {
+                        $inZones = implode(',', array_map('intval', $zoneIds));
+                        $szStmt = $pdo->query("SELECT id FROM sub_zones WHERE zone_id IN ($inZones)");
+                        $subZoneIds = $szStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                        if (!empty($subZoneIds)) {
+                            $inSubZones = implode(',', array_map('intval', $subZoneIds));
+                            $pdo->exec("DELETE FROM rooms WHERE sub_zone_id IN ($inSubZones)");
+                            $pdo->exec("DELETE FROM sub_zones WHERE id IN ($inSubZones)");
+                        }
+                        $pdo->exec("DELETE FROM zones WHERE id IN ($inZones)");
+                    }
+                    $pdo->prepare("DELETE FROM hostels WHERE id = ?")->execute([$hDbId]);
+                }
             }
+            // Delete by name from hostels
+            $pdo->prepare("DELETE FROM hostels WHERE name = ?")->execute([$hostelName]);
+
+            // 2. Delete from rooms_groups_details
+            $pdo->prepare("DELETE FROM rooms_groups_details WHERE hostel_name = ?")->execute([$hostelName]);
+
+            // 3. Delete from room_master
+            $pdo->prepare("DELETE FROM room_master WHERE location_name = ?")->execute([$hostelName]);
+
+            // 4. Delete from hostel_type
+            $pdo->prepare("DELETE FROM hostel_type WHERE hostel_name = ? OR id = ?")->execute([$hostelName, is_numeric($id) ? (int)$id : 0]);
+
+            // 5. Delete from legacy hostel_rooms
+            try {
+                $pdo->prepare("DELETE FROM hostel_rooms WHERE hostel_name = ? OR hostel_id = ?")->execute([$hostelName, is_numeric($id) ? (int)$id : 0]);
+            } catch (Exception $e) {}
 
             $pdo->commit();
             break;

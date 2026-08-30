@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import '../shared/wallpaper_provider.dart';
 
 class RoyalTheme {
   // Colors
@@ -154,22 +156,32 @@ class SkeuomorphicCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isSubCard 
-            ? [RoyalTheme.subCardStart, RoyalTheme.subCardEnd]
-            : [RoyalTheme.cardStart, RoyalTheme.cardEnd],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: isDark 
+            ? (isSubCard ? const Color(0xFF1E293B) : const Color(0xFF131D2E).withOpacity(0.72))
+            : null,
+        gradient: isDark 
+            ? null 
+            : LinearGradient(
+                colors: isSubCard 
+                  ? [RoyalTheme.subCardStart, RoyalTheme.subCardEnd]
+                  : [RoyalTheme.cardStart, RoyalTheme.cardEnd],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
-          color: isSubCard ? RoyalTheme.subCardBorder : Colors.black.withValues(alpha: 0.15),
+          color: isDark 
+              ? Colors.white.withOpacity(0.14) 
+              : (isSubCard ? RoyalTheme.subCardBorder : Colors.black.withValues(alpha: 0.15)),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
             offset: const Offset(0, 4),
             blurRadius: 8,
           )
@@ -278,6 +290,13 @@ class LinenBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isCustom = wallpaper.isDarkTheme;
+
+    if (isCustom) {
+      return child;
+    }
+
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -497,8 +516,29 @@ class SkeuomorphicListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
+
     final bool active = isSelected;
-    final primaryActiveColor = activeColor ?? const Color(0xFF1976D2);
+    final primaryActiveColor = activeColor ?? (isDark ? const Color(0xFF3B82F6) : const Color(0xFF1976D2));
+
+    final inactiveBg = isDark
+        ? LinearGradient(
+            colors: [
+              const Color(0xFF1E293B).withOpacity(0.9),
+              const Color(0xFF0F172A).withOpacity(0.9),
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          )
+        : const LinearGradient(
+            colors: [Color(0xFFFFFFFF), Color(0xFFF7F4EF)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          );
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 5),
@@ -512,27 +552,23 @@ class SkeuomorphicListTile extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
               )
-            : const LinearGradient(
-                colors: [Color(0xFFFFFFFF), Color(0xFFF7F4EF)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
+            : inactiveBg,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: active
               ? primaryActiveColor.withValues(alpha: 0.8)
-              : const Color(0xFFE2DACC),
+              : (isDark ? Colors.white.withOpacity(0.14) : const Color(0xFFE2DACC)),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
             color: active
                 ? primaryActiveColor.withValues(alpha: 0.3)
-                : Colors.black.withValues(alpha: 0.07),
+                : Colors.black.withValues(alpha: isDark ? 0.3 : 0.07),
             blurRadius: active ? 8 : 6,
             offset: const Offset(0, 3),
           ),
-          if (!active)
+          if (!active && !isDark)
             BoxShadow(
               color: Colors.white.withValues(alpha: 0.9),
               blurRadius: 2,
@@ -555,7 +591,7 @@ class SkeuomorphicListTile extends StatelessWidget {
                   size: 22,
                   color: active
                       ? Colors.white
-                      : (iconColor ?? const Color(0xFF1A2744)),
+                      : (iconColor ?? (isDark ? const Color(0xFF90CAF9) : const Color(0xFF1A2744))),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -568,7 +604,9 @@ class SkeuomorphicListTile extends StatelessWidget {
                         style: GoogleFonts.lato(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
-                          color: active ? Colors.white : const Color(0xFF1A2744),
+                          color: active
+                              ? Colors.white
+                              : (isDark ? Colors.white : const Color(0xFF1A2744)),
                         ),
                       ),
                       if (subtitle != null && subtitle!.isNotEmpty) ...[
@@ -577,7 +615,9 @@ class SkeuomorphicListTile extends StatelessWidget {
                           subtitle!,
                           style: TextStyle(
                             fontSize: 12,
-                            color: active ? Colors.white.withValues(alpha: 0.8) : Colors.grey.shade600,
+                            color: active
+                                ? Colors.white.withValues(alpha: 0.8)
+                                : (isDark ? Colors.white70 : Colors.grey.shade600),
                           ),
                         ),
                       ],

@@ -2,7 +2,7 @@ name: vianasoft_stay
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+22
+version: 1.0.0+23
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -27,6 +27,7 @@ dependencies:
   # File picker & CSV for bulk import
   file_picker: ^8.0.0
   csv: ^6.0.0
+  archive: ^3.6.1
 
   # Image picker for custom wallpapers
   image_picker: ^1.1.2
@@ -36,10 +37,9 @@ dependencies:
 
   # 🔥 Firebase (Xcode 16 compatible versions)
   firebase_core: ^3.6.0
-  firebase_auth: ^5.3.1
-  cloud_firestore: ^5.4.4
   firebase_messaging: ^15.1.4
   flutter_local_notifications: ^17.1.2
+  excel: ^4.0.6
   
   # 🔥 LIVE CALLING (Native Dialer Transition)
 
@@ -57,3 +57,4 @@ flutter:
     - assets/images/logo.jpg
     - assets/images/login_bg.jpg
     - assets/wallpapers/
+    - assets/docs/

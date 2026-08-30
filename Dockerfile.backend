@@ -2,7 +2,7 @@ FROM php:8.2-apache
 
 # Install MySQL extensions and cron
 RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
-RUN docker-php-ext-install mysqli pdo pdo_mysql
+RUN docker-php-ext-install mysqli pdo pdo_mysql opcache
 
 # Configure custom PHP limits (increase upload/post size and execution timeout)
 RUN echo "upload_max_filesize = 500M\n\
@@ -10,11 +10,30 @@ post_max_size = 500M\n\
 memory_limit = 512M\n\
 max_execution_time = 600" > /usr/local/etc/php/conf.d/uploads.ini
 
+# ── PHP OPcache — eliminates PHP parse/compile overhead on every request ──
+RUN echo "opcache.enable=1\n\
+opcache.enable_cli=0\n\
+opcache.memory_consumption=128\n\
+opcache.interned_strings_buffer=16\n\
+opcache.max_accelerated_files=4000\n\
+opcache.revalidate_freq=60\n\
+opcache.fast_shutdown=1\n\
+opcache.validate_timestamps=1" > /usr/local/etc/php/conf.d/opcache.ini
+
 # Enable Apache modules
 RUN a2enmod rewrite headers
 
 # Fix Apache FQDN warning
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
+
+# ── Apache MPM tuning for higher concurrency ────────────────────────────────
+RUN echo "<IfModule mpm_prefork_module>\n\
+    StartServers          4\n\
+    MinSpareServers       4\n\
+    MaxSpareServers       8\n\
+    MaxRequestWorkers     150\n\
+    MaxConnectionsPerChild 1000\n\
+</IfModule>" >> /etc/apache2/apache2.conf
 
 # Configure Apache for root directory
 RUN echo "<Directory /var/www/html>\n\
@@ -30,6 +49,9 @@ WORKDIR /var/www/html
 
 # Copy backend files directly to root
 COPY hostel_backend/ /var/www/html/
+
+# Create /api symlink to support /api/ prefixes
+RUN ln -sf /var/www/html /var/www/html/api
 
 # Copy cron job configuration and setup permissions
 COPY hostel_backend/config/hostel_cron /etc/cron.d/hostel_cron

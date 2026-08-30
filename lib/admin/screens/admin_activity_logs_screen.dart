@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 
 class AdminActivityLogsScreen extends StatefulWidget {
@@ -51,6 +53,9 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with 
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
@@ -66,7 +71,7 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with 
       body: LinenGridBackground(
         child: Column(
           children: [
-            _buildTabSwitcher(),
+            _buildTabSwitcher(isDark),
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B2B48)))
@@ -81,17 +86,19 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with 
   }
 
   // ─── Skeuomorphic Tab Switcher ──────────────────────────────────────────
-  Widget _buildTabSwitcher() {
+  Widget _buildTabSwitcher(bool isDark) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : Colors.white,
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.black12),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black12,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.04),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -106,6 +113,7 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with 
               label: "Complaints",
               icon: Icons.report_problem_outlined,
               badgeCount: _complaints.where((c) => c['status'] == 'Pending').length,
+              isDark: isDark,
             ),
           ),
           // Feedback Tab
@@ -115,6 +123,7 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with 
               label: "Feedback",
               icon: Icons.star_border_rounded,
               badgeCount: 0,
+              isDark: isDark,
             ),
           ),
         ],
@@ -122,7 +131,13 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with 
     );
   }
 
-  Widget _buildTabButton({required int index, required String label, required IconData icon, int badgeCount = 0}) {
+  Widget _buildTabButton({
+    required int index,
+    required String label,
+    required IconData icon,
+    int badgeCount = 0,
+    bool isDark = false,
+  }) {
     final active = _activeTab == index;
     return GestureDetector(
       onTap: () => setState(() => _activeTab = index),
@@ -147,14 +162,14 @@ class _AdminActivityLogsScreenState extends State<AdminActivityLogsScreen> with 
           children: [
             Icon(
               icon,
-              color: active ? const Color(0xFF3D2E0A) : Colors.grey,
+              color: active ? const Color(0xFF3D2E0A) : (isDark ? Colors.white60 : Colors.grey),
               size: 18,
             ),
             const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                color: active ? const Color(0xFF3D2E0A) : Colors.grey,
+                color: active ? const Color(0xFF3D2E0A) : (isDark ? Colors.white70 : Colors.grey),
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
                 fontFamily: 'Lato',

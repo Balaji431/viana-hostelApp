@@ -11,11 +11,21 @@ enum UserRole { student, warden, admin, parent, maintenance, security, staff, gu
 
 class UserProvider with ChangeNotifier {
   final SharedPreferences? _prefs;
+  bool _prefsInitialized = false;
 
   UserProvider({SharedPreferences? prefs}) : _prefs = prefs {
     if (prefs != null) {
+      _prefsInitialized = true;
       _initializeFromPrefs(prefs);
     }
+  }
+
+  /// Called post-frame by main.dart to inject SharedPreferences without
+  /// blocking runApp(). Restores saved session data (login token, user data).
+  void initPrefs(SharedPreferences prefs) {
+    if (_prefsInitialized) return; // already initialized — skip
+    _prefsInitialized = true;
+    _initializeFromPrefs(prefs);
   }
 
   Future<SharedPreferences> _getPrefs() async {
@@ -42,6 +52,7 @@ class UserProvider with ChangeNotifier {
     }
   }
   UserRole _role = UserRole.student;
+  List<UserRole> _availableRoles = []; // NEW: Stores all roles user is authorized for
   String _roleName = ""; // NEW: Stores dynamic role name (e.g. 'Electricity')
   bool _isLoggedIn = false; // Set to false to show login screen by default
   int? _dbId;
@@ -81,6 +92,7 @@ class UserProvider with ChangeNotifier {
   double _roomCaution = 5000.0;
   double _totalFee = 125000.0;
   double _renewAmount = 120000.0;
+  double _walletBalance = 0.0;
 
   // 🔥 TEMPORARY STAY GUEST PROPERTIES
   Map<String, dynamic>? _temporaryStayRequest;
@@ -105,6 +117,8 @@ class UserProvider with ChangeNotifier {
   String? get token => _token;
   int get dashboardRefreshTick => _dashboardRefreshTick;
   UserRole get role => _role;
+  List<UserRole> get availableRoles => List.unmodifiable(_availableRoles);
+  bool get hasMultipleRoles => _availableRoles.length > 1;
   bool get isGuest => _role == UserRole.guest;
   String get roleName => _roleName; // NEW: Accessor for dynamic role name
   bool get isLoggedIn => _isLoggedIn;
@@ -151,7 +165,7 @@ class UserProvider with ChangeNotifier {
   String get groupName => _groupName.isNotEmpty
       ? _groupName
       : (_hostelName.isNotEmpty ? "$_hostelName Second Floor" : "Vaigai Hostel Second Floor");
-  String get warden => _warden.isNotEmpty ? _warden : "Kanita K";
+  String get warden => _warden;
   String get block => _block;
   String get wing => _wing;
   String get fullRoomDetails => _roomNumber.isNotEmpty
@@ -185,6 +199,27 @@ class UserProvider with ChangeNotifier {
   double get roomCaution => _roomCaution;
   double get totalFee => _totalFee;
   double get renewAmount => _renewAmount;
+  double get walletBalance => _walletBalance;
+
+  void setWalletBalance(double balance) {
+    _walletBalance = balance;
+    notifyListeners();
+  }
+
+  Future<void> fetchWalletBalance() async {
+    try {
+      final effEmail = email.isNotEmpty ? email : (username.contains('@') ? username : '$username.simats@saveetha.com');
+      final res = await ApiService.fetchWalletInfo(
+        email: effEmail,
+        regNo: username,
+        studentId: dbId,
+      );
+      if (res['success'] == true && res['balance'] != null) {
+        _walletBalance = double.tryParse(res['balance'].toString()) ?? _walletBalance;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
 
   bool get isRoomAllocated {
     final String rNum = _roomNumber.trim().toUpperCase();
@@ -223,9 +258,31 @@ class UserProvider with ChangeNotifier {
       _isParent ? _linkedStudentProfilePic : _profilePic;
   String get displayStudentId => _isParent ? _linkedStudentUsername : studentId;
 
+  static UserRole stringToRole(String roleStr) {
+    final lower = roleStr.toLowerCase().trim();
+    if (lower == 'admin') return UserRole.admin;
+    if (lower == 'warden') return UserRole.warden;
+    if (lower == 'parent') return UserRole.parent;
+    if (lower == 'maintenance') return UserRole.maintenance;
+    if (lower == 'security') return UserRole.security;
+    if (lower == 'guest' || lower == 'temp_student') return UserRole.guest;
+    if (lower == 'student') return UserRole.student;
+    return UserRole.staff;
+  }
+
   void setRole(UserRole newRole) {
     _role = newRole;
     notifyListeners();
+  }
+
+  /// Switches active role between authorized available roles (e.g. Warden <-> Maintenance)
+  void switchActiveRole(UserRole newRole) {
+    if (_availableRoles.contains(newRole) && _role != newRole) {
+      _role = newRole;
+      _roleName = newRole.name;
+      _dashboardRefreshTick++;
+      notifyListeners();
+    }
   }
 
   /// Parse room type from room_allocation string
@@ -303,6 +360,10 @@ class UserProvider with ChangeNotifier {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_data', jsonEncode(userData));
 
+        if (_role == UserRole.student) {
+          fetchWalletBalance();
+        }
+
         AppLogger.info("User data refreshed successfully from DB");
       }
     } catch (e) {
@@ -330,29 +391,22 @@ class UserProvider with ChangeNotifier {
     final String roleStr =
         userData['role']?.toString().toLowerCase() ?? 'student';
     _roleName = roleStr;
-    if (roleStr == 'admin') {
-      _role = UserRole.admin;
-    } else if (roleStr == 'warden') {
-      _role = UserRole.warden;
-    } else if (roleStr == 'parent') {
-      _role = UserRole.parent;
-      _isParent = true;
-    } else if (roleStr == 'maintenance') {
-      _role = UserRole.maintenance;
-      _isParent = false;
-    } else if (roleStr == 'security') {
-      _role = UserRole.security;
-      _isParent = false;
-    } else if (roleStr == 'guest' || roleStr == 'temp_student') {
-      _role = UserRole.guest;
-      _isParent = false;
-    } else if (roleStr == 'student') {
-      _role = UserRole.student;
-      _isParent = false;
-    } else {
-      // DYNAMIC ROLE (e.g. 'Electricity', 'Plumbing')
-      _role = UserRole.staff;
-      _isParent = false;
+    _role = stringToRole(roleStr);
+    _isParent = (_role == UserRole.parent);
+
+    // Parse available_roles
+    final rawRoles = userData['available_roles'];
+    _availableRoles = [];
+    if (rawRoles is List) {
+      for (var r in rawRoles) {
+        final roleEnum = stringToRole(r.toString());
+        if (!_availableRoles.contains(roleEnum)) {
+          _availableRoles.add(roleEnum);
+        }
+      }
+    }
+    if (!_availableRoles.contains(_role)) {
+      _availableRoles.insert(0, _role);
     }
 
     _dbId = int.tryParse(userData['id']?.toString() ?? "");
@@ -396,6 +450,7 @@ class UserProvider with ChangeNotifier {
     _roomCaution = double.tryParse(userData['room_caution']?.toString() ?? '') ?? 5000.0;
     _totalFee = double.tryParse(userData['total_fee']?.toString() ?? '') ?? (_roomAmount + _roomFood + _roomCaution);
     _renewAmount = double.tryParse(userData['renew_amount']?.toString() ?? '') ?? (_roomAmount + _roomFood);
+    _walletBalance = double.tryParse(userData['wallet_balance']?.toString() ?? userData['balance']?.toString() ?? '') ?? _walletBalance;
     _profilePic = userData['profile_pic']?.toString() ?? "";
     _conduct = userData['conduct']?.toString() ?? "Good";
     _conductRemarks = userData['conduct_remarks']?.toString() ?? "";
@@ -410,6 +465,16 @@ class UserProvider with ChangeNotifier {
       if (_temporaryStayRequest!['to_date'] != null) {
         _renewalDate = _parseDate(_temporaryStayRequest!['to_date']);
       }
+
+      if (_temporaryStayRequest!['amount'] != null) {
+        _totalFee = double.tryParse(_temporaryStayRequest!['amount'].toString()) ?? _totalFee;
+        _roomAmount = _totalFee;
+        _renewAmount = _totalFee;
+      }
+      if (_temporaryStayRequest!['room_type'] != null) {
+        _roomType = _temporaryStayRequest!['room_type'].toString();
+      }
+
       _hostelName = _temporaryStayRequest!['hostel_name']?.toString() ?? _hostelName;
       _roomNumber = _temporaryStayRequest!['room_no']?.toString() ?? _roomNumber;
       _roomCode = _temporaryStayRequest!['room_code']?.toString() ?? _temporaryStayRequest!['room_no']?.toString() ?? _roomCode;
@@ -431,6 +496,11 @@ class UserProvider with ChangeNotifier {
         _roomAllocation = _roomCode;
       } else if (_roomNumber.isNotEmpty) {
         _roomAllocation = _roomNumber;
+      }
+
+      if (_temporaryStayRequest!['warden_name'] != null &&
+          _temporaryStayRequest!['warden_name'].toString().isNotEmpty) {
+        _warden = _temporaryStayRequest!['warden_name'].toString();
       }
     } else {
       _temporaryStayRequest = null;

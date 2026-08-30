@@ -1,11 +1,11 @@
 {
-    "name": "vianasoft_stay",
-    "short_name": "vianasoft_stay",
+    "name": "SIMATS VStay Portal",
+    "short_name": "VStay",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "SIMATS VSTAY. Welcome Back. Login required for secure access to hostel services. Continue with Google to manage attendance, wallet, and room requests.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/styles.dart';
+import '../wallpaper_provider.dart';
 
 class InsetContent extends StatelessWidget {
   final Widget child;
@@ -17,24 +19,44 @@ class InsetContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
+    final defaultBg = isDark
+        ? Colors.white.withOpacity(0.08)
+        : const Color(0xFFF9F6F0);
+
     return Container(
       padding: padding ?? const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color ?? const Color(0xFFF9F6F0),
+        color: color ?? defaultBg,
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(2, 2),
-          ),
-          BoxShadow(
-            color: Colors.white,
-            blurRadius: 4,
-            offset: const Offset(-2, -2),
-          ),
-        ],
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.05),
+        ),
+        boxShadow: isDark
+            ? [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(2, 2),
+                ),
+                const BoxShadow(
+                  color: Colors.white,
+                  blurRadius: 4,
+                  offset: Offset(-2, -2),
+                ),
+              ],
       ),
       child: child,
     );
@@ -57,18 +79,42 @@ class EmbossedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+
+    final bool isDark = wallpaper?.isDarkTheme ?? false;
+    final defaultBg = isDark
+        ? const Color(0xFF131D2E).withOpacity(0.72)
+        : Colors.white;
+
     return Container(
       padding: padding ?? const EdgeInsets.all(25),
       decoration: BoxDecoration(
-        color: color ?? Colors.white,
+        color: color ?? defaultBg,
         borderRadius: BorderRadius.circular(borderRadius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withOpacity(0.16)
+              : const Color(0xFFD4AF37).withOpacity(0.25),
+          width: 1,
+        ),
+        boxShadow: isDark
+            ? [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 15,
+                  offset: const Offset(0, 8),
+                ),
+              ],
       ),
       child: child,
     );
@@ -89,38 +135,41 @@ class GlossyGoldButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: loading ? null : onTap,
-      child: Container(
-        width: double.infinity,
-        height: 60,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(15),
-          gradient: SkeuomorphicColors.goldGlossyGradient,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 4,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          border: Border.all(color: Colors.black12),
-        ),
-        child: Center(
-          child: loading
-              ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(color: SkeuomorphicColors.residenceBrown, strokeWidth: 2),
-                )
-              : Text(
-                  label,
-                  style: const TextStyle(
-                    color: Color(0xFF291E1A),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
+    return MouseRegion(
+      cursor: loading ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: loading ? null : onTap,
+        child: Container(
+          width: double.infinity,
+          height: 60,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(15),
+            gradient: SkeuomorphicColors.goldGlossyGradient,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(color: Colors.black12),
+          ),
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(color: SkeuomorphicColors.residenceBrown, strokeWidth: 2),
+                  )
+                : Text(
+                    label,
+                    style: const TextStyle(
+                      color: Color(0xFF291E1A),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
                   ),
-                ),
+          ),
         ),
       ),
     );

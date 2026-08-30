@@ -3,8 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../core/api_service.dart';
 import '../../core/app_logger.dart';
+import '../../core/styles.dart';
 
 // ─────────────────────────────────────────────────────────
 //  Utility Helper Functions
@@ -141,28 +143,30 @@ class _BiometricHistoryPageState extends State<BiometricHistoryPage> with Automa
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: SkeuomorphicNavBar(
-        title: 'Biometric History',
-        rightAction: IconButton(
-          icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-          onPressed: _loadAttendance,
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: SkeuomorphicNavBar(
+          title: 'Biometric History',
+          rightAction: IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+            onPressed: _loadAttendance,
+          ),
         ),
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+        body: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+                ),
+              )
+            : _BiometricHistoryBody(
+                processedAttendance: _processedAttendance,
+                royalNavy: royalNavy,
+                royalGold: royalGold,
+                attendanceGreen: attendanceGreen,
+                attendanceRed: attendanceRed,
               ),
-            )
-          : _BiometricHistoryBody(
-              processedAttendance: _processedAttendance,
-              royalNavy: royalNavy,
-              royalGold: royalGold,
-              attendanceGreen: attendanceGreen,
-              attendanceRed: attendanceRed,
-            ),
+      ),
     );
   }
 }
@@ -296,48 +300,52 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
   Widget build(BuildContext context) {
     super.build(context);
     final userProvider = Provider.of<UserProvider>(context);
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: const SkeuomorphicNavBar(
-        title: 'Attendance',
-      ),
-      body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: Column(
-            children: [
-              if (userProvider.isParent) _buildParentBanner(userProvider),
-              _buildMonthSelector(),
-              Expanded(
-                child: _isLoading
-                    ? const Center(
-                        child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: const SkeuomorphicNavBar(
+          title: 'Attendance',
+        ),
+        body: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              children: [
+                if (userProvider.isParent) _buildParentBanner(userProvider, isDark),
+                _buildMonthSelector(isDark),
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 15),
+                              _buildSummaryRow(isDark),
+                              const SizedBox(height: 20),
+                              _buildCalendarCard(isDark),
+                              const SizedBox(height: 30),
+                            ],
+                          ),
                         ),
-                      )
-                    : SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        child: Column(
-                          children: [
-                            const SizedBox(height: 15),
-                            _buildSummaryRow(),
-                            const SizedBox(height: 20),
-                            _buildCalendarCard(),
-                            const SizedBox(height: 30),
-                          ],
-                        ),
-                      ),
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildParentBanner(UserProvider userProvider) {
+  Widget _buildParentBanner(UserProvider userProvider, bool isDark) {
     final studentName = userProvider.linkedStudentName.isNotEmpty
         ? userProvider.linkedStudentName
         : userProvider.userName;
@@ -349,12 +357,12 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
       margin: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: royalNavy,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : royalNavy,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: royalGold.withValues(alpha: 0.5)),
         boxShadow: [
           BoxShadow(
-            color: royalNavy.withValues(alpha: 0.2),
+            color: isDark ? Colors.black45 : royalNavy.withValues(alpha: 0.2),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -404,11 +412,16 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildMonthSelector() {
+  Widget _buildMonthSelector(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
       decoration: BoxDecoration(
-        color: royalNavy.withValues(alpha: 0.98),
+        color: isDark
+            ? const Color(0xFF131D2E).withOpacity(0.85)
+            : royalNavy.withValues(alpha: 0.98),
+        border: isDark
+            ? Border(bottom: BorderSide(color: Colors.white.withOpacity(0.12)))
+            : null,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -430,7 +443,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
                 style: TextStyle(
                   fontFamily: 'Lato',
                   fontSize: 14,
-                  color: Colors.white.withValues(alpha: 0.5),
+                  color: Colors.white.withValues(alpha: 0.6),
                   letterSpacing: 1.2,
                 ),
               ),
@@ -457,32 +470,35 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildSummaryRow() {
+  Widget _buildSummaryRow(bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 15),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildSummaryCard('$_presentCount', 'PRESENT', attendanceGreen),
-          _buildSummaryCard('$_absentCount', 'ABSENT', attendanceRed),
+          _buildSummaryCard('$_presentCount', 'PRESENT', attendanceGreen, isDark),
+          _buildSummaryCard('$_absentCount', 'ABSENT', attendanceRed, isDark),
           _buildSummaryCard(
-              '$_halfDayCount', 'HALF DAY', Colors.brown.shade800),
+              '$_halfDayCount', 'HALF DAY', isDark ? const Color(0xFFD4AF37) : Colors.brown.shade800, isDark),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryCard(String count, String label, Color color) {
+  Widget _buildSummaryCard(String count, String label, Color color, bool isDark) {
     return Expanded(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
           borderRadius: BorderRadius.circular(15),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.06),
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -506,7 +522,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
                 fontFamily: 'Lato',
                 fontSize: 8,
                 fontWeight: FontWeight.w900,
-                color: Colors.grey.shade600,
+                color: isDark ? Colors.white70 : Colors.grey.shade600,
                 letterSpacing: 0.5,
               ),
             ),
@@ -516,16 +532,19 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildCalendarCard() {
+  Widget _buildCalendarCard(bool isDark) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 15),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.75) : Colors.white,
         borderRadius: BorderRadius.circular(25),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.16) : Colors.black.withOpacity(0.06),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -533,23 +552,23 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
       ),
       child: Column(
         children: [
-          _buildCalendarHeaders(),
+          _buildCalendarHeaders(isDark),
           const SizedBox(height: 15),
-          _buildCalendarGrid(),
+          _buildCalendarGrid(isDark),
           const SizedBox(height: 8),
           if (_selectedDay != null) ...[
-            _buildDetailCard(),
+            _buildDetailCard(isDark),
             const SizedBox(height: 10),
           ],
-          const Divider(height: 1),
+          Divider(height: 1, color: isDark ? Colors.white24 : Colors.grey.shade300),
           const SizedBox(height: 15),
-          _buildLegend(),
+          _buildLegend(isDark),
         ],
       ),
     );
   }
 
-  Widget _buildCalendarHeaders() {
+  Widget _buildCalendarHeaders(bool isDark) {
     final weekDays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -558,11 +577,11 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
                 child: Center(
                   child: Text(
                     day,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Lato',
                       fontSize: 11,
                       fontWeight: FontWeight.w900,
-                      color: Color(0xFF1B2744),
+                      color: isDark ? Colors.white : const Color(0xFF1B2744),
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -572,7 +591,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildCalendarGrid() {
+  Widget _buildCalendarGrid(bool isDark) {
     final int year = _focusedDay.year;
     final int month = _focusedDay.month;
     final int daysInMonth = DateTime(year, month + 1, 0).day;
@@ -582,7 +601,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
       cells.add(const SizedBox.shrink());
     }
     for (int day = 1; day <= daysInMonth; day++) {
-      cells.add(_buildDayCell(day));
+      cells.add(_buildDayCell(day, isDark));
     }
     return GridView.count(
       shrinkWrap: true,
@@ -595,7 +614,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildDayCell(int day) {
+  Widget _buildDayCell(int day, bool isDark) {
     final DateTime currentDay =
         DateTime(_focusedDay.year, _focusedDay.month, day);
     final String dateKey = DateFormat('yyyy-MM-dd').format(currentDay);
@@ -636,10 +655,12 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
       );
     } else {
       decoration = BoxDecoration(
-        color: const Color(0xFFDED8CE).withValues(alpha: 0.8),
+        color: isDark
+            ? Colors.white.withOpacity(0.08)
+            : const Color(0xFFDED8CE).withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(4),
       );
-      textColor = const Color(0xFF1B2744).withValues(alpha: 0.2);
+      textColor = isDark ? Colors.white30 : const Color(0xFF1B2B44).withValues(alpha: 0.2);
     }
 
     return GestureDetector(
@@ -649,7 +670,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
       child: Container(
         decoration: isSelected
             ? (decoration as BoxDecoration).copyWith(
-                border: Border.all(color: royalNavy, width: 2),
+                border: Border.all(color: isDark ? royalGold : royalNavy, width: 2),
               )
             : decoration,
         child: Stack(
@@ -684,22 +705,22 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildLegend() {
+  Widget _buildLegend(bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildLegendItem(attendanceGreen, 'Present'),
-          _buildLegendItem(attendanceRed, 'Absent'),
-          _buildHalfDayLegend(),
-          _buildLegendItem(royalGold, 'Late/Early', isDot: true),
+          _buildLegendItem(attendanceGreen, 'Present', isDark),
+          _buildLegendItem(attendanceRed, 'Absent', isDark),
+          _buildHalfDayLegend(isDark),
+          _buildLegendItem(royalGold, 'Late/Early', isDark, isDot: true),
         ],
       ),
     );
   }
 
-  Widget _buildLegendItem(Color color, String label, {bool isDot = false}) {
+  Widget _buildLegendItem(Color color, String label, bool isDark, {bool isDot = false}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -715,18 +736,18 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
         const SizedBox(width: 6),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Lato',
             fontSize: 10,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF2D3748),
+            color: isDark ? Colors.white70 : const Color(0xFF2D3748),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHalfDayLegend() {
+  Widget _buildHalfDayLegend(bool isDark) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -751,18 +772,18 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
         const SizedBox(width: 6),
         Text(
           'Half Day',
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Lato',
             fontSize: 10,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF2D3748),
+            color: isDark ? Colors.white70 : const Color(0xFF2D3748),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildDetailCard() {
+  Widget _buildDetailCard(bool isDark) {
     final String dateKey = DateFormat('yyyy-MM-dd').format(_selectedDay!);
     final attendance = _processedAttendance[dateKey] ?? {"status": "none"};
     final String status = attendance['status'] ?? 'none';
@@ -775,9 +796,13 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8E0D5).withValues(alpha: 0.6),
+        color: isDark
+            ? Colors.white.withOpacity(0.08)
+            : const Color(0xFFE8E0D5).withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withValues(alpha: 0.05),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -790,22 +815,22 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
                 children: [
                   Text(
                     DateFormat('EEEE').format(_selectedDay!).toUpperCase(),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Lato',
                       fontSize: 11,
                       fontWeight: FontWeight.w900,
-                      color: Color(0xFF2D3748),
+                      color: isDark ? Colors.white70 : const Color(0xFF2D3748),
                       letterSpacing: 1.0,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     DateFormat('d MMM yyyy').format(_selectedDay!),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Lato',
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1B2B44),
+                      color: isDark ? Colors.white : const Color(0xFF1B2B44),
                     ),
                   ),
                 ],
@@ -819,7 +844,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade400,
+                        color: Colors.grey.shade600,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(Icons.close,
@@ -837,6 +862,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
                 child: _buildTimeCardSideBySide(
                   time: checkIn,
                   isCheckIn: false,
+                  isDark: isDark,
                 ),
               ),
               const SizedBox(width: 12),
@@ -844,6 +870,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
                 child: _buildTimeCardSideBySide(
                   time: checkOut,
                   isCheckIn: true,
+                  isDark: isDark,
                 ),
               ),
             ],
@@ -882,6 +909,7 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
   Widget _buildTimeCardSideBySide({
     required String? time,
     required bool isCheckIn,
+    required bool isDark,
   }) {
     final bool hasTime = time != null && time.isNotEmpty && time != '--:--';
     final Color mainColor =
@@ -894,11 +922,12 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : Colors.white,
         borderRadius: BorderRadius.circular(15),
+        border: isDark ? Border.all(color: Colors.white.withOpacity(0.12)) : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -926,11 +955,11 @@ class _AttendancePageState extends State<AttendancePage> with AutomaticKeepAlive
           const SizedBox(height: 8),
           Text(
             hasTime ? formattedTime : '--:--',
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Lato',
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF1B2B44),
+              color: isDark ? Colors.white : const Color(0xFF1B2B44),
             ),
           ),
         ],
@@ -1080,39 +1109,44 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
     final entries = _filteredEntries;
     final stats = _stats;
     final userProvider = Provider.of<UserProvider>(context);
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
 
     return Column(
       children: [
-        if (userProvider.isParent) _buildParentBanner(userProvider),
+        if (userProvider.isParent) _buildParentBanner(userProvider, isDark),
         // ── Stats Row ──
-        _buildStatsRow(stats),
+        _buildStatsRow(stats, isDark),
         // ── Month Selector ──
-        _buildMonthSelector(),
+        _buildMonthSelector(isDark),
         // ── Filter Chips ──
-        _buildFilterChips(),
+        _buildFilterChips(isDark),
         // ── Column Headers ──
         Container(
           height: 1,
-          color: Colors.black.withValues(alpha: 0.06),
+          color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.06),
           margin: const EdgeInsets.symmetric(horizontal: 20),
         ),
-        _buildColumnHeaders(),
+        _buildColumnHeaders(isDark),
         // ── List ──
         Expanded(
           child: entries.isEmpty
-              ? _buildEmpty()
+              ? _buildEmpty(isDark)
               : ListView.builder(
                   physics: const BouncingScrollPhysics(),
                   padding: const EdgeInsets.only(bottom: 30),
                   itemCount: entries.length,
-                  itemBuilder: (_, i) => _buildHistoryRow(entries[i]),
+                  itemBuilder: (_, i) => _buildHistoryRow(entries[i], isDark),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildParentBanner(UserProvider userProvider) {
+  Widget _buildParentBanner(UserProvider userProvider, bool isDark) {
     final studentName = userProvider.linkedStudentName.isNotEmpty
         ? userProvider.linkedStudentName
         : userProvider.userName;
@@ -1124,12 +1158,12 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
       margin: const EdgeInsets.fromLTRB(16, 10, 16, 2),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: widget.royalNavy,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : widget.royalNavy,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: widget.royalGold.withValues(alpha: 0.5)),
         boxShadow: [
           BoxShadow(
-            color: widget.royalNavy.withValues(alpha: 0.2),
+            color: isDark ? Colors.black45 : widget.royalNavy.withValues(alpha: 0.2),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -1179,16 +1213,17 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
     );
   }
 
-  Widget _buildStatsRow(Map<String, int> stats) {
+  Widget _buildStatsRow(Map<String, int> stats, bool isDark) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.06),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -1196,19 +1231,19 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
       ),
       child: Row(
         children: [
-          _statChip('${stats['total']}', 'Total', const Color(0xFF1B2744)),
-          _statDivider(),
-          _statChip('${stats['present']}', 'Present', widget.attendanceGreen),
-          _statDivider(),
-          _statChip('${stats['absent']}', 'Absent', widget.attendanceRed),
-          _statDivider(),
-          _statChip('${stats['halfDay']}', 'Half Day', Colors.brown.shade800),
+          _statChip('${stats['total']}', 'Total', isDark ? Colors.white : const Color(0xFF1B2744), isDark),
+          _statDivider(isDark),
+          _statChip('${stats['present']}', 'Present', widget.attendanceGreen, isDark),
+          _statDivider(isDark),
+          _statChip('${stats['absent']}', 'Absent', widget.attendanceRed, isDark),
+          _statDivider(isDark),
+          _statChip('${stats['halfDay']}', 'Half Day', isDark ? const Color(0xFFD4AF37) : Colors.brown.shade800, isDark),
         ],
       ),
     );
   }
 
-  Widget _statChip(String count, String label, Color color) {
+  Widget _statChip(String count, String label, Color color, bool isDark) {
     return Expanded(
       child: Column(
         children: [
@@ -1224,11 +1259,11 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
           const SizedBox(height: 2),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Lato',
               fontSize: 10,
               fontWeight: FontWeight.w900,
-              color: Color(0xFF2D3748),
+              color: isDark ? Colors.white70 : const Color(0xFF2D3748),
               letterSpacing: 0.5,
             ),
           ),
@@ -1237,12 +1272,12 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
     );
   }
 
-  Widget _statDivider() {
-    return Container(width: 1, height: 32, color: Colors.grey.shade200);
+  Widget _statDivider(bool isDark) {
+    return Container(width: 1, height: 32, color: isDark ? Colors.white12 : Colors.grey.shade200);
   }
 
   // ── Month/Year Dropdown Selector ──
-  Widget _buildMonthSelector() {
+  Widget _buildMonthSelector(bool isDark) {
     final months = _availableMonths;
     if (months.isEmpty) return const SizedBox.shrink();
 
@@ -1250,8 +1285,9 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       decoration: BoxDecoration(
-        color: widget.royalNavy,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : widget.royalNavy,
         borderRadius: BorderRadius.circular(14),
+        border: isDark ? Border.all(color: Colors.white.withOpacity(0.12)) : null,
         boxShadow: [
           BoxShadow(
             color: widget.royalNavy.withValues(alpha: 0.25),
@@ -1345,7 +1381,7 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
     );
   }
 
-  Widget _buildFilterChips() {
+  Widget _buildFilterChips(bool isDark) {
     const filters = [
       {'key': 'all', 'label': 'All'},
       {'key': 'present', 'label': 'Present'},
@@ -1371,10 +1407,14 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
                 margin: const EdgeInsets.only(right: 6),
                 padding: const EdgeInsets.symmetric(vertical: 7),
                 decoration: BoxDecoration(
-                  color: isActive ? activeColor : Colors.white,
+                  color: isActive
+                      ? activeColor
+                      : (isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: isActive ? activeColor : Colors.grey.shade300,
+                    color: isActive
+                        ? activeColor
+                        : (isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
                     width: 1.5,
                   ),
                   boxShadow: isActive
@@ -1394,7 +1434,9 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
                     fontFamily: 'Lato',
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
-                    color: isActive ? Colors.white : const Color(0xFF2D3748),
+                    color: isActive
+                        ? Colors.white
+                        : (isDark ? Colors.white70 : const Color(0xFF2D3748)),
                     letterSpacing: 0.2,
                   ),
                 ),
@@ -1406,19 +1448,21 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
     );
   }
 
-  Widget _buildColumnHeaders() {
-    const headerStyle = TextStyle(
+  Widget _buildColumnHeaders(bool isDark) {
+    final headerStyle = TextStyle(
       fontFamily: 'Lato',
       fontSize: 10,
       fontWeight: FontWeight.w900,
-      color: Color(0xFF1B2744), // Thick dark navy for maximum readability
+      color: isDark ? Colors.white : const Color(0xFF1B2744),
       letterSpacing: 0.8,
     );
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
-      color: const Color(0xFFE2DACD), // Rich cream header bar contrast
+      color: isDark
+          ? const Color(0xFF131D2E).withOpacity(0.92)
+          : const Color(0xFFE2DACD),
       child: Row(
-        children: const [
+        children: [
           SizedBox(width: 75, child: Text('DATE', style: headerStyle)),
           SizedBox(
               width: 75,
@@ -1433,19 +1477,19 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
                   Text('TOTAL', style: headerStyle, textAlign: TextAlign.center)),
           SizedBox(
               width: 65,
-              child:
-                  Text('STATUS', style: headerStyle, textAlign: TextAlign.right)),
+              child: Text('STATUS',
+                  style: headerStyle, textAlign: TextAlign.right)),
         ],
       ),
     );
   }
 
-  Widget _buildHistoryRow(MapEntry<String, Map<String, dynamic>> entry) {
+  Widget _buildHistoryRow(MapEntry<String, Map<String, dynamic>> entry, bool isDark) {
     final dateStr = entry.key;
     final data = entry.value;
     final status = data['status'] ?? 'none';
-    final checkIn = data['checkIn'] as String?;
-    final checkOut = data['checkOut'] as String?;
+    final checkIn = data['checkIn'];
+    final checkOut = data['checkOut'];
     final totalHrs = _totalHours(checkIn, checkOut);
 
     DateTime? parsedDate;
@@ -1468,29 +1512,31 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
       case 'present':
         statusColor = widget.attendanceGreen;
         statusLabel = 'PRESENT';
-        rowBg = const Color(0xFFF5F0E8);
+        rowBg = isDark ? const Color(0xFF131D2E).withOpacity(0.65) : const Color(0xFFF5F0E8);
         break;
       case 'absent':
         statusColor = widget.attendanceRed;
         statusLabel = 'ABSENT';
-        rowBg = const Color(0xFFFFF3F3);
+        rowBg = isDark ? const Color(0xFF2A1515).withOpacity(0.65) : const Color(0xFFFFF3F3);
         break;
       case 'half-day':
         statusColor = Colors.brown.shade800;
         statusLabel = 'HALF DAY';
-        rowBg = const Color(0xFFFFF8F0);
+        rowBg = isDark ? const Color(0xFF2B2215).withOpacity(0.65) : const Color(0xFFFFF8F0);
         break;
       default:
         statusColor = Colors.grey.shade600;
         statusLabel = 'N/A';
-        rowBg = const Color(0xFFF5F0E8);
+        rowBg = isDark ? const Color(0xFF131D2E).withOpacity(0.5) : const Color(0xFFF5F0E8);
     }
 
     return Container(
       decoration: BoxDecoration(
         color: rowBg,
         border: Border(
-          bottom: BorderSide(color: Colors.black.withValues(alpha: 0.08)),
+          bottom: BorderSide(
+            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withValues(alpha: 0.08),
+          ),
           left: BorderSide(color: statusColor, width: 4),
         ),
       ),
@@ -1511,7 +1557,7 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
                           fontFamily: 'Lato',
                           fontSize: 17,
                           fontWeight: FontWeight.w900,
-                          color: widget.royalNavy,
+                          color: isDark ? Colors.white : widget.royalNavy,
                         ),
                       ),
                       TextSpan(
@@ -1528,11 +1574,11 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
                 ),
                 Text(
                   weekDayStr,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Lato',
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFF2D3748),
+                    color: isDark ? Colors.white70 : const Color(0xFF2D3748),
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -1549,8 +1595,8 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
                 fontSize: 11,
                 fontWeight: FontWeight.w900,
                 color: checkIn != null
-                    ? const Color(0xFF1E7E34)
-                    : const Color(0xFF4A5568),
+                    ? (isDark ? const Color(0xFF4ADE80) : const Color(0xFF1E7E34))
+                    : (isDark ? Colors.white38 : const Color(0xFF4A5568)),
               ),
             ),
           ),
@@ -1564,8 +1610,8 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
                 fontSize: 11,
                 fontWeight: FontWeight.w900,
                 color: checkOut != null
-                    ? const Color(0xFFD32F2F)
-                    : const Color(0xFF4A5568),
+                    ? (isDark ? const Color(0xFFF87171) : const Color(0xFFD32F2F))
+                    : (isDark ? Colors.white38 : const Color(0xFF4A5568)),
               ),
             ),
           ),
@@ -1573,11 +1619,11 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
             child: Text(
               totalHrs,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Lato',
                 fontSize: 12,
                 fontWeight: FontWeight.w900,
-                color: Color(0xFF1A202C),
+                color: isDark ? Colors.white70 : const Color(0xFF1A202C),
               ),
             ),
           ),
@@ -1616,12 +1662,12 @@ class _BiometricHistoryBodyState extends State<_BiometricHistoryBody> {
     );
   }
 
-  Widget _buildEmpty() {
+  Widget _buildEmpty(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history_toggle_off, size: 52, color: Colors.grey.shade400),
+          Icon(Icons.history_toggle_off, size: 52, color: Colors.grey.shade500),
           const SizedBox(height: 12),
           const Text(
             'No records found',

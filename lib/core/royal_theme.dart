@@ -162,7 +162,8 @@ class RoyalTheme {
   static ThemeData get theme {
     return ThemeData(
       brightness: Brightness.light,
-      scaffoldBackgroundColor: Colors.transparent,
+      scaffoldBackgroundColor: const Color(0xFF0F1520),
+      canvasColor: const Color(0xFF0F1520),
       primaryColor: goldPrimary,
       colorScheme: const ColorScheme.light(
         primary: goldPrimary,
@@ -173,6 +174,83 @@ class RoyalTheme {
       textTheme: const TextTheme().copyWith(
         bodyMedium: bodyMedium,
         titleLarge: headingLarge,
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+            if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+            return SystemMouseCursors.click;
+          }),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+            if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+            return SystemMouseCursors.click;
+          }),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+            if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+            return SystemMouseCursors.click;
+          }),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+            if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+            return SystemMouseCursors.click;
+          }),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+            if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+            return SystemMouseCursors.click;
+          }),
+        ),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        mouseCursor: WidgetStatePropertyAll(SystemMouseCursors.click),
+      ),
+      listTileTheme: const ListTileThemeData(
+        mouseCursor: WidgetStatePropertyAll(SystemMouseCursors.click),
+      ),
+      segmentedButtonTheme: const SegmentedButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: WidgetStatePropertyAll(SystemMouseCursors.click),
+        ),
+      ),
+      popupMenuTheme: const PopupMenuThemeData(
+        mouseCursor: WidgetStatePropertyAll(SystemMouseCursors.click),
+      ),
+      menuButtonTheme: const MenuButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: WidgetStatePropertyAll(SystemMouseCursors.click),
+        ),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+          if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+          return SystemMouseCursors.click;
+        }),
+      ),
+      radioTheme: RadioThemeData(
+        mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+          if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+          return SystemMouseCursors.click;
+        }),
+      ),
+      switchTheme: SwitchThemeData(
+        mouseCursor: WidgetStateProperty.resolveWith<MouseCursor>((states) {
+          if (states.contains(WidgetState.disabled)) return SystemMouseCursors.basic;
+          return SystemMouseCursors.click;
+        }),
       ),
     );
   }
@@ -190,8 +268,10 @@ class GlossyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: isLoading ? null : onPressed,
+    return MouseRegion(
+      cursor: isLoading ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: isLoading ? null : onPressed,
       child: Container(
         width: double.infinity,
         height: 52,
@@ -245,6 +325,7 @@ class GlossyButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

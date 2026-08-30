@@ -10,38 +10,17 @@ import 'user_provider.dart';
 import 'request_provider.dart';
 import 'ui_provider.dart';
 import 'category_provider.dart';
+import 'wallpaper_provider.dart';
 import '../core/notification_service.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
 import '../core/providers/mapping_provider.dart';
 import '../core/providers/allocation_provider.dart';
-import '../student/screens/home_screen.dart';
-import '../student/screens/attendance_page.dart' show AttendancePage, BiometricHistoryPage;
-import '../student/screens/no_due_page.dart';
-import '../student/screens/settings_page.dart';
-import '../warden/screens/warden_home_tab.dart';
-import '../warden/screens/warden_attendance_tab.dart';
-import '../warden/screens/warden_reports_tab.dart';
-import '../warden/screens/warden_management_tab.dart';
-import '../warden/screens/warden_room_change_requests_screen.dart';
-import '../warden/screens/warden_room_search_screen.dart';
-import '../admin/admin_screen.dart';
-import '../admin/screens/admin_activity_logs_screen.dart';
-import '../admin/screens/temporary_stay_admin_screen.dart';
-import '../student/screens/warden_chat_screen.dart';
-import '../student/screens/security_chat_screen.dart';
-import '../student/screens/maintenance_chat_screen.dart';
-import '../student/screens/parent_warden_chat_screen.dart';
-import '../warden/screens/warden_chat_interface.dart';
-import '../maintenance/screens/maintenance_home_tab.dart';
-import '../security/screens/security_home_tab.dart';
-import '../admin/screens/category_manager_screen.dart';
-import '../admin/screens/admin_hostel_manager_screen.dart';
-import '../admin/staff_mapping_manager_screen.dart';
-import '../admin/screens/hostel_detail_screen.dart';
-import '../admin/screens/register_staff_screen.dart';
-import '../core/models/hierarchical_hostel_model.dart';
+import '../student/student_routes.dart' deferred as student_routes;
+import '../warden/warden_routes.dart' deferred as warden_routes;
+import '../admin/admin_routes.dart' deferred as admin_routes;
+import '../maintenance/maintenance_routes.dart' deferred as maintenance_routes;
+import '../security/security_routes.dart' deferred as security_routes;
 import 'widgets/glassmorphic_jelly_navbar.dart';
-import 'role_guard.dart';
 
 class MainResponsiveLayout extends StatefulWidget {
   final String? initialRequestId;
@@ -94,6 +73,12 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   DateTime? _lastBackPressed;
 
   Future<void> _handleBackPress() async {
+    // If a nested page is open, pop it first
+    if (_phoneNavigatorKey.currentState?.canPop() ?? false) {
+      _phoneNavigatorKey.currentState!.pop();
+      return;
+    }
+
     // If we are on a different tab, go back to the home tab first (index 0)
     if (_selectedIndex != 0) {
       setState(() {
@@ -230,7 +215,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
 
     NotificationService.fcmRefreshNotifier.addListener(_onFCMCountRefresh);
 
-    _countTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+    _countTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) {
         final currentUser = Provider.of<UserProvider>(context, listen: false);
         final currentCatProvider =
@@ -276,116 +261,467 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     super.dispose();
   }
 
+  UserRole? _loadedRole;
+  Future<void>? _roleLoaderFuture;
+
+  Future<void> _ensureRoleLibraryLoaded(UserRole role) async {
+    switch (role) {
+      case UserRole.student:
+      case UserRole.guest:
+      case UserRole.parent:
+        await student_routes.loadLibrary();
+        break;
+      case UserRole.warden:
+        await warden_routes.loadLibrary();
+        break;
+      case UserRole.admin:
+        await admin_routes.loadLibrary();
+        break;
+      case UserRole.maintenance:
+      case UserRole.staff:
+        await maintenance_routes.loadLibrary();
+        break;
+      case UserRole.security:
+        await security_routes.loadLibrary();
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = context.watch<UserProvider>();
     final ui = context.watch<UIProvider>();
+    final wallpaper = context.watch<WallpaperProvider>();
     final isDesktop = MediaQuery.of(context).size.width >= 768;
 
-    final tabs = _getTabsForRole(user);
-
-    if (_selectedIndex >= tabs.length) {
-      _selectedIndex = 0;
+    if (_loadedRole != user.role || _roleLoaderFuture == null) {
+      _loadedRole = user.role;
+      _roleLoaderFuture = _ensureRoleLibraryLoaded(user.role);
     }
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        await _handleBackPress();
-      },
-      child: SafeArea(
-        top: false,
-        bottom: false,
-        child: Scaffold(
-          extendBody: !isDesktop,
-          backgroundColor:
-              isDesktop ? const Color(0xFF0A1128) : const Color(0xFFE8E4DB),
-          body: Container(
-            decoration: isDesktop
-                ? const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFF0F1520),
-                        Color(0xFF1A2235),
-                        Color(0xFF0F1520),
-                      ],
-                    ),
-                  )
-                : null,
-            child: isDesktop
-                ? LayoutBuilder(
-                    builder: (context, constraints) {
-                      return SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                          child: Center(
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                _buildSidebar(context, user, tabs),
-                                const SizedBox(width: 16),
-                                _buildMainContentCard(isDesktop, tabs),
-                                if (ui.activeChatChannel != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 12),
-                                    child: _buildChatSidePanel(context, ui, user.role),
-                                  ),
-                              ],
+    return FutureBuilder<void>(
+      future: _roleLoaderFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0F1520),
+            body: Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+              ),
+            ),
+          );
+        }
+
+        final tabs = _getTabsForRole(user);
+
+        if (_selectedIndex >= tabs.length) {
+          _selectedIndex = 0;
+        }
+
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
+            await _handleBackPress();
+          },
+          child: SafeArea(
+            top: false,
+            bottom: false,
+            child: Scaffold(
+              extendBody: !isDesktop,
+              backgroundColor: isDesktop ? Colors.black : const Color(0xFFE8E4DB),
+              body: Container(
+                decoration: isDesktop
+                    ? BoxDecoration(
+                        gradient: wallpaper.ambientBackgroundGradient,
+                      )
+                    : null,
+                child: isDesktop
+                    ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                              child: Center(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    _buildSidebar(context, user, tabs, wallpaper),
+                                    const SizedBox(width: 16),
+                                    _buildMainContentCard(isDesktop, tabs, wallpaper, user),
+                                    if (ui.activeChatChannel != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(left: 12),
+                                        child: _buildChatSidePanel(context, ui, user.role, wallpaper),
+                                      ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                      );
-                    },
-                  )
-                : LinenGridBackground(
-                    child: _buildMainContentCard(isDesktop, tabs),
-                  ),
+                          );
+                        },
+                      )
+                    : LinenGridBackground(
+                        child: _buildMainContentCard(isDesktop, tabs, wallpaper, user),
+                      ),
+              ),
+              bottomNavigationBar:
+                  (!isDesktop && ui.showBottomNavBar) ? _buildBottomNavigationBar(tabs) : null,
+            ),
           ),
-          bottomNavigationBar:
-              (!isDesktop && ui.showBottomNavBar) ? _buildBottomNavigationBar(tabs) : null,
+        );
+      },
+    );
+  }
+
+  Widget _buildContentView(bool isDesktop, List<_TabItem> tabs) {
+    if (isDesktop) {
+      return IndexedStack(
+        index: _selectedIndex >= tabs.length ? 0 : _selectedIndex,
+        children: tabs.map((t) => t.page).toList(),
+      );
+    }
+    return PageView(
+      controller: _pageController,
+      scrollDirection: Axis.horizontal,
+      physics: const PageScrollPhysics(parent: ClampingScrollPhysics()),
+      onPageChanged: (index) {
+        if (_selectedIndex != index) {
+          setState(() {
+            _selectedIndex = index;
+            if (index < tabs.length && tabs[index].label != 'Reports') {
+              reportsCategoryFilter = null;
+            }
+          });
+        }
+      },
+      children: tabs.map((t) => t.page).toList(),
+    );
+  }
+
+  Widget _buildRoleSwitchButton(BuildContext context, UserProvider user, {bool isSidebar = false}) {
+    if (!user.hasMultipleRoles) return const SizedBox.shrink();
+
+    final isWarden = user.role == UserRole.warden;
+    final roleIcon = isWarden ? Icons.shield_rounded : Icons.build_rounded;
+    final roleLabel = isWarden ? 'Warden' : 'Maintenance';
+    final badgeColor = isWarden ? const Color(0xFFD4AF37) : const Color(0xFF38BDF8);
+
+    if (isSidebar) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: InkWell(
+          onTap: () => _showRoleSwitchModal(context, user),
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: badgeColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: badgeColor.withOpacity(0.4), width: 1.2),
+            ),
+            child: Row(
+              children: [
+                Icon(roleIcon, size: 14, color: badgeColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    roleLabel.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: badgeColor,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      fontFamily: 'Lato',
+                    ),
+                  ),
+                ),
+                Icon(Icons.swap_horiz_rounded, size: 15, color: badgeColor),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showRoleSwitchModal(context, user),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A).withOpacity(0.85),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: badgeColor.withOpacity(0.7), width: 1.3),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.4),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              )
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(roleIcon, size: 14, color: badgeColor),
+              const SizedBox(width: 6),
+              Text(
+                roleLabel,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  fontFamily: 'Lato',
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.swap_horiz_rounded, size: 14, color: badgeColor),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildContentView(bool isDesktop, List<_TabItem> tabs) {
-    final bool useSwipeView = !isDesktop && !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  void _showRoleSwitchModal(BuildContext context, UserProvider user) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.35),
+                blurRadius: 25,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.35),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD4AF37).withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFFD4AF37), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Switch Active Profile',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                            fontFamily: 'Lato',
+                          ),
+                        ),
+                        Text(
+                          'Select which dashboard to view',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.white60 : Colors.grey.shade600,
+                            fontFamily: 'Lato',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                ...user.availableRoles.map((r) {
+                  final isSelected = user.role == r;
+                  final isWarden = r == UserRole.warden;
+                  final roleTitle = isWarden
+                      ? 'Hostel Warden'
+                      : (r == UserRole.maintenance ? 'Maintenance Staff' : r.name.toUpperCase());
+                  final roleSubtitle = isWarden
+                      ? (user.hostelName.isNotEmpty
+                          ? '${user.hostelName} (Attendance & Rooms)'
+                          : 'Attendance, Rooms & Gate Pass')
+                      : 'Work Orders, Tickets & QR Scanner';
+                  final roleColor = isWarden ? const Color(0xFFD4AF37) : const Color(0xFF38BDF8);
+                  final roleIcon = isWarden
+                      ? Icons.shield_rounded
+                      : (r == UserRole.maintenance ? Icons.build_rounded : Icons.person_rounded);
 
-    if (useSwipeView) {
-      return PageView(
-        controller: _pageController,
-        scrollDirection: Axis.horizontal,
-        physics: (_phoneNavigatorKey.currentState?.canPop() ?? false)
-            ? const NeverScrollableScrollPhysics()
-            : const PageScrollPhysics(parent: ClampingScrollPhysics()),
-        onPageChanged: (index) {
-          if (_selectedIndex != index) {
-            setState(() {
-              _selectedIndex = index;
-              if (index < tabs.length && tabs[index].label != 'Reports') {
-                reportsCategoryFilter = null;
-              }
-            });
-          }
-        },
-        children: tabs.map((t) => t.page).toList(),
-      );
-    }
-
-    return IndexedStack(
-      index: _selectedIndex >= tabs.length ? 0 : _selectedIndex,
-      children: tabs.map((t) => t.page).toList(),
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        if (!isSelected) {
+                          user.switchActiveRole(r);
+                          setState(() {
+                            _selectedIndex = 0;
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Switched to $roleTitle Profile'),
+                              backgroundColor: roleColor,
+                              duration: const Duration(seconds: 2),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? roleColor.withOpacity(0.12)
+                              : (isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade100),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSelected ? roleColor : Colors.transparent,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: roleColor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(roleIcon, color: roleColor, size: 22),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    roleTitle,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                                      fontFamily: 'Lato',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    roleSubtitle,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark ? Colors.white60 : Colors.grey.shade600,
+                                      fontFamily: 'Lato',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (isSelected)
+                              Icon(Icons.check_circle_rounded, color: roleColor, size: 22)
+                            else
+                              Icon(Icons.arrow_forward_ios_rounded, color: Colors.grey.shade400, size: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildMainContentCard(bool isDesktop, List<_TabItem> tabs) {
+  Widget _buildMainContentCard(bool isDesktop, List<_TabItem> tabs, WallpaperProvider wallpaper, UserProvider user) {
+    final frameColor = wallpaper.sidebarColor;
+
+    final navigatorWidget = PopScope(
+      canPop: !(_phoneNavigatorKey.currentState?.canPop() ?? false),
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_phoneNavigatorKey.currentState?.canPop() ?? false) {
+          _phoneNavigatorKey.currentState!.pop();
+        }
+      },
+      child: Navigator(
+        key: _phoneNavigatorKey,
+        observers: [_navigatorObserver],
+        onGenerateRoute: (settings) {
+          WidgetBuilder builder;
+          final adminWidget = (user.role == UserRole.admin)
+              ? admin_routes.buildAdminSubRoute(settings)
+              : null;
+          if (adminWidget != null) {
+            builder = (context) => adminWidget;
+          } else {
+            builder = (context) => _buildContentView(isDesktop, tabs);
+          }
+          return PageRouteBuilder(
+            settings: settings,
+            opaque: true,
+            pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(
+                opacity: CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeInOut,
+                ),
+                child: child,
+              );
+            },
+          );
+        },
+      ),
+    );
+
     if (!isDesktop) {
-      return _buildContentView(isDesktop, tabs);
+      if (user.hasMultipleRoles) {
+        return Stack(
+          children: [
+            navigatorWidget,
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 14,
+              child: _buildRoleSwitchButton(context, user),
+            ),
+          ],
+        );
+      }
+      return navigatorWidget;
     }
 
     return SizedBox(
@@ -394,69 +730,31 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         constraints: const BoxConstraints(maxWidth: 390),
         margin: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
-          border: Border.all(color: const Color(0xFF0F1520), width: 4),
-          color: const Color(0xFF0F1520),
+          border: Border.all(color: frameColor, width: 4),
+          color: frameColor,
           borderRadius: BorderRadius.circular(36),
-          boxShadow: const [
+          boxShadow: [
             BoxShadow(
-                color: Colors.black54, blurRadius: 40, offset: Offset(0, 20)),
+                color: Colors.black.withOpacity(0.55), blurRadius: 40, offset: const Offset(0, 20)),
             BoxShadow(
-                color: Colors.black38, blurRadius: 15, offset: Offset(0, 6)),
+                color: Colors.black.withOpacity(0.38), blurRadius: 15, offset: const Offset(0, 6)),
           ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(32),
           child: LinenGridBackground(
-            child: PopScope(
-              canPop: !(_phoneNavigatorKey.currentState?.canPop() ?? false),
-              onPopInvokedWithResult: (didPop, result) {
-                if (didPop) return;
-                if (_phoneNavigatorKey.currentState?.canPop() ?? false) {
-                  _phoneNavigatorKey.currentState!.pop();
-                }
-              },
-              child: Navigator(
-                key: _phoneNavigatorKey,
-                observers: [_navigatorObserver],
-                onGenerateRoute: (settings) {
-                  WidgetBuilder builder;
-                  switch (settings.name) {
-                    case '/category_manager':
-                      builder = (context) => const RoleGuard(
-                            allowedRoles: [UserRole.admin],
-                            child: CategoryManagerScreen(showAppBar: true),
-                          );
-                      break;
-                    case '/hostel_manager':
-                      builder = (context) => const RoleGuard(
-                            allowedRoles: [UserRole.admin],
-                            child: AdminHostelManagerScreen(showAppBar: true),
-                          );
-                      break;
-                    case '/mapping_manager':
-                      builder = (context) => const RoleGuard(
-                            allowedRoles: [UserRole.admin],
-                            child: StaffMappingManagerScreen(showAppBar: true),
-                          );
-                      break;
-                    case '/hostel_detail':
-                      final args = settings.arguments as HierarchicalHostel;
-                      builder = (context) => RoleGuard(
-                            allowedRoles: const [UserRole.admin],
-                            child: HostelDetailScreen(
-                                hostel: args, showAppBar: true),
-                          );
-                      break;
-                    default:
-                      builder = (context) => _buildContentView(isDesktop, tabs);
-                  }
-                  return MaterialPageRoute(
-                    builder: builder,
-                    settings: settings,
-                  );
-                },
-              ),
-            ),
+            child: user.hasMultipleRoles
+                ? Stack(
+                    children: [
+                      navigatorWidget,
+                      Positioned(
+                        top: 14,
+                        right: 14,
+                        child: _buildRoleSwitchButton(context, user),
+                      ),
+                    ],
+                  )
+                : navigatorWidget,
           ),
         ),
       ),
@@ -464,9 +762,10 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   }
 
   Widget _buildChatSidePanel(
-      BuildContext context, UIProvider ui, UserRole role) {
+      BuildContext context, UIProvider ui, UserRole role, WallpaperProvider wallpaper) {
     final screenWidth = MediaQuery.of(context).size.width;
     final dynamicWidth = (screenWidth - 220 - 390 - 44).clamp(300.0, 400.0);
+    final isDark = wallpaper.isDarkTheme;
 
     return SizedBox(
       height: MediaQuery.of(context).size.height,
@@ -474,8 +773,15 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         width: dynamicWidth,
         margin: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFFF9F6F1),
+          color: isDark
+              ? const Color(0xFF131D2E).withOpacity(0.92)
+              : const Color(0xFFF9F6F1),
           borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withOpacity(0.14)
+                : const Color(0xFFD4AF37).withOpacity(0.3),
+          ),
           boxShadow: const [
             BoxShadow(
                 color: Colors.black45,
@@ -503,7 +809,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         role == UserRole.security ||
         role == UserRole.maintenance ||
         role == UserRole.staff) {
-      return WardenChatInterface(channel: channel);
+      return warden_routes.getWardenChatWidget(channel);
     }
 
     final user = Provider.of<UserProvider>(context, listen: false);
@@ -511,24 +817,12 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     AppLogger.info(
         "Chat: $channel, Role: $role, User: ${user.username}, Request: ${widget.initialRequestId}");
 
-    switch (channel.toLowerCase()) {
-      case 'warden':
-        AppLogger.info("Creating Warden ChatScreen");
-        return user.isParent
-            ? ParentWardenChatScreen(requestId: widget.initialRequestId)
-            : WardenChatScreen(requestId: widget.initialRequestId);
-      case 'security':
-        AppLogger.info("Creating Security ChatScreen");
-        return SecurityChatScreen(requestId: widget.initialRequestId);
-      default:
-        AppLogger.info("Creating Dynamic ChatScreen for $channel");
-        return MaintenanceChatScreen(
-            requestId: widget.initialRequestId, department: channel);
-    }
+    return student_routes.getStudentChatWidget(
+        channel, user.isParent, widget.initialRequestId);
   }
 
   Widget _buildSidebar(
-      BuildContext context, UserProvider user, List<_TabItem> tabs) {
+      BuildContext context, UserProvider user, List<_TabItem> tabs, WallpaperProvider wallpaper) {
     IconData roleIcon;
     String roleLabel;
     switch (user.role) {
@@ -572,10 +866,15 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         width: 220,
         margin: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
-          color: const Color(0xFF141E2E),
+          color: wallpaper.sidebarColor,
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(24),
             bottomLeft: Radius.circular(24),
+          ),
+          border: Border(
+            left: BorderSide(color: wallpaper.sidebarBorderColor),
+            top: BorderSide(color: wallpaper.sidebarBorderColor),
+            bottom: BorderSide(color: wallpaper.sidebarBorderColor),
           ),
         ),
         child: Column(
@@ -591,32 +890,26 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       child: Row(
                         children: [
                           Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
+                            width: 38,
+                            height: 38,
+                            decoration: const BoxDecoration(
                               shape: BoxShape.circle,
-                              boxShadow: const [
-                                BoxShadow(
-                                    color: Colors.black26,
-                                    blurRadius: 6,
-                                    offset: Offset(0, 2))
-                              ],
+                              color: Colors.white,
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20),
-                              child: Image.asset(
-                                'assets/images/favicon.png',
-                                width: 40,
-                                height: 40,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => const Center(
-                                  child: Text('VS',
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF1B2B48),
-                                          fontFamily: 'Lato')),
+                            child: ClipOval(
+                              child: Padding(
+                                padding: const EdgeInsets.all(3.0),
+                                child: Image.asset(
+                                  'assets/images/favicon.png',
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) => const Center(
+                                    child: Text('VS',
+                                        style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF1B2B48),
+                                            fontFamily: 'Lato')),
+                                  ),
                                 ),
                               ),
                             ),
@@ -645,26 +938,29 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: Row(
-                        children: [
-                          Icon(roleIcon,
-                              size: 13, color: const Color(0xFF7A8BA0)),
-                          const SizedBox(width: 6),
-                          Text(
-                            roleLabel.toUpperCase(),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Color(0xFF7A8BA0),
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 1.2,
-                              fontFamily: 'Lato',
+                    if (user.hasMultipleRoles)
+                      _buildRoleSwitchButton(context, user, isSidebar: true)
+                    else
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: Row(
+                          children: [
+                            Icon(roleIcon,
+                                size: 13, color: const Color(0xFF7A8BA0)),
+                            const SizedBox(width: 6),
+                            Text(
+                              roleLabel.toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFF7A8BA0),
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.2,
+                                fontFamily: 'Lato',
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 28),
                     ...List.generate(tabs.length, (index) {
                       final t = tabs[index];
@@ -686,13 +982,13 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                                 horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
                               color: active
-                                  ? Colors.white.withOpacity(0.12)
+                                  ? Colors.white.withOpacity(0.14)
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(10),
                               border: active
                                   ? Border.all(
                                       color: const Color(0xFFD4AF37)
-                                          .withOpacity(0.4),
+                                          .withOpacity(0.5),
                                       width: 1)
                                   : null,
                             ),
@@ -806,189 +1102,55 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   List<_TabItem> _getTabsForRole(UserProvider user) {
     switch (user.role) {
       case UserRole.student:
-        return [
-          const _TabItem(
-              label: 'Home',
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home,
-              page: StudentHomeScreen()),
-          const _TabItem(
-              label: 'Attendance',
-              icon: Icons.calendar_month_outlined,
-              activeIcon: Icons.calendar_month,
-              page: AttendancePage()),
-          const _TabItem(
-              label: 'No Due',
-              icon: Icons.receipt_long_outlined,
-              activeIcon: Icons.receipt_long,
-              page: NoDuePage()),
-          const _TabItem(
-              label: 'Bio History',
-              icon: Icons.fingerprint,
-              activeIcon: Icons.fingerprint,
-              page: BiometricHistoryPage()),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.settings_outlined,
-              activeIcon: Icons.settings,
-              page: SettingsPage()),
-        ];
+        return student_routes.getStudentTabs(user).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
       case UserRole.guest:
-        return [
-          const _TabItem(
-              label: 'Home',
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home,
-              page: StudentHomeScreen()),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.settings_outlined,
-              activeIcon: Icons.settings,
-              page: SettingsPage()),
-        ];
+        return student_routes.getGuestTabs(user).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
       case UserRole.parent:
-        return [
-          const _TabItem(
-              label: 'Dashboard',
-              icon: Icons.dashboard_outlined,
-              activeIcon: Icons.dashboard,
-              page: StudentHomeScreen()),
-          const _TabItem(
-              label: 'Attendance',
-              icon: Icons.calendar_month_outlined,
-              activeIcon: Icons.calendar_month,
-              page: AttendancePage()),
-          const _TabItem(
-              label: 'Bio History',
-              icon: Icons.fingerprint,
-              activeIcon: Icons.fingerprint,
-              page: BiometricHistoryPage()),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.settings_outlined,
-              activeIcon: Icons.settings,
-              page: SettingsPage()),
-        ];
+        return student_routes.getParentTabs(user).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
       case UserRole.warden:
-        return [
-          const _TabItem(
-              label: 'Home',
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home,
-              page: WardenHomeTab()),
-          const _TabItem(
-              label: 'Attendance',
-              icon: Icons.calendar_month_outlined,
-              activeIcon: Icons.calendar_month,
-              page: WardenAttendanceTab()),
-          _TabItem(
-              label: 'Transfer',
-              icon: Icons.sync_outlined,
-              activeIcon: Icons.sync,
-              page: WardenRoomChangeRequestsScreen(wardenId: user.dbId ?? 1)),
-          _TabItem(
-              label: 'Reports',
-              icon: Icons.bar_chart_outlined,
-              activeIcon: Icons.bar_chart,
-              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
-          const _TabItem(
-              label: 'Management',
-              icon: Icons.settings_outlined,
-              activeIcon: Icons.settings,
-              page: WardenManagementTab()),
-          const _TabItem(
-              label: 'Room Search',
-              icon: Icons.search_outlined,
-              activeIcon: Icons.search,
-              page: WardenRoomSearchScreen()),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.person_outline,
-              activeIcon: Icons.person,
-              page: SettingsPage()),
-        ];
+        return warden_routes.getWardenTabs(user, reportsCategoryFilter: reportsCategoryFilter).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
       case UserRole.admin:
-        return [
-          const _TabItem(
-              label: 'Admin',
-              icon: Icons.admin_panel_settings_outlined,
-              activeIcon: Icons.admin_panel_settings,
-              page: AdminScreen()),
-          const _TabItem(
-              label: 'Activity Logs',
-              icon: Icons.assignment_outlined,
-              activeIcon: Icons.assignment,
-              page: AdminActivityLogsScreen()),
-          const _TabItem(
-              label: 'Temp Stay',
-              icon: Icons.hotel_outlined,
-              activeIcon: Icons.hotel,
-              page: TemporaryStayAdminScreen()),
-          const _TabItem(
-              label: 'Management',
-              icon: Icons.settings_outlined,
-              activeIcon: Icons.settings,
-              page: WardenManagementTab()),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.person_outline,
-              activeIcon: Icons.person,
-              page: SettingsPage()),
-        ];
+        return admin_routes.getAdminTabs(user).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
       case UserRole.maintenance:
-        return [
-          const _TabItem(
-              label: 'Home',
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home,
-              page: MaintenanceHomeTab()),
-          _TabItem(
-              label: 'Reports',
-              icon: Icons.bar_chart_outlined,
-              activeIcon: Icons.bar_chart,
-              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.person_outline,
-              activeIcon: Icons.person,
-              page: SettingsPage()),
-        ];
-      case UserRole.security:
-        return [
-          const _TabItem(
-              label: 'Home',
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home,
-              page: SecurityHomeTab()),
-          _TabItem(
-              label: 'Reports',
-              icon: Icons.bar_chart_outlined,
-              activeIcon: Icons.bar_chart,
-              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.person_outline,
-              activeIcon: Icons.person,
-              page: SettingsPage()),
-        ];
       case UserRole.staff:
-        return [
-          const _TabItem(
-              label: 'Home',
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home,
-              page: MaintenanceHomeTab()),
-          _TabItem(
-              label: 'Reports',
-              icon: Icons.bar_chart_outlined,
-              activeIcon: Icons.bar_chart,
-              page: WardenReportsTab(initialCategory: reportsCategoryFilter)),
-          const _TabItem(
-              label: 'Settings',
-              icon: Icons.person_outline,
-              activeIcon: Icons.person,
-              page: SettingsPage()),
-        ];
+        return maintenance_routes.getMaintenanceTabs(user, reportsCategoryFilter: reportsCategoryFilter).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
+      case UserRole.security:
+        return security_routes.getSecurityTabs(user, reportsCategoryFilter: reportsCategoryFilter).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
     }
   }
 }

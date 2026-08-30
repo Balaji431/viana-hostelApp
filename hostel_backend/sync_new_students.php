@@ -72,7 +72,7 @@ try {
     $pwHash = password_hash('welcome123', PASSWORD_BCRYPT);
     $today  = new DateTime('today');
 
-    $checkUserStmt  = $db->prepare("SELECT id FROM users WHERE username = ?");
+    $checkUserStmt  = $db->prepare("SELECT id, email_override FROM users WHERE username = ?");
     $insertUserStmt = $db->prepare("
         INSERT INTO users (
             username, full_name, email, phone_number, role, password, Campus, Institution,
@@ -82,9 +82,13 @@ try {
             :HostelName, :HostelType, :RoomType, :RoomId, '1', 1
         )
     ");
+    // email_override=1 → do NOT overwrite email/phone set manually by admin
     $updateUserStmt = $db->prepare("
         UPDATE users SET 
-            full_name = ?, email = ?, phone_number = ?, Campus = ?, HostelName = ?, HostelType = ?, RoomType = ?, RoomId = ?
+            full_name = ?, 
+            email = IF(email_override = 1, email, ?),
+            phone_number = IF(email_override = 1, phone_number, ?),
+            Campus = ?, HostelName = ?, HostelType = ?, RoomType = ?, RoomId = ?
         WHERE username = ? AND role = 'student'
     ");
 
@@ -98,7 +102,9 @@ try {
             :institution, :hostel_name, :address, :renewal_date, :remaining_days,
             :check_in_date, :valid_from
         ) ON DUPLICATE KEY UPDATE 
-            full_name = VALUES(full_name), email = VALUES(email), personal_phone = VALUES(personal_phone),
+            full_name = VALUES(full_name),
+            email = COALESCE(VALUES(email), email),
+            personal_phone = COALESCE(VALUES(personal_phone), personal_phone),
             room_allocation = VALUES(room_allocation), 
             warden = COALESCE(NULLIF(VALUES(warden),''), warden), 
             hostel_name = VALUES(hostel_name),
@@ -166,7 +172,9 @@ try {
         }
 
         $checkUserStmt->execute([$roll]);
-        $existingId = $checkUserStmt->fetchColumn();
+        $existingRow   = $checkUserStmt->fetch(PDO::FETCH_ASSOC);
+        $existingId    = $existingRow ? $existingRow['id'] : null;
+        $emailOverride = $existingRow ? (int)($existingRow['email_override'] ?? 0) : 0;
 
         if (!$existingId) {
             $insertUserStmt->execute([
@@ -184,6 +192,7 @@ try {
             $existingId = $db->lastInsertId();
             $newStudentsAdded++;
         } else {
+            // Pass email & phone twice: once for IF() true branch, once for IF() false branch
             $updateUserStmt->execute([$name, $email, $phone, $campus, $hostel, $hType, $rType, $roomNo, $roll]);
         }
 
@@ -198,8 +207,9 @@ try {
             ':full_name'       => $name,
             ':reg_no'          => $roll,
             ':user_id'         => $existingId,
-            ':email'           => $email,
-            ':personal_phone'  => $phone,
+            // If email_override is set, pass null so ON DUPLICATE KEY skips the email update
+            ':email'           => ($emailOverride ? null : $email),
+            ':personal_phone'  => ($emailOverride ? null : $phone),
             ':room_allocation' => $roomNo,
             ':warden'          => $assignedWarden,
             ':institution'     => 'SIMATS',

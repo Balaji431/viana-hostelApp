@@ -16,19 +16,20 @@ try {
     $db = $database->getConnection();
 
     $student_id = $_GET['student_id'] ?? null;
+    $reg_no = $_GET['reg_no'] ?? null;
 
-    if (!$student_id) {
-        echo json_encode(["status" => "error", "message" => "student_id is required"]);
+    if (!$student_id && !$reg_no) {
+        echo json_encode(["status" => "error", "message" => "student_id or reg_no is required"]);
         exit();
     }
 
-    $query = "SELECT p.* FROM payment p 
-              JOIN users u ON (TRIM(u.username) COLLATE utf8mb4_unicode_ci = TRIM(p.registerNumber) COLLATE utf8mb4_unicode_ci)
-              WHERE u.id = ? 
-              ORDER BY p.booking_date DESC";
+    $query = "SELECT DISTINCT p.* FROM payment p 
+              LEFT JOIN users u ON (p.user_id = u.id OR TRIM(u.username) COLLATE utf8mb4_unicode_ci = TRIM(p.registerNumber) COLLATE utf8mb4_unicode_ci)
+              WHERE u.id = ? OR p.user_id = ? OR p.registerNumber = ?
+              ORDER BY COALESCE(p.paid_at, p.created_at, p.booking_date) ASC";
               
     $stmt = $db->prepare($query);
-    $stmt->execute([$student_id]);
+    $stmt->execute([$student_id, $student_id, $reg_no ?: $student_id]);
 
     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

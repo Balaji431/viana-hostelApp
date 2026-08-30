@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../core/api_service.dart';
 import '../../core/models/room_change_request_model.dart';
 
@@ -50,13 +51,20 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF9F6F0),
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(24),
           topRight: Radius.circular(24),
         ),
+        border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -67,30 +75,30 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Room Change History',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Lato',
-                    color: Color(0xFF1E2F5E),
+                    color: isDark ? Colors.white : const Color(0xFF1E2F5E),
                   ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
                   icon: Container(
-                    padding: const EdgeInsets.all(4),
+                    padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.close, size: 18, color: Colors.grey),
+                    child: Icon(Icons.close, size: 16, color: isDark ? Colors.white70 : Colors.grey.shade700),
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: isDark ? Colors.white.withOpacity(0.12) : const Color(0xFFE0D8CC)),
           
           // Filter Section
           Padding(
@@ -100,13 +108,13 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
                 children: [
-                  _buildFilterChip('all', 'All History'),
+                  _buildFilterChip('all', 'All History', isDark),
                   const SizedBox(width: 8),
-                  _buildFilterChip('pending', 'Pending'),
+                  _buildFilterChip('pending', 'Pending', isDark),
                   const SizedBox(width: 8),
-                  _buildFilterChip('approved', 'Approved'),
+                  _buildFilterChip('approved', 'Approved', isDark),
                   const SizedBox(width: 8),
-                  _buildFilterChip('rejected', 'Rejected'),
+                  _buildFilterChip('rejected', 'Rejected', isDark),
                 ],
               ),
             ),
@@ -118,15 +126,15 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
               height: MediaQuery.of(context).size.height * 0.6,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37)))
                   : _allRequests.isEmpty
-                      ? _buildEmptyState()
+                      ? _buildEmptyState(isDark)
                       : ListView.builder(
                           itemCount: _allRequests.length,
                           padding: const EdgeInsets.only(bottom: 24),
                           itemBuilder: (context, index) {
                             final request = _allRequests[index];
-                            return _buildRequestItem(request);
+                            return _buildRequestItem(request, isDark);
                           },
                         ),
             ),
@@ -136,23 +144,23 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history_outlined, size: 64, color: Colors.grey.shade200),
+          Icon(Icons.history_outlined, size: 64, color: isDark ? Colors.white24 : Colors.grey.shade300),
           const SizedBox(height: 16),
           Text(
             'No room change history found',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+            style: TextStyle(color: isDark ? Colors.white60 : Colors.grey.shade500, fontSize: 14),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFilterChip(String value, String label) {
+  Widget _buildFilterChip(String value, String label, bool isDark) {
     final isSelected = _selectedStatus == value;
     return GestureDetector(
       onTap: () {
@@ -165,16 +173,22 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF1E2F5E) : Colors.grey.shade50,
+          color: isSelected 
+              ? (isDark ? const Color(0xFFD4AF37) : const Color(0xFF1E2F5E)) 
+              : (isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade50),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF1E2F5E) : Colors.grey.shade200,
+            color: isSelected 
+                ? (isDark ? const Color(0xFFD4AF37) : const Color(0xFF1E2F5E)) 
+                : (isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade300),
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey.shade700,
+            color: isSelected 
+                ? (isDark ? const Color(0xFF0F172A) : Colors.white) 
+                : (isDark ? Colors.white70 : Colors.grey.shade700),
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
@@ -183,7 +197,7 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
     );
   }
 
-  Widget _buildRequestItem(RoomChangeRequest request) {
+  Widget _buildRequestItem(RoomChangeRequest request, bool isDark) {
     final statusColor = _getStatusColor(request.status);
     final isPending = request.status.toLowerCase() == 'pending';
     
@@ -192,13 +206,13 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.grey.shade100),
+            border: Border.all(color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
-                blurRadius: 4,
+                color: Colors.black.withOpacity(isDark ? 0.3 : 0.03),
+                blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
             ],
@@ -207,7 +221,7 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -220,15 +234,15 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
                             children: [
                               Text(
                                 request.studentName,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1A2744),
-                                  fontSize: 13,
+                                  color: isDark ? Colors.white : const Color(0xFF1A2744),
+                                  fontSize: 14,
                                 ),
                               ),
                               Text(
                                 'ID: ${request.studentRegNo}',
-                                style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
+                                style: TextStyle(color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade500, fontSize: 11),
                               ),
                             ],
                           ),
@@ -245,9 +259,9 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.1),
+                              color: statusColor.withOpacity(isDark ? 0.2 : 0.1),
                               borderRadius: BorderRadius.circular(8),
-                              border: isPending ? Border.all(color: statusColor.withOpacity(0.2)) : null,
+                              border: isPending ? Border.all(color: statusColor.withOpacity(isDark ? 0.4 : 0.2)) : null,
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -275,35 +289,35 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
                         ),
                       ],
                     ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Divider(height: 1, thickness: 0.5),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(height: 1, thickness: 0.5, color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200),
                     ),
                     Row(
                       children: [
-                        Flexible(child: _buildRoomBadge(request.currentRoom, Colors.grey.shade600)),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Icon(Icons.arrow_forward_rounded, size: 14, color: Colors.grey),
+                        Flexible(child: _buildRoomBadge(request.currentRoom, isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600, isDark)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Icon(Icons.arrow_forward_rounded, size: 14, color: isDark ? Colors.white54 : Colors.grey),
                         ),
-                        Flexible(child: _buildRoomBadge(request.requestedRoom, const Color(0xFFD4AF37))),
+                        Flexible(child: _buildRoomBadge(request.requestedRoom, const Color(0xFFD4AF37), isDark)),
                       ],
                     ),
-                    const SizedBox(height: 8),
                     if (request.reason.isNotEmpty) ...[
+                      const SizedBox(height: 8),
                       Text(
                         'REASON',
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade400,
+                          color: isDark ? const Color(0xFF64748B) : Colors.grey.shade400,
                           letterSpacing: 1,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         request.reason,
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
+                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.grey.shade700, fontStyle: FontStyle.italic),
                       ),
                     ],
                   ],
@@ -318,9 +332,9 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () => _showRejectionDialog(request),
+                        onPressed: () => _showRejectionDialog(request, isDark),
                         style: TextButton.styleFrom(
-                          foregroundColor: Colors.red,
+                          foregroundColor: isDark ? const Color(0xFFF87171) : Colors.red,
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                         ),
                         child: const Text('REJECT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
@@ -347,29 +361,51 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
     );
   }
 
-  void _showRejectionDialog(RoomChangeRequest request) {
+  void _showRejectionDialog(RoomChangeRequest request, bool isDark) {
     final TextEditingController reasonController = TextEditingController();
     
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Reject Request', style: TextStyle(fontFamily: 'Lato', fontWeight: FontWeight.bold)),
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: isDark ? BorderSide(color: Colors.white.withOpacity(0.12)) : BorderSide.none,
+        ),
+        title: Text(
+          'Reject Request', 
+          style: TextStyle(
+            fontFamily: 'Lato', 
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : const Color(0xFF1A2744),
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Please provide a reason for rejecting ${request.studentName}\'s request.', style: const TextStyle(fontSize: 13, color: Colors.blueGrey)),
+            Text(
+              'Please provide a reason for rejecting ${request.studentName}\'s request.', 
+              style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.blueGrey),
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: reasonController,
               maxLines: 3,
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87),
               decoration: InputDecoration(
                 hintText: 'Enter reason here...',
+                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey.shade400),
                 filled: true,
-                fillColor: Colors.grey.shade50,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+                fillColor: isDark ? const Color(0xFF0F172A) : Colors.grey.shade50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12), 
+                  borderSide: BorderSide(color: isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade200),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12), 
+                  borderSide: BorderSide(color: isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade200),
+                ),
               ),
             ),
           ],
@@ -377,7 +413,7 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -430,13 +466,13 @@ class _RoomChangeHistoryDialogState extends State<RoomChangeHistoryDialog> {
     }
   }
 
-  Widget _buildRoomBadge(String room, Color color) {
+  Widget _buildRoomBadge(String room, Color color, bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: color.withOpacity(isDark ? 0.2 : 0.08),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.1)),
+        border: Border.all(color: color.withOpacity(isDark ? 0.4 : 0.2)),
       ),
       child: Text(
         room,

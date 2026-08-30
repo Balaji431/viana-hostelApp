@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../shared/request_provider.dart';
 import '../../shared/user_provider.dart';
+import '../../shared/wallpaper_provider.dart';
 import '../../shared/widgets/calendar_modal.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../../core/styles.dart';
 
 class RequestHistoryScreen extends StatefulWidget {
   final String? department;
@@ -124,81 +126,98 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     final requestProvider = context.watch<RequestProvider>();
     final allRequests = requestProvider.requests;
     final requests = _getFilteredRequests(allRequests);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFE8E4DB),
-      appBar: SkeuomorphicNavBar(
-        title: 'Request History',
-        onBack: () => Navigator.pop(context),
-      ),
-      body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 500),
-          child: Column(
-            children: [
-              _buildFilters(),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                   child: Text('${requests.length} requests found', style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                ),
-              ),
-              Expanded(
-                child: requests.isEmpty 
-                  ? const Center(child: Text('No requests found for these filters.', style: TextStyle(color: Colors.grey)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: requests.length,
-                      itemBuilder: (context, index) {
-                        final req = requests[index];
-                        return _buildHistoryCard(
-                          title: req.title,
-                          id: req.id,
-                          date: req.date,
-                          status: req.status,
-                          isResolved: req.isResolved,
-                          rating: req.rating,
-                          comment: req.comment,
-                        );
-                      },
+    return LinenGridBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: SkeuomorphicNavBar(
+          title: 'Request History',
+          onBack: () => Navigator.pop(context),
+        ),
+        body: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Column(
+              children: [
+                _buildFilters(isDark),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${requests.length} requests found',
+                      style: TextStyle(color: isDark ? Colors.white70 : Colors.grey, fontSize: 13),
                     ),
-              ),
-              _buildCancelButton(context),
-            ],
+                  ),
+                ),
+                Expanded(
+                  child: requests.isEmpty 
+                    ? Center(
+                        child: Text(
+                          'No requests found for these filters.',
+                          style: TextStyle(color: isDark ? Colors.white60 : Colors.grey),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        itemCount: requests.length,
+                        itemBuilder: (context, index) {
+                          final req = requests[index];
+                          return _buildHistoryCard(
+                            title: req.title,
+                            id: req.id,
+                            date: req.date,
+                            status: req.status,
+                            isResolved: req.isResolved,
+                            rating: req.rating,
+                            comment: req.comment,
+                            isDark: isDark,
+                          );
+                        },
+                      ),
+                ),
+                _buildCancelButton(context, isDark),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildFilters() {
+  Widget _buildFilters(bool isDark) {
     return Container(
       padding: const EdgeInsets.all(20),
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF4F1E9),
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : const Color(0xFFF4F1E9),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.05)),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              _buildDateField('FROM', _fromDate, (date) => setState(() => _fromDate = date)),
+              _buildDateField('FROM', _fromDate, (date) => setState(() => _fromDate = date), isDark),
               const SizedBox(width: 15),
-              _buildDateField('TO', _toDate, (date) => setState(() => _toDate = date)),
+              _buildDateField('TO', _toDate, (date) => setState(() => _toDate = date), isDark),
             ],
           ),
           const SizedBox(height: 15),
           Row(
             children: [
-               _buildStatusDropdown(),
+              _buildStatusDropdown(isDark),
               const SizedBox(width: 15),
-               _buildSortDropdown(),
+              _buildSortDropdown(isDark),
             ],
           ),
         ],
@@ -206,7 +225,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
     );
   }
 
-  Widget _buildDateField(String label, DateTime? value, Function(DateTime?) onSelected) {
+  Widget _buildDateField(String label, DateTime? value, Function(DateTime?) onSelected, bool isDark) {
     return Expanded(
       child: GestureDetector(
         onTap: () async {
@@ -219,23 +238,35 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white60 : Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 5),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.black.withOpacity(0.05)),
+                border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.05)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     value == null ? 'dd-mm-yyyy' : DateFormat('dd-MM-yyyy').format(value), 
-                    style: TextStyle(fontSize: 13, color: value == null ? Colors.grey : const Color(0xFF1B2B48))
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: value == null 
+                          ? (isDark ? Colors.white60 : Colors.grey) 
+                          : (isDark ? Colors.white : const Color(0xFF1B2B48)),
+                    ),
                   ),
-                  const Icon(Icons.calendar_today_outlined, size: 16, color: Colors.black54),
+                  Icon(Icons.calendar_today_outlined, size: 16, color: isDark ? Colors.white60 : Colors.black54),
                 ],
               ),
             ),
@@ -245,14 +276,21 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
     );
   }
 
-  Widget _buildStatusDropdown() {
+  Widget _buildStatusDropdown(bool isDark) {
     final List<String> statuses = ['All Statuses', 'Pending', 'Approved', 'Rejected'];
     
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('STATUS', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+          Text(
+            'STATUS',
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? Colors.white60 : Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 5),
           PopupMenuButton<String>(
             onSelected: (val) => setState(() => _statusFilter = val),
@@ -260,15 +298,21 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.black.withOpacity(0.05)),
+                border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.05)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(_statusFilter, style: const TextStyle(fontSize: 13, color: Color(0xFF1B2B48))),
-                  const Icon(Icons.keyboard_arrow_down, size: 16, color: Colors.grey),
+                  Text(
+                    _statusFilter,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                    ),
+                  ),
+                  Icon(Icons.keyboard_arrow_down, size: 16, color: isDark ? Colors.white60 : Colors.grey),
                 ],
               ),
             ),
@@ -278,14 +322,21 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
     );
   }
 
-  Widget _buildSortDropdown() {
+  Widget _buildSortDropdown(bool isDark) {
     final List<String> options = ['Newest First', 'Oldest First'];
     
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('SORT BY', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+          Text(
+            'SORT BY',
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? Colors.white60 : Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 5),
           PopupMenuButton<String>(
             onSelected: (val) => setState(() => _sortBy = val),
@@ -293,16 +344,23 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.black.withOpacity(0.05)),
+                border: Border.all(color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.05)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.swap_vert, size: 16, color: Colors.grey),
+                  Icon(Icons.swap_vert, size: 16, color: isDark ? Colors.white60 : Colors.grey),
                   const SizedBox(width: 5),
-                  Text(_sortBy, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF5D5D5D))),
+                  Text(
+                    _sortBy,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF5D5D5D),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -320,6 +378,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
     required bool isResolved,
     int? rating,
     String? comment,
+    bool isDark = false,
   }) {
     Color statusColor;
     String displayStatus = status.toUpperCase();
@@ -343,9 +402,16 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
       margin: const EdgeInsets.only(bottom: 15),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(15),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+        border: isDark ? Border.all(color: Colors.white.withOpacity(0.14)) : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -353,9 +419,15 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B2B48)),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF1B2B48),
+                  ),
+                ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
@@ -371,13 +443,14 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
               ),
             ],
           ),
-          Text(id, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+          const SizedBox(height: 4),
+          Text(id, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 13)),
           const SizedBox(height: 10),
-          Text(date, style: const TextStyle(color: Color(0xFF8A9AAB), fontSize: 14)),
+          Text(date, style: TextStyle(color: isDark ? Colors.white70 : const Color(0xFF8A9AAB), fontSize: 14)),
           if (rating != null && rating > 0) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1, color: isDark ? Colors.white.withOpacity(0.12) : null),
             ),
             Row(
               children: List.generate(
@@ -391,7 +464,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
             ),
             if (comment != null && comment.isNotEmpty) ...[
               const SizedBox(height: 5),
-              Text('"$comment"', style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              Text('"$comment"', style: TextStyle(fontStyle: FontStyle.italic, color: isDark ? Colors.white70 : Colors.grey)),
             ],
           ],
         ],
@@ -399,23 +472,27 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
     );
   }
 
-  Widget _buildCancelButton(BuildContext context) {
+  Widget _buildCancelButton(BuildContext context, bool isDark) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
       child: GestureDetector(
         onTap: () => Navigator.pop(context),
         child: Container(
-          height: 60,
+          height: 54,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDark ? const Color(0xFF2563EB) : Colors.white,
             borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300),
             boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
           ),
-          child: const Center(
+          child: Center(
             child: Text(
               'Done',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
             ),
           ),
         ),

@@ -1,0 +1,1 @@
+User insert error: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'TEMP_74407CEE' for key 'users.username'

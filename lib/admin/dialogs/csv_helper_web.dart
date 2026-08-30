@@ -22,6 +22,25 @@ void downloadCSV(String csvContent, String fileName) {
   }
 }
 
+void downloadBytes(List<int> bytes, String fileName, {String mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}) {
+  try {
+    final blob = html.Blob([bytes], mimeType);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute("download", fileName);
+    
+    html.document.body?.append(anchor);
+    anchor.click();
+    anchor.remove();
+    
+    Future.delayed(const Duration(seconds: 2), () {
+      html.Url.revokeObjectUrl(url);
+    });
+  } catch (e) {
+    // Fallback if dynamic browser execution blocks direct anchor download
+  }
+}
+
 void triggerImportAndExport(String url) {
   try {
     final anchor = html.AnchorElement(href: url)

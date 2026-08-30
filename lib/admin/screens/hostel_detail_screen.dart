@@ -10,6 +10,7 @@ import '../../core/styles.dart';
 import '../../core/providers/hierarchical_hostel_provider.dart';
 import 'package:vianasoft_stay/core/models/hierarchical_hostel_model.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../../shared/wallpaper_provider.dart';
 
 class HostelDetailScreen extends StatefulWidget {
   final HierarchicalHostel hostel;
@@ -28,6 +29,18 @@ class HostelDetailScreen extends StatefulWidget {
 class HostelDetailScreenState extends State<HostelDetailScreen> {
 
   BuildContext? _loadingContext;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.hostel.zones.isEmpty) {
+        _refreshData().then((_) {
+          if (mounted) setState(() {});
+        });
+      }
+    });
+  }
 
   Future<void> _refreshData() async {
     if (!mounted) return;
@@ -164,18 +177,24 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
   }
 
   Widget _buildWingTile(SubZone subZone, Zone parentZone) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF9F8F5),
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.85) : const Color(0xFFF9F8F5),
         border: Border(
           left: const BorderSide(color: Color(0xFFD4AF37), width: 3),
-          bottom: BorderSide(color: Colors.black.withOpacity(0.06), width: 1),
+          bottom: BorderSide(color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06), width: 1),
         ),
       ),
       child: ExpansionTile(
         tilePadding: const EdgeInsets.only(left: 20, right: 16, top: 6, bottom: 6),
-        iconColor: const Color(0xFF1A2744),
-        collapsedIconColor: Colors.grey.shade600,
+        iconColor: isDark ? const Color(0xFFD4AF37) : const Color(0xFF1A2744),
+        collapsedIconColor: isDark ? Colors.white60 : Colors.grey.shade600,
         title: Row(
           children: [
             Expanded(
@@ -184,7 +203,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                 style: GoogleFonts.outfit(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1A2744),
+                  color: isDark ? Colors.white : const Color(0xFF1A2744),
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -193,7 +212,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
               width: 30,
               height: 30,
               child: IconButton(
-                icon: const Icon(Icons.edit, size: 14, color: Colors.blue),
+                icon: Icon(Icons.edit, size: 14, color: isDark ? const Color(0xFF60A5FA) : Colors.blue),
                 onPressed: () => _editWing(subZone, parentZone),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -203,7 +222,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
               width: 30,
               height: 30,
               child: IconButton(
-                icon: const Icon(Icons.delete, size: 14, color: Colors.red),
+                icon: Icon(Icons.delete, size: 14, color: isDark ? const Color(0xFFF87171) : Colors.red),
                 onPressed: () => _deleteWing(subZone, parentZone),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -215,7 +234,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
           '${subZone.rooms.length} Rooms',
           style: TextStyle(
             fontSize: 13,
-            color: Colors.grey.shade600,
+            color: isDark ? Colors.white70 : Colors.grey.shade600,
           ),
         ),
         children: [
@@ -235,7 +254,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFF2D4A7A),
+                      foregroundColor: isDark ? const Color(0xFF93C5FD) : const Color(0xFF2D4A7A),
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -265,7 +284,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                   child: TextButton(
                     onPressed: () => _bulkAddRoomsFromCSV(subZone, parentZone),
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFF2E7D32),
+                      foregroundColor: isDark ? const Color(0xFF4ADE80) : const Color(0xFF2E7D32),
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -287,11 +306,18 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
   }
 
   Widget _buildRoomTile(Room room) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.65) : Colors.white,
         border: Border(
-          bottom: BorderSide(color: Colors.grey.shade200),
+          bottom: BorderSide(color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200),
         ),
       ),
       child: Row(
@@ -300,12 +326,12 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: const Color(0xFF2D4A7A).withValues(alpha: 0.1),
+              color: isDark ? Colors.white.withOpacity(0.08) : const Color(0xFF2D4A7A).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.bed,
-              color: Color(0xFF2D4A7A),
+              color: isDark ? const Color(0xFFEBC15B) : const Color(0xFF2D4A7A),
               size: 18,
             ),
           ),
@@ -319,10 +345,10 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                     Flexible(
                       child: Text(
                         room.roomCode,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF1A2744),
+                          color: isDark ? Colors.white : const Color(0xFF1A2744),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -332,12 +358,16 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade50,
+                          color: isDark ? const Color(0xFF059669).withOpacity(0.25) : Colors.green.shade50,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           '₹${room.amount.toStringAsFixed(0)}',
-                          style: TextStyle(fontSize: 11, color: Colors.green.shade700, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? const Color(0xFF4ADE80) : Colors.green.shade700,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -347,7 +377,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                   'Vacancy: ${room.availableRooms}/${room.capacity} (${room.facility})',
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey.shade600,
+                    color: isDark ? Colors.white70 : Colors.grey.shade600,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -358,7 +388,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
             width: 32,
             height: 32,
             child: IconButton(
-              icon: const Icon(Icons.edit, size: 16, color: Colors.blue),
+              icon: Icon(Icons.edit, size: 16, color: isDark ? const Color(0xFF60A5FA) : Colors.blue),
               onPressed: () => _editRoom(room),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
@@ -368,7 +398,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
             width: 32,
             height: 32,
             child: IconButton(
-              icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+              icon: Icon(Icons.delete, size: 16, color: isDark ? const Color(0xFFF87171) : Colors.red),
               onPressed: () => _deleteRoom(room),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
@@ -576,7 +606,32 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
     }
   }
 
+  void _showDesktopOnlyNotice(String featureName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Access Restricted'),
+        content: Text(
+          '$featureName is available only on Desktop/Laptop.\n\nPlease use a desktop browser to access this feature.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _bulkAddRoomsToWing(SubZone wing, Zone floor) async {
+    final isDesktop = MediaQuery.of(context).size.width > 900;
+    if (!isDesktop) {
+      _showDesktopOnlyNotice('Bulk Add Rooms');
+      return;
+    }
+
     final prefixController = TextEditingController();
     final startController = TextEditingController(text: '101');
     final endController = TextEditingController(text: '120');
@@ -1229,6 +1284,12 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
   }
 
   void _bulkAddRoomsFromCSV(SubZone wing, Zone floor) async {
+    final isDesktop = MediaQuery.of(context).size.width > 900;
+    if (!isDesktop) {
+      _showDesktopOnlyNotice('CSV Room Import');
+      return;
+    }
+
     try {
       // Pick CSV file
       final result = await FilePicker.platform.pickFiles(
@@ -1557,23 +1618,33 @@ class _FloorCardWidgetState extends State<_FloorCardWidget> {
 
   @override
   Widget build(BuildContext context) {
+    WallpaperProvider? wallpaper;
+    try {
+      wallpaper = context.watch<WallpaperProvider>();
+    } catch (_) {}
+    final isDark = wallpaper?.isDarkTheme ?? false;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.75) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(0.12), width: 1.5),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.12),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.07),
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.07),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
-          BoxShadow(
-            color: Colors.white.withOpacity(0.8),
-            blurRadius: 1,
-            offset: const Offset(0, -1),
-          ),
+          if (!isDark)
+            BoxShadow(
+              color: Colors.white.withOpacity(0.8),
+              blurRadius: 1,
+              offset: const Offset(0, -1),
+            ),
         ],
       ),
       child: ClipRRect(
@@ -1586,11 +1657,13 @@ class _FloorCardWidgetState extends State<_FloorCardWidget> {
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [Color(0xFF1A2744), Color(0xFF2D4A7A)],
+                    colors: isDark
+                        ? const [Color(0xFF0F172A), Color(0xFF1E293B)]
+                        : const [Color(0xFF1A2744), Color(0xFF2D4A7A)],
                   ),
                 ),
                 child: Row(

@@ -61,6 +61,7 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
   bool _isSubmitting = false;
   String? _errorMessage;
   String? _successRequestId;
+  Map<String, dynamic>? _autoLoginUserData;
 
   final List<String> _docTypes = [
     'Aadhaar Card',
@@ -265,6 +266,45 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
     }
   }
 
+  int get _dailyRate {
+    if (_selectedRoom != null && _selectedRoom!['price_per_night'] != null) {
+      final p = int.tryParse(_selectedRoom!['price_per_night'].toString());
+      if (p != null && p > 0) return p;
+    }
+    final rt = (_selectedRoomType ?? '').toLowerCase();
+    double annual = 75000;
+    if (rt.contains('single') && rt.contains('ac')) {
+      annual = 150000;
+    } else if (rt.contains('single')) {
+      annual = 55000;
+    } else if (rt.contains('2 in 1') || rt.contains('double')) {
+      annual = rt.contains('ac') ? 100000 : 55000;
+    } else if (rt.contains('3 in 1') || rt.contains('triple')) {
+      annual = rt.contains('ac') ? 80000 : 55000;
+    } else if (rt.contains('4 in 1')) {
+      annual = rt.contains('ac') ? 70000 : 50000;
+    } else if (rt.contains('dorm')) {
+      annual = 36500;
+    }
+    double raw = annual / 365.0;
+    int rounded = (raw / 50.0).round() * 50;
+    return rounded < 50 ? 50 : rounded;
+  }
+
+  int get _totalStayDays {
+    int val = int.tryParse(_durationValueController.text.trim()) ?? 1;
+    if (val < 1) val = 1;
+    return _durationType == 'months' ? (val * 30) : val;
+  }
+
+  int get _totalPayableAmount {
+    final daily = _dailyRate;
+    final days = _totalStayDays;
+    final total = daily * days;
+    int rounded = (total / 50.0).round() * 50;
+    return rounded < 50 ? 50 : rounded;
+  }
+
   void _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_isDocVerified || _uploadedDocFile == null) {
@@ -309,6 +349,7 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
         setState(() {
           _isSubmitting = false;
           _successRequestId = res['request_id'] ?? 'TEMP-SUCCESS';
+          _autoLoginUserData = res['user_data'] != null ? Map<String, dynamic>.from(res['user_data']) : null;
         });
       } else {
         setState(() {
@@ -329,19 +370,37 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
     final screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 550;
 
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      backgroundColor: Colors.white,
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 12 : 24,
-        vertical: isMobile ? 16 : 24,
-      ),
-      child: Container(
-        width: isMobile ? screenWidth * 0.96 : 560,
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.88,
+    return Theme(
+      data: ThemeData.light().copyWith(
+        canvasColor: Colors.white,
+        scaffoldBackgroundColor: Colors.white,
+        cardColor: Colors.white,
+        dialogBackgroundColor: Colors.white,
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF1B2B48),
+          surface: Colors.white,
+          onSurface: Color(0xFF1B2B48),
         ),
-        child: Column(
+      ),
+      child: Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 12 : 24,
+          vertical: isMobile ? 16 : 24,
+        ),
+        child: Container(
+          width: isMobile ? screenWidth * 0.96 : 560,
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.88,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
           children: [
             // Header Bar
             Container(
@@ -452,10 +511,14 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                               ),
                               const SizedBox(height: 12),
                               DropdownButtonFormField<String>(
-                                initialValue: _gender,
+                                key: ValueKey('gender_mob_$_gender'),
+                                value: _gender,
+                                dropdownColor: Colors.white,
+                                iconEnabledColor: const Color(0xFF1B2B48),
+                                style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
                                 decoration: _inputDecoration('Gender', Icons.wc),
                                 items: ['Male', 'Female'].map((g) {
-                                  return DropdownMenuItem(value: g, child: Text(g));
+                                  return DropdownMenuItem(value: g, child: Text(g, style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13)));
                                 }).toList(),
                                 onChanged: (val) {
                                   if (val != null && val != _gender) {
@@ -488,10 +551,14 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: DropdownButtonFormField<String>(
-                                      initialValue: _gender,
+                                      key: ValueKey('gender_desk_$_gender'),
+                                      value: _gender,
+                                      dropdownColor: Colors.white,
+                                      iconEnabledColor: const Color(0xFF1B2B48),
+                                      style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
                                       decoration: _inputDecoration('Gender', Icons.wc),
                                       items: ['Male', 'Female'].map((g) {
-                                        return DropdownMenuItem(value: g, child: Text(g));
+                                        return DropdownMenuItem(value: g, child: Text(g, style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13)));
                                       }).toList(),
                                       onChanged: (val) {
                                         if (val != null && val != _gender) {
@@ -517,9 +584,12 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                             if (isMobile) ...[
                               DropdownButtonFormField<String>(
                                 initialValue: _docType,
+                                dropdownColor: Colors.white,
+                                iconEnabledColor: const Color(0xFF1B2B48),
+                                style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
                                 decoration: _inputDecoration('ID Document Type', Icons.badge),
                                 items: _docTypes.map((d) {
-                                  return DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(fontSize: 13)));
+                                  return DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13)));
                                 }).toList(),
                                 onChanged: (val) {
                                   if (val != null) setState(() => _docType = val);
@@ -543,9 +613,12 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                     flex: 2,
                                     child: DropdownButtonFormField<String>(
                                       initialValue: _docType,
+                                      dropdownColor: Colors.white,
+                                      iconEnabledColor: const Color(0xFF1B2B48),
+                                      style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
                                       decoration: _inputDecoration('ID Document Type', Icons.badge),
                                       items: _docTypes.map((d) {
-                                        return DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(fontSize: 13)));
+                                        return DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13)));
                                       }).toList(),
                                       onChanged: (val) {
                                         if (val != null) setState(() => _docType = val);
@@ -734,10 +807,13 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                               DropdownButtonFormField<String>(
                                 isExpanded: true,
                                 initialValue: _durationType,
+                                dropdownColor: Colors.white,
+                                iconEnabledColor: const Color(0xFF1B2B48),
+                                style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
                                 decoration: _inputDecoration('Duration Unit', Icons.schedule),
                                 items: const [
-                                  DropdownMenuItem(value: 'days', child: Text('Days')),
-                                  DropdownMenuItem(value: 'months', child: Text('Months')),
+                                  DropdownMenuItem(value: 'days', child: Text('Days', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
+                                  DropdownMenuItem(value: 'months', child: Text('Months', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
                                 ],
                                 onChanged: (val) {
                                   if (val != null) setState(() => _durationType = val);
@@ -785,9 +861,12 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                         const SizedBox(width: 8),
                                         DropdownButton<String>(
                                           value: _durationType,
+                                          dropdownColor: Colors.white,
+                                          iconEnabledColor: const Color(0xFF1B2B48),
+                                          style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
                                           items: const [
-                                            DropdownMenuItem(value: 'days', child: Text('Days')),
-                                            DropdownMenuItem(value: 'months', child: Text('Months')),
+                                            DropdownMenuItem(value: 'days', child: Text('Days', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
+                                            DropdownMenuItem(value: 'months', child: Text('Months', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
                                           ],
                                           onChanged: (val) {
                                             if (val != null) setState(() => _durationType = val);
@@ -813,10 +892,23 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'Valid Stay Until: ${DateFormat('dd MMM yyyy').format(_calculatedToDate)}',
+                                      'Valid Stay Until: ${DateFormat('dd MMM yyyy').format(_calculatedToDate)} ($_totalStayDays Days)',
                                       style: TextStyle(color: Colors.amber.shade900, fontSize: 12, fontWeight: FontWeight.bold),
                                     ),
                                   ),
+                                  if (_selectedRoomType != null) ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.shade100,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        '₹$_dailyRate/night',
+                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -827,14 +919,21 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                             if (_isLoadingOptions)
                               const Padding(
                                 padding: EdgeInsets.symmetric(vertical: 20),
-                                child: Center(child: CircularProgressIndicator()),
+                                child: Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37))),
                               )
                             else ...[
                               DropdownButtonFormField<String>(
+                                key: ValueKey('hostel_${_gender}_${_hostels.length}'),
                                 isExpanded: true,
-                                initialValue: _selectedHostel,
-                                decoration: _inputDecoration('Gender Hostel (${_gender == 'Female' ? 'Girls' : 'Boys'})', Icons.apartment),
-                                items: _hostels.map((h) => DropdownMenuItem(value: h, child: Text(h))).toList(),
+                                dropdownColor: Colors.white,
+                                iconEnabledColor: const Color(0xFF1B2B48),
+                                style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
+                                value: (_selectedHostel != null && _hostels.contains(_selectedHostel)) ? _selectedHostel : (_hostels.isNotEmpty ? _hostels.first : null),
+                                decoration: _inputDecoration('Hostel for $_gender Students', Icons.apartment),
+                                items: _hostels.map((h) => DropdownMenuItem(
+                                  value: h, 
+                                  child: Text(h, style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w500)),
+                                )).toList(),
                                 onChanged: (val) {
                                   if (val != null) {
                                     setState(() => _selectedHostel = val);
@@ -845,10 +944,17 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                               const SizedBox(height: 12),
                               if (_roomTypes.isNotEmpty)
                                 DropdownButtonFormField<String>(
+                                  key: ValueKey('roomtype_${_selectedHostel}_${_roomTypes.length}'),
                                   isExpanded: true,
-                                  initialValue: _selectedRoomType,
+                                  dropdownColor: Colors.white,
+                                  iconEnabledColor: const Color(0xFF1B2B48),
+                                  style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
+                                  value: (_selectedRoomType != null && _roomTypes.contains(_selectedRoomType)) ? _selectedRoomType : (_roomTypes.isNotEmpty ? _roomTypes.first : null),
                                   decoration: _inputDecoration('Room Type', Icons.meeting_room),
-                                  items: _roomTypes.map((rt) => DropdownMenuItem(value: rt, child: Text(rt))).toList(),
+                                  items: _roomTypes.map((rt) => DropdownMenuItem(
+                                    value: rt, 
+                                    child: Text(rt, style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w500)),
+                                  )).toList(),
                                   onChanged: (val) {
                                     if (val != null) {
                                       setState(() => _selectedRoomType = val);
@@ -857,21 +963,24 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                   },
                                 ),
                               const SizedBox(height: 12),
-                              if (_rooms.isNotEmpty)
+                              if (_rooms.isNotEmpty) ...[
                                 DropdownButtonFormField<Map<String, dynamic>>(
+                                  key: ValueKey('room_${_selectedHostel}_${_selectedRoomType}_${_rooms.length}'),
                                   isExpanded: true,
-                                  initialValue: _selectedRoom,
-                                  decoration: _inputDecoration('Full Room Code & Free Beds', Icons.bed),
+                                  dropdownColor: Colors.white,
+                                  iconEnabledColor: const Color(0xFF1B2B48),
+                                  style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 12.5, fontWeight: FontWeight.bold),
+                                  value: (_selectedRoom != null && _rooms.any((r) => r['room_no'] == _selectedRoom!['room_no']))
+                                      ? _rooms.firstWhere((r) => r['room_no'] == _selectedRoom!['room_no'])
+                                      : (_rooms.isNotEmpty ? _rooms.first : null),
+                                  decoration: _inputDecoration('Select Room & Bed', Icons.bed),
                                   items: _rooms.map((rm) {
-                                    final String fullCode = rm['room_code'] ?? rm['room_no'];
-                                    final int vac = (rm['vacancies'] is int) ? rm['vacancies'] : (int.tryParse(rm['vacancies']?.toString() ?? '1') ?? 1);
-                                    final String bedText = vac == 1 ? '1 bed available' : '$vac beds available';
-                                    final String label = '$fullCode ($bedText)';
+                                    final String label = rm['display_label'] ?? '${rm['room_code'] ?? rm['room_no']}';
                                     return DropdownMenuItem<Map<String, dynamic>>(
                                       value: rm,
                                       child: Text(
                                         label,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                        style: const TextStyle(color: Color(0xFF1B2B48), fontWeight: FontWeight.bold, fontSize: 12.5),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     );
@@ -879,10 +988,86 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                   onChanged: (val) {
                                     if (val != null) setState(() => _selectedRoom = val);
                                   },
-                                )
-                              else if (_selectedRoomType != null)
+                                ),
+                                if (_selectedRoom != null) ...[
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF0FDF4),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.info_outline, size: 16, color: Color(0xFF166534)),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              'Room Details (${_gender == 'Female' ? 'Girls' : 'Boys'} Hostel)',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF166534)),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Hostel: $_selectedHostel • Room: ${_selectedRoom!['room_code'] ?? _selectedRoom!['room_no']}',
+                                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
+                                        ),
+                                        if (_selectedRoom!['warden_name'] != null && _selectedRoom!['warden_name'].toString().isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 2),
+                                            child: Text(
+                                              'Assigned Warden: ${_selectedRoom!['warden_name']}',
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                                            ),
+                                          ),
+                                        const SizedBox(height: 10),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  const Text('Per Night Rate', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                                  Text('₹$_dailyRate', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+                                                ],
+                                              ),
+                                              Container(height: 22, width: 1, color: Colors.black12),
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  const Text('Duration', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                                  Text('$_totalStayDays Days', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1F2937))),
+                                                ],
+                                              ),
+                                              Container(height: 22, width: 1, color: Colors.black12),
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.end,
+                                                children: [
+                                                  const Text('Total Stay Amount', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                                  Text('₹${NumberFormat('#,##,###').format(_totalPayableAmount)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ] else if (_selectedRoomType != null)
                                 const Text(
-                                  'No vacant rooms available for selected room type.',
+                                  'No vacant rooms available for selected room type in this hostel.',
                                   style: TextStyle(color: Colors.red, fontSize: 12),
                                 ),
                             ],
@@ -905,8 +1090,10 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                         child: CircularProgressIndicator(color: Color(0xFF1B2B48), strokeWidth: 2.5),
                                       )
                                     : Text(
-                                        _isDocVerified ? 'Verify & Submit Application' : 'Attach Document to Submit',
-                                        style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold),
+                                        _isDocVerified 
+                                            ? 'Verify & Submit Application (₹${NumberFormat('#,##,###').format(_totalPayableAmount)})' 
+                                            : 'Attach Document to Submit',
+                                        style: GoogleFonts.outfit(fontSize: 13.5, fontWeight: FontWeight.bold),
                                       ),
                               ),
                             ),
@@ -918,8 +1105,9 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildSectionHeader(String title) {
     return Text(
@@ -1008,8 +1196,8 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                 backgroundColor: const Color(0xFF1B2B48),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              onPressed: () => Navigator.of(context).pop({'auto_login_user': _autoLoginUserData}),
+              child: const Text('Close & View Application Status', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -1051,8 +1239,9 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
   Widget _buildExistingRequestView(Map<String, dynamic> req) {
     final status = req['status'] ?? 'pending';
     final paymentStatus = req['payment_status'] ?? 'unpaid';
-    final double amount = (req['amount'] != null) ? double.tryParse(req['amount'].toString()) ?? 0.0 : 0.0;
-    final String amountStr = amount > 0 ? '₹${amount.toStringAsFixed(2)}' : 'Calculating...';
+    final double rawAmount = (req['amount'] != null) ? double.tryParse(req['amount'].toString()) ?? 0.0 : 0.0;
+    final int roundedAmt = (rawAmount / 50.0).round() * 50;
+    final String amountStr = roundedAmt > 0 ? '₹${NumberFormat('#,##,###').format(roundedAmt)}' : 'Calculating...';
     final String roomCodeDisplay = (req['room_code'] != null && req['room_code'].toString().isNotEmpty)
         ? req['room_code']
         : (req['room_no'] ?? 'N/A');

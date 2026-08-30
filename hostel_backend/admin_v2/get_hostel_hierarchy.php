@@ -4,7 +4,7 @@ header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Origin, Accept');
 header("Content-Type: application/json; charset=UTF-8");
 
-if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') == 'OPTIONS') {
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: GET, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Origin, Accept');
@@ -12,32 +12,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit();
 }
 
-require_once '../config/database.php';
+require_once __DIR__ . '/../config/database.php';
 
 if (!$pdo) {
     echo json_encode(["success" => false, "message" => "Database connection failed"]);
     exit();
 }
 
-$hostel_id = isset($_GET['hostel_id']) ? $_GET['hostel_id'] : null;
+$hostel_id = isset($_GET['hostel_id']) ? trim($_GET['hostel_id']) : null;
+$hostel_name = isset($_GET['hostel_name']) ? trim($_GET['hostel_name']) : null;
+$query_param = !empty($hostel_name) ? $hostel_name : $hostel_id;
 
-if (!$hostel_id) {
-    echo json_encode(["success" => false, "message" => "Hostel ID is required"]);
+if (!$query_param) {
+    echo json_encode(["success" => false, "message" => "Hostel ID or Name is required"]);
     exit();
 }
 
 try {
     // 1. Get Hostel Info
-    $stmt = $pdo->prepare("SELECT * FROM hostel_type WHERE id = ?");
-    $stmt->execute([$hostel_id]);
+    $hostelName = $query_param;
+    $buildingCode = '';
+    $hostelType = 'Boys';
+    $campus = 'Thandalam Campus';
+
+    $stmt = $pdo->prepare("SELECT * FROM hostel_type WHERE id = ? OR TRIM(hostel_name) = TRIM(?) OR TRIM(hostel_name) LIKE CONCAT('%', TRIM(?), '%') LIMIT 1");
+    $stmt->execute([$query_param, $query_param, $query_param]);
     $hostel = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$hostel) {
-        echo json_encode(["success" => false, "message" => "Hostel not found"]);
-        exit();
+    if ($hostel) {
+        $hostelName = $hostel['hostel_name'];
+        $buildingCode = $hostel['building_code'] ?? '';
+        $hostelType = $hostel['hostel_type'] ?? 'Boys';
+        $campus = $hostel['campus'] ?? 'Thandalam Campus';
     }
-
-    $hostelName = $hostel['hostel_name'];
 
     // 2. Get all rooms for this hostel from rooms_groups_details
     $stmt = $pdo->prepare("
@@ -52,13 +59,19 @@ try {
                rgd.available_beds as real_available,
                0 as res_count,
                rgd.room_type,
-               'AC' as facility,
-               rgd.amount
+               CASE 
+                   WHEN LOWER(rgd.room_type) LIKE '%non%ac%' OR LOWER(rgd.room_type) LIKE '%non-ac%' THEN 'Non AC' 
+                   WHEN LOWER(rgd.room_type) LIKE '%ac%' THEN 'AC' 
+                   ELSE 'Standard' 
+               END as facility,
+               rgd.amount,
+               rgd.reserved_for,
+               rgd.reserved_for_roles
         FROM rooms_groups_details rgd
-        WHERE TRIM(rgd.hostel_name) = TRIM(?)
+        WHERE TRIM(rgd.hostel_name) = TRIM(?) OR TRIM(rgd.hostel_name) LIKE CONCAT('%', TRIM(?), '%')
         ORDER BY rgd.group_name, rgd.room_number
     ");
-    $stmt->execute([$hostelName]);
+    $stmt->execute([$hostelName, $hostelName]);
     $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // 3. Build hierarchy: Floor -> Wing -> Room
@@ -119,8 +132,11 @@ try {
             "physical_available" => (int)$room['available_rooms'],
             "reserved_count" => 0,
             "type" => $room['room_type'],
+            "room_type" => $room['room_type'],
             "facility" => $room['facility'],
-            "amount" => $room['amount']
+            "amount" => $room['amount'],
+            "reserved_for" => $room['reserved_for'] ? json_decode($room['reserved_for'], true) : null,
+            "reserved_for_roles" => $room['reserved_for_roles'] ? json_decode($room['reserved_for_roles'], true) : null
         ];
     }
 

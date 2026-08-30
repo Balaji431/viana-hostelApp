@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
 import '../core/styles.dart';
+import '../core/user_provider.dart';
+import '../shared/wallpaper_provider.dart';
 import '../shared/widgets/skeuo_button.dart';
 import 'simple_admin_screen.dart';
 
@@ -10,25 +12,44 @@ class AdminPortalLauncher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final wallpaper = context.watch<WallpaperProvider>();
+    final isDark = wallpaper.isDarkTheme;
+    UserProvider? user;
+    try {
+      user = context.watch<UserProvider>();
+    } catch (_) {}
+
+    final String displayName = user?.userName.isNotEmpty == true ? user!.userName : 'Admin';
+    final String displayId = user?.username.isNotEmpty == true ? "ID: ${user!.username}" : 'ID: Admin';
+
+    String initials = 'AD';
+    final parts = displayName.trim().split(RegExp(r'\s+'));
+    if (parts.isNotEmpty) {
+      if (parts.length > 1 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+        initials = '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+      } else if (parts[0].isNotEmpty) {
+        initials = parts[0].length >= 2 ? parts[0].substring(0, 2).toUpperCase() : parts[0][0].toUpperCase();
+      }
+    }
+
     return Consumer<HierarchicalHostelProvider>(
       builder: (context, provider, child) {
         return Container(
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // Header
+              // Header Badge matching Image 5
               Container(
-                padding: const EdgeInsets.all(20),
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AppColors.navyDark, AppColors.navy],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: isDark ? const Color(0xFF0F172A).withOpacity(0.85) : null,
+                  gradient: isDark ? null : SkeuomorphicColors.royalContentGradient,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.12)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
+                      color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.1),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -36,26 +57,59 @@ class AdminPortalLauncher extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.admin_panel_settings, color: AppColors.gold, size: 32),
-                    const SizedBox(width: 16),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: SkeuomorphicColors.goldGlossyGradient,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                        border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                      ),
+                      child: Center(
+                        child: Text(
+                          initials,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF1B2B48),
+                            fontFamily: 'Lato',
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Admin Portal',
-                            style: TextStyle(
-                              fontSize: 24,
+                            displayName.toUpperCase(),
+                            style: const TextStyle(
+                              fontFamily: 'Lato',
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
+                              letterSpacing: 0.2,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 1),
                           Text(
-                            'Hierarchical Management System',
+                            displayId,
                             style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.white.withValues(alpha: 0.8),
+                              fontFamily: 'Lato',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white70 : SkeuomorphicColors.residenceMutedText,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ],
@@ -77,6 +131,7 @@ class AdminPortalLauncher extends StatelessWidget {
                       title: '${provider.hostels.length}',
                       subtitle: 'Hostels',
                       color: AppColors.gold,
+                      isDark: isDark,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -87,6 +142,7 @@ class AdminPortalLauncher extends StatelessWidget {
                       title: '${provider.hostels.fold<int>(0, (sum, h) => sum + ((h as dynamic).totalZones ?? 0) as int)}',
                       subtitle: 'Zones',
                       color: Colors.blue,
+                      isDark: isDark,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -97,6 +153,7 @@ class AdminPortalLauncher extends StatelessWidget {
                       title: '${provider.hostels.fold<int>(0, (sum, h) => sum + ((h as dynamic).totalSubZones ?? 0) as int)}',
                       subtitle: 'Wings',
                       color: Colors.green,
+                      isDark: isDark,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -107,6 +164,7 @@ class AdminPortalLauncher extends StatelessWidget {
                       title: '${provider.hostels.fold<int>(0, (sum, h) => sum + ((h as dynamic).totalRooms ?? 0) as int)}',
                       subtitle: 'Rooms',
                       color: Colors.orange,
+                      isDark: isDark,
                     ),
                   ),
                 ],
@@ -141,16 +199,19 @@ class AdminPortalLauncher extends StatelessWidget {
     required String title,
     required String subtitle,
     required Color color,
+    required bool isDark,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF131D2E).withOpacity(0.72) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.14) : color.withValues(alpha: 0.2),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -172,7 +233,7 @@ class AdminPortalLauncher extends StatelessWidget {
             subtitle,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade600,
+              color: isDark ? Colors.white60 : Colors.grey.shade600,
             ),
           ),
         ],
