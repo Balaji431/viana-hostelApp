@@ -1,0 +1,28 @@
+FROM php:8.2-cli-alpine
+
+# Install system dependencies and PHP extensions for Workerman
+RUN apk add --no-cache \
+    git \
+    unzip \
+    curl \
+    linux-headers \
+    && docker-php-ext-install pcntl posix pdo pdo_mysql
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+# Copy composer files first to leverage Docker layer caching
+COPY hostel_backend/composer.json ./
+RUN composer install --no-dev --prefer-dist --ignore-platform-reqs --optimize-autoloader || true
+
+# Copy backend source
+COPY hostel_backend/ /var/www/html/
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD nc -z 127.0.0.1 3001 || exit 1
+
+CMD ["php", "bin/websocket_server.php", "start"]

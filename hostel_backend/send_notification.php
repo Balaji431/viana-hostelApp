@@ -69,10 +69,16 @@ function sendFCM($token, $title, $body, $requestId = '', $senderId = '', $sender
         $message = [
             'message' => [
                 'token' => $token,
+                // ─────────────────────────────────────────────────────────────────
+                // Data payload: always delivered to Flutter's onMessage / background
+                // handler so the app can render rich action buttons.
+                // ─────────────────────────────────────────────────────────────────
                 'data' => [
                     'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
                     'request_id'   => (string)$requestId,
-                    'message_id'   => (string)time() . '_' . rand(100, 999),
+                    // Use microseconds + random to guarantee uniqueness even for rapid-fire messages.
+                    // This is the key used by Flutter's dedup map and notification ID hash.
+                    'message_id'   => (string)(int)(microtime(true) * 1000) . '_' . rand(1000, 9999),
                     'sender_id'    => (string)$senderId,
                     'sender_name'  => (string)$senderName,
                     'message'      => (string)$messageText,
@@ -82,12 +88,27 @@ function sendFCM($token, $title, $body, $requestId = '', $senderId = '', $sender
                     'department'   => (string)$department,
                     'timestamp'    => (string)time(),
                 ],
+                // ─────────────────────────────────────────────────────────────────
+                // notification block: guarantees system-tray delivery on Android
+                // even in deep Doze/battery-saver mode when data-only is suppressed.
+                // Flutter's onMessage fires FIRST; if the app is killed, Android
+                // shows this notification directly so the user still sees an alert.
+                // ─────────────────────────────────────────────────────────────────
+                'notification' => [
+                    'title' => (string)$title,
+                    'body'  => (string)$body,
+                ],
                 'android' => [
-                    'priority' => 'high',   // Wakes device even in Doze mode
+                    'priority' => 'high',
                     'notification' => [
-                        'sound' => 'default',
-                        'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
-                    ]
+                        'sound'        => 'default',
+                        'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                        'channel_id'   => 'chat_channel',
+                        // Each message gets a unique tag so Android does NOT collapse
+                        // them into the same slot. Without this, msg2 silently replaces
+                        // msg1 and the user thinks only 1 notification arrived.
+                        'tag'          => 'vstay_msg_' . (string)(int)(microtime(true) * 1000),
+                    ],
                 ],
                 'apns' => [
                     'headers' => [
@@ -109,6 +130,7 @@ function sendFCM($token, $title, $body, $requestId = '', $senderId = '', $sender
                 ],
             ]
         ];
+
 
         $headers = [
             'Authorization: Bearer ' . $accessToken,

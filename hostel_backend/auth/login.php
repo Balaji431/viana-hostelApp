@@ -366,9 +366,11 @@ if ($username && $password) {
                                     FROM parent_users p
                                     LEFT JOIN parent_student_map psm ON (CONVERT(p.parent_id USING utf8mb4) = CONVERT(psm.parent_id USING utf8mb4))
                                     LEFT JOIN users s ON (CONVERT(psm.student_id USING utf8mb4) = CONVERT(s.username USING utf8mb4))
-                                    WHERE LOWER(CONVERT(p.parent_id USING utf8mb4)) = LOWER(CONVERT(? USING utf8mb4)) LIMIT 0,1";
+                                    WHERE (LOWER(CONVERT(p.parent_id USING utf8mb4)) = LOWER(CONVERT(? USING utf8mb4))
+                                       OR LOWER(CONVERT(COALESCE(p.email, '') USING utf8mb4)) = LOWER(CONVERT(? USING utf8mb4))) LIMIT 0,1";
                     $p_stmt = $db->prepare($parent_query);
-                    $p_stmt->execute([$username]);
+                    $p_stmt->execute([$username, $username]);
+
                     
                     if ($p_stmt->rowCount() > 0) {
                         $p_row = $p_stmt->fetch(PDO::FETCH_ASSOC);

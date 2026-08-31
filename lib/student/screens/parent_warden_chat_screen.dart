@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../shared/user_provider.dart';
 import '../../core/api_service.dart';
 import '../../core/notification_service.dart';
+import '../../core/websocket_service.dart';
 import '../../shared/chat/request_card.dart';
 import '../../shared/chat/request_details_screen.dart';
 import '../../core/models/request_model.dart';
@@ -34,6 +35,8 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   bool _isTyping = false;
   Timer? _timer;
+  StreamSubscription? _wsSubscription;
+  VoidCallback? _wsConnListener;
   String? _activeRequestId;
   int _offset = 0;
   final int _limit = 50;
@@ -49,6 +52,18 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
     _scrollController.addListener(_onScroll);
     _initializeChat();
     NotificationService.fcmRefreshNotifier.addListener(_fetchMessages);
+
+    // WebSocket real-time subscription
+    _wsSubscription = WebSocketService.instance.onNewMessage.listen(_onWebSocketMessage);
+    _wsConnListener = () {
+      if (mounted) {
+        if (WebSocketService.instance.isConnected) {
+          _fetchMessages(silent: true);
+        }
+        _startTimer();
+      }
+    };
+    WebSocketService.instance.isConnectedNotifier.addListener(_wsConnListener!);
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_activeRequestId != null) {
@@ -108,9 +123,12 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
             setState(() {
               _activeRequestId = response['request_id'].toString();
             });
+            WebSocketService.instance.joinRoom(_activeRequestId!);
           }
         }
       }).catchError((_) {});
+    } else {
+      WebSocketService.instance.joinRoom(_activeRequestId!);
     }
 
     _fetchMessages();
@@ -119,11 +137,69 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    final interval = WebSocketService.instance.isConnected ? 60 : 10;
+    _timer = Timer.periodic(Duration(seconds: interval), (timer) {
       if (mounted) {
         _fetchMessages(silent: true);
       }
     });
+  }
+
+  void _onWebSocketMessage(Map<String, dynamic> event) {
+    if (!mounted) return;
+    final eventReqId = (event['request_id'] ?? event['data']?['request_id'])?.toString();
+    if (eventReqId != null && _activeRequestId != null && eventReqId.isNotEmpty && _activeRequestId!.isNotEmpty && eventReqId != _activeRequestId) {
+      return;
+    }
+
+    final user = context.read<UserProvider>();
+    final rawMsg = event['data'] is Map ? Map<String, dynamic>.from(event['data']) : event;
+    final msgId = (rawMsg['message_id'] ?? rawMsg['id'])?.toString();
+    final senderId = rawMsg['sender_id']?.toString() ?? '';
+    final messageText = rawMsg['message']?.toString() ?? '';
+    final messageType = rawMsg['message_type']?.toString() ?? 'text';
+    final timestamp = rawMsg['timestamp'] ?? DateTime.now().toIso8601String();
+
+    if (msgId == null || msgId.isEmpty || messageText.isEmpty) return;
+
+    final bool isMe = (senderId == user.username.toString() || senderId == user.dbId?.toString());
+
+    String type = 'text';
+    if (messageType == 'attendance_alert') {
+      type = 'attendance_alert';
+    } else if (messageType == 'admin_reply' || messageType == 'status') {
+      type = 'admin_reply';
+    } else if (messageType == 'request' || messageType == 'request_card') {
+      type = 'request';
+    }
+
+    final newMsg = {
+      'id': msgId,
+      'content': messageText,
+      'sender': isMe ? 'student' : 'warden',
+      'timestamp': timestamp,
+      'type': type,
+      'status': 'sent',
+      'request_data': rawMsg,
+    };
+
+    setState(() {
+      final existingIndex = _messages.indexWhere((m) => m['id']?.toString() == msgId);
+      if (existingIndex >= 0) {
+        _messages[existingIndex] = newMsg;
+      } else {
+        if (isMe) {
+          _messages.removeWhere((m) =>
+              m['status'] == 'sending' &&
+              m['content'].toString().trim() == messageText.trim());
+        }
+        _messages.insert(0, newMsg);
+      }
+    });
+
+    if (!isMe && _activeRequestId != null && _activeRequestId!.isNotEmpty) {
+      ApiService.markRead(_activeRequestId!, user.username);
+    }
   }
 
   DateTime _parseTimestamp(dynamic timestamp) {
@@ -292,6 +368,13 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
 
   @override
   void dispose() {
+    if (_activeRequestId != null && _activeRequestId!.isNotEmpty) {
+      WebSocketService.instance.leaveRoom(_activeRequestId!);
+    }
+    _wsSubscription?.cancel();
+    if (_wsConnListener != null) {
+      WebSocketService.instance.isConnectedNotifier.removeListener(_wsConnListener!);
+    }
     NotificationService.fcmRefreshNotifier.removeListener(_fetchMessages);
     _timer?.cancel();
     _messageController.removeListener(_onMessageChanged);
@@ -350,6 +433,7 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
   Widget build(BuildContext context) {
     return LinenGridBackground(
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         backgroundColor: Colors.transparent,
         appBar: SkeuomorphicNavBar(
           title: _assignedStaffName,
@@ -427,7 +511,9 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
               child: ListView.builder(
                 controller: _scrollController, 
                 reverse: true, 
-                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
                 itemCount: _messages.length + (_isMoreLoading ? 1 : 0) + (!_hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == _messages.length && _isMoreLoading) {
@@ -783,26 +869,50 @@ class _ParentWardenChatScreenState extends State<ParentWardenChatScreen> {
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(15, 10, 15, 30),
-      color: Colors.white,
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  filled: false,
-                  hintText: 'Type a message',
-                  hintStyle: TextStyle(color: Colors.black, fontSize: 14),
-                ),
+    return SafeArea(
+      top: false,
+      bottom: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(15, 8, 15, 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: const Border(top: BorderSide(color: Colors.black12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, -2),
             ),
-          ),
-          IconButton(onPressed: _isTyping ? _handleSendMessage : null, icon: const Icon(Icons.send, color: Color(0xFF3B5998))),
-        ],
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(25),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: TextField(
+                  controller: _messageController,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    filled: false,
+                    hintText: 'Type a message',
+                    hintStyle: TextStyle(color: Colors.black54, fontSize: 14),
+                  ),
+                  onSubmitted: (_) => _isTyping ? _handleSendMessage() : null,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(onPressed: _isTyping ? _handleSendMessage : null, icon: const Icon(Icons.send, color: Color(0xFF3B5998))),
+          ],
+        ),
       ),
     );
   }

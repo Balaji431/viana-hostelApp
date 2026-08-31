@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import '../../core/api_service.dart';
+import '../../core/websocket_service.dart';
 import '../../core/styles.dart';
 import '../../shared/user_provider.dart';
 import '../../shared/ui_provider.dart';
@@ -43,8 +44,18 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshAllData();
     });
-    // Auto-refresh every 30 seconds for live updates
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    WebSocketService.instance.isConnectedNotifier.addListener(_onWSConnChange);
+    _startRefreshTimer();
+  }
+
+  void _onWSConnChange() {
+    if (mounted) _startRefreshTimer();
+  }
+
+  void _startRefreshTimer() {
+    _refreshTimer?.cancel();
+    final interval = WebSocketService.instance.isConnected ? 60 : 10;
+    _refreshTimer = Timer.periodic(Duration(seconds: interval), (_) {
       if (mounted) {
         _refreshAllData(silent: true);
       }
@@ -53,9 +64,11 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
 
   @override
   void dispose() {
+    WebSocketService.instance.isConnectedNotifier.removeListener(_onWSConnChange);
     _refreshTimer?.cancel();
     super.dispose();
   }
+
 
   Future<void> _refreshAllData({bool silent = false}) async {
     if (!silent) {

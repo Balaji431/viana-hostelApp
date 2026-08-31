@@ -1,5 +1,8 @@
 {
     "require": {
-        "phpoffice/phpspreadsheet": "*"
+        "google/auth": "^1.28",
+        "phpoffice/phpspreadsheet": "*",
+        "workerman/workerman": "^4.1",
+        "predis/predis": "^2.2"
     }
 }

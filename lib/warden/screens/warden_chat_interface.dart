@@ -9,6 +9,7 @@ import '../../shared/category_provider.dart';
 import 'package:flutter/services.dart';
 import '../../core/api_service.dart';
 import '../../core/notification_service.dart';
+import '../../core/websocket_service.dart';
 import '../../core/models/request_model.dart';
 import '../../shared/chat/request_card.dart';
 import '../../shared/chat/request_details_screen.dart';
@@ -34,6 +35,8 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
   List<Map<String, dynamic>> _activeMessages = [];
   bool _isLoading = true;
   Timer? _timer;
+  StreamSubscription? _wsSubscription;
+  VoidCallback? _wsConnListener;
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   String _currentFilter = 'All';
@@ -53,6 +56,22 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     _fetchConversations();
     _startTimer();
     NotificationService.fcmRefreshNotifier.addListener(_onFCMRefresh);
+
+    // WebSocket real-time subscription
+    _wsSubscription = WebSocketService.instance.onNewMessage.listen(_onWebSocketMessage);
+    _wsConnListener = () {
+      if (mounted) {
+        if (WebSocketService.instance.isConnected) {
+          if (_activeConversation == null) {
+            _fetchConversations(silent: true);
+          } else {
+            _fetchMessages(silent: true);
+          }
+        }
+        _startTimer();
+      }
+    };
+    WebSocketService.instance.isConnectedNotifier.addListener(_wsConnListener!);
 
     // Instantly zero the badge for this channel — don't wait for next API poll
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -74,7 +93,8 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    final interval = WebSocketService.instance.isConnected ? 60 : 10;
+    _timer = Timer.periodic(Duration(seconds: interval), (timer) {
       if (mounted) {
         if (_activeConversation == null) {
           _fetchConversations(silent: true);
@@ -85,8 +105,84 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     });
   }
 
+  void _onWebSocketMessage(Map<String, dynamic> event) {
+    if (!mounted) return;
+    final eventReqId = (event['request_id'] ?? event['data']?['request_id'])?.toString();
+    final rawMsg = event['data'] is Map ? Map<String, dynamic>.from(event['data']) : event;
+    final msgId = (rawMsg['message_id'] ?? rawMsg['id'])?.toString();
+    final senderId = rawMsg['sender_id']?.toString() ?? '';
+    final messageText = rawMsg['message']?.toString() ?? '';
+    final messageType = rawMsg['message_type']?.toString() ?? 'text';
+    final timestamp = rawMsg['timestamp'] ?? DateTime.now().toIso8601String();
+
+    if (msgId == null || msgId.isEmpty || messageText.isEmpty) return;
+
+    final user = context.read<UserProvider>();
+    final myUsername = user.username.toString();
+    final myDbId = user.dbId?.toString() ?? "";
+    final bool isMe = (senderId == myDbId || senderId == myUsername);
+
+    if (_activeConversation != null) {
+      final activeReq = _activeRequestId ?? _activeConversation?['request_id']?.toString();
+      if (eventReqId != null && activeReq != null && eventReqId.isNotEmpty && activeReq.isNotEmpty && eventReqId != activeReq) {
+        _fetchConversations(silent: true);
+        return;
+      }
+
+      String type = 'text';
+      if (messageType == 'request' || messageType == 'request_card') {
+        type = 'request';
+      } else if (messageType == 'status' || messageType == 'admin_reply') {
+        type = 'admin_reply';
+      } else if (messageType == 'call') {
+        type = 'call';
+      }
+
+      final newMsg = {
+        'id': msgId,
+        'message': messageText,
+        'sender_id': senderId,
+        'sender_username': senderId,
+        'timestamp': timestamp,
+        'type': type,
+        'message_type': messageType,
+        'status': 'sent',
+        'request_id': eventReqId ?? activeReq ?? "",
+      };
+
+      setState(() {
+        final existingIndex = _activeMessages.indexWhere((m) => m['id']?.toString() == msgId);
+        if (existingIndex >= 0) {
+          _activeMessages[existingIndex] = newMsg;
+        } else {
+          if (isMe) {
+            _activeMessages.removeWhere((m) =>
+                m['status'] == 'sending' &&
+                m['message'].toString().trim() == messageText.trim());
+          }
+          _activeMessages.insert(0, newMsg);
+        }
+      });
+
+      if (!isMe && activeReq != null && activeReq.isNotEmpty) {
+        ApiService.markRead(activeReq, user.username).then((_) {
+          if (mounted) context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username, force: true);
+        });
+      }
+    } else {
+      _fetchConversations(silent: true);
+    }
+  }
+
   @override
   void dispose() {
+    if (_activeRequestId != null && _activeRequestId!.isNotEmpty) {
+      WebSocketService.instance.leaveRoom(_activeRequestId!);
+    }
+    _wsSubscription?.cancel();
+    if (_wsConnListener != null) {
+      WebSocketService.instance.isConnectedNotifier.removeListener(_wsConnListener!);
+    }
     NotificationService.fcmRefreshNotifier.removeListener(_onFCMRefresh);
     _timer?.cancel();
     _messageController.dispose();
@@ -201,6 +297,10 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
           }
           if (_activeRequestId == null || _activeRequestId!.isEmpty) {
             _activeRequestId = _activeConversation?['request_id']?.toString();
+          }
+
+          if (_activeRequestId != null && _activeRequestId!.isNotEmpty) {
+            WebSocketService.instance.joinRoom(_activeRequestId!);
           }
 
           bool hasIncoming = newMsgList.any((msg) =>
@@ -334,6 +434,7 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
       },
       child: LinenGridBackground(
         child: Scaffold(
+          resizeToAvoidBottomInset: true,
           backgroundColor: Colors.transparent,
           appBar: _activeConversation == null 
             ? SkeuomorphicNavBar(
@@ -513,10 +614,14 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
           onTap: () {
+            final String? reqId = conv['request_id']?.toString();
+            if (reqId != null && reqId.isNotEmpty) {
+              WebSocketService.instance.joinRoom(reqId);
+            }
             setState(() {
               conv['unread_count'] = 0;
               _activeConversation = conv;
-              _activeRequestId = conv['request_id']?.toString();
+              _activeRequestId = reqId;
               _activeMessages = [];
               _isLoading = true;
             });
@@ -762,7 +867,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       itemCount: filtered.length,
       itemBuilder: (context, index) {
         final msg = filtered[index];
@@ -912,13 +1019,23 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
   }
 
   Widget _buildChatInputArea([bool isDark = false]) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(15, 10, 15, 30),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white, 
-        border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12)),
-      ),
-      child: Row(
+    return SafeArea(
+      top: false,
+      bottom: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(15, 8, 15, 10),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E293B) : Colors.white, 
+          border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.25 : 0.05),
+              blurRadius: 4,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Row(
         children: [
           Expanded(
             child: Container(
@@ -965,8 +1082,9 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildDateSeparator(String text, [bool isDark = false]) {
     return Center(

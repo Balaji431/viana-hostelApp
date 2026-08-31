@@ -46,7 +46,7 @@ class HttpClientWrapper {
       AppLogger.request("GET $url");
       final response =
           await origin_http.get(url, headers: _getHeaders(headers));
-      AppLogger.response("Status: ${response.statusCode} for GET $url");
+      AppLogger.response("${response.statusCode} GET $url", body: response.body);
       _handleResponseError(response.statusCode);
       return response;
     } catch (e) {
@@ -62,7 +62,7 @@ class HttpClientWrapper {
       AppLogger.request("POST $url");
       final response = await origin_http.post(url,
           headers: _getHeaders(headers), body: body, encoding: encoding);
-      AppLogger.response("Status: ${response.statusCode} for POST $url");
+      AppLogger.response("${response.statusCode} POST $url", body: response.body);
       _handleResponseError(response.statusCode);
       return response;
     } catch (e) {
@@ -75,11 +75,14 @@ class HttpClientWrapper {
   static Future<origin_http.Response> put(Uri url,
       {Map<String, String>? headers, Object? body, Encoding? encoding}) async {
     try {
+      AppLogger.request("PUT $url");
       final response = await origin_http.put(url,
           headers: _getHeaders(headers), body: body, encoding: encoding);
+      AppLogger.response("${response.statusCode} PUT $url", body: response.body);
       _handleResponseError(response.statusCode);
       return response;
     } catch (e) {
+      AppLogger.error("PUT $url failed: $e");
       _handleError(e);
       rethrow;
     }
@@ -88,15 +91,19 @@ class HttpClientWrapper {
   static Future<origin_http.Response> delete(Uri url,
       {Map<String, String>? headers, Object? body, Encoding? encoding}) async {
     try {
+      AppLogger.request("DELETE $url");
       final response = await origin_http.delete(url,
           headers: _getHeaders(headers), body: body, encoding: encoding);
+      AppLogger.response("${response.statusCode} DELETE $url", body: response.body);
       _handleResponseError(response.statusCode);
       return response;
     } catch (e) {
+      AppLogger.error("DELETE $url failed: $e");
       _handleError(e);
       rethrow;
     }
   }
+
 }
 
 // Global functions matching http package for direct top-level access

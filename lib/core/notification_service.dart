@@ -20,8 +20,18 @@ Future<void> _backgroundHandler(RemoteMessage message) async {
     return;
   }
 
-  // Android: Initialize local notifications in background isolate so we can show
-  // notifications with action buttons (Reply / Mark as Read / Mute).
+  // Android: When the FCM payload includes a 'notification' block (our current
+  // setup), Android's system tray already shows the notification automatically.
+  // Skip showing a local notification here to prevent duplicate banners.
+  // We still run to ensure channels exist (needed on first launch) and could
+  // process data (e.g. badge counts) in a future extension.
+  if (message.notification != null) {
+    // System tray notification already handled by Android FCM SDK.
+    return;
+  }
+
+  // Data-only fallback (no notification block): show via flutter_local_notifications
+  // with Reply / Mark as Read / Mute action buttons.
   final FlutterLocalNotificationsPlugin localPlugin = FlutterLocalNotificationsPlugin();
 
   const androidChannel = AndroidNotificationChannel(
@@ -55,6 +65,7 @@ Future<void> _backgroundHandler(RemoteMessage message) async {
 
   await NotificationService._showNotificationWithPlugin(localPlugin, message);
 }
+
 
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse notificationResponse) {
@@ -192,7 +203,7 @@ class NotificationService {
     });
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      AppLogger.info("Foreground message received: ${message.data}");
+      AppLogger.notif('FCM foreground: from=${message.data["sender_id"]} dept=${message.data["department"]} req=${message.data["request_id"]} title=${message.notification?.title ?? message.data["title"]}');
       
       fcmRefreshNotifier.value++;
       
@@ -244,6 +255,7 @@ class NotificationService {
 
     FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
        _cachedToken = newToken; // Keep cache fresh on token rotation
+       AppLogger.notif('FCM token refreshed — new token prefix: ${newToken.substring(0, 20)}...');
        final context = navigatorKey.currentContext;
        if (context != null) {
          final user = Provider.of<UserProvider>(context, listen: false);

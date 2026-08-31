@@ -9,6 +9,7 @@ class CategoryProvider with ChangeNotifier {
   Map<String, int> _unreadCounts = <String, int>{};
   Map<String, dynamic> _assignedStaff = <String, dynamic>{};
   bool _isLoading = false;
+  bool _isFetchingCounts = false; // guard against concurrent duplicate HTTP calls
 
   DateTime? _lastFetchTime;
   String? _lastWardenUsername;
@@ -56,13 +57,16 @@ class CategoryProvider with ChangeNotifier {
     }
   }
 
-  /// Normalize department keys across variations (e.g. Maintenannce -> maintenance, messages -> warden)
+  /// Normalize department keys across variations (e.g. Maintenance -> maintenance, messages -> warden)
+  /// IMPORTANT: 'parent_warden' must be checked BEFORE 'warden' — otherwise the generic
+  /// contains('warden') check would swallow it and map it to 'warden' (Students badge).
   String _normalizeKey(String key) {
     final lower = key.trim().toLowerCase();
-    if (lower == 'messages' || lower.contains('warden')) return 'warden';
+    // parent_warden must come first — it contains 'warden' but is a separate category
+    if (lower == 'parent_warden' || lower.contains('parent')) return 'parent_warden';
+    if (lower == 'messages' || lower == 'warden' || lower.contains('warden')) return 'warden';
     if (lower.contains('maint')) return 'maintenance';
     if (lower.contains('sec')) return 'security';
-    if (lower.contains('parent')) return 'parent_warden';
     return lower;
   }
 
@@ -178,6 +182,11 @@ class CategoryProvider with ChangeNotifier {
   }
 
   Future<void> fetchCounts({String? wardenUsername, String? studentUsername, bool force = false}) async {
+    // Prevent concurrent duplicate HTTP calls.
+    // Two callers firing within the same frame both pass the debounce timestamp
+    // check before either sets _lastFetchTime — the flag stops the second one.
+    if (_isFetchingCounts && !force) return;
+
     final now = DateTime.now();
     if (!force &&
         _lastFetchTime != null &&
@@ -186,6 +195,7 @@ class CategoryProvider with ChangeNotifier {
         _lastStudentUsername == studentUsername) {
       return;
     }
+    _isFetchingCounts = true;
     _lastFetchTime = now;
     _lastWardenUsername = wardenUsername;
     _lastStudentUsername = studentUsername;
@@ -204,7 +214,9 @@ class CategoryProvider with ChangeNotifier {
         _saveCachedCounts();
       }
     } catch (e) {
-      AppLogger.error("Error fetching category counts: $e");
+      AppLogger.error('Error fetching category counts: $e');
+    } finally {
+      _isFetchingCounts = false;
     }
   }
 

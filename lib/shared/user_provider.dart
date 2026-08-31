@@ -6,6 +6,7 @@ import '../core/api_service.dart';
 import '../core/api_session.dart';
 import '../core/notification_service.dart';
 import '../core/app_logger.dart';
+import '../core/websocket_service.dart';
 
 enum UserRole { student, warden, admin, parent, maintenance, security, staff, guest }
 
@@ -45,6 +46,14 @@ class UserProvider with ChangeNotifier {
           final Map<String, dynamic> userData =
               Map<String, dynamic>.from(jsonDecode(userDataStr));
           _loginSync(userData);
+          try {
+            WebSocketService.instance.connect(
+              username: username,
+              token: _token,
+            );
+          } catch (e) {
+            AppLogger.error("Failed to initialize WebSocket on session restore: $e");
+          }
         }
       }
     } catch (e) {
@@ -550,6 +559,18 @@ class UserProvider with ChangeNotifier {
 
   Future<void> login(Map<String, dynamic> userData) async {
     _loginSync(userData);
+    final _logRole = _roleName.isNotEmpty ? _roleName : _role.toString().split('.').last;
+    AppLogger.auth('LOGIN user=$_loginUsername role=$_logRole');
+
+    // Connect real-time WebSocket layer
+    try {
+      WebSocketService.instance.connect(
+        username: username,
+        token: _token,
+      );
+    } catch (e) {
+      AppLogger.error("Failed to initialize WebSocket on login: $e");
+    }
 
     // 🔥 SAVE FCM TOKEN TO BACKEND (Works for all users including parents)
     unawaited(_saveFCMTokenAfterStartup());
@@ -783,6 +804,7 @@ class UserProvider with ChangeNotifier {
     final String activeRole =
         _roleName.isNotEmpty ? _roleName : _role.toString().split('.').last;
 
+    AppLogger.auth('LOGOUT user=$activeUser role=$activeRole');
     if (activeUser.isNotEmpty) {
       // Log logout event on backend
       unawaited(() async {
@@ -797,18 +819,20 @@ class UserProvider with ChangeNotifier {
         }
       }());
 
-      // Fire-and-forget: do NOT await — waiting for FCM clear was causing 5-6 s logout delay
-      unawaited(() async {
-        try {
-          if (kIsWeb) return;
-          await NotificationService.saveTokenToBackend(
-            activeUser,
-            'clear',
-          );
-        } catch (e) {
-          AppLogger.error("Failed to clear FCM token on logout: $e");
-        }
-      }());
+
+      // NOTE: We intentionally do NOT clear the FCM token on logout.
+      // Push notifications must reach the device even when the user is logged
+      // out (app backgrounded / closed). Clearing the token here means no
+      // push can be delivered until the user logs back in AND successfully
+      // saves a new token — which can fail if the backend is unreachable.
+      // The token is replaced with a fresh one on the next login anyway.
+    }
+
+    // Disconnect real-time WebSocket connection
+    try {
+      WebSocketService.instance.disconnect();
+    } catch (e) {
+      AppLogger.error("Failed to disconnect WebSocket on logout: $e");
     }
 
     // Clear user tracking headers
@@ -816,6 +840,7 @@ class UserProvider with ChangeNotifier {
     _token = null;
 
     _isLoggedIn = false;
+    AppLogger.auth('Session cleared — user logged out.');
     AppLogger.currentUserEmail = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('user_data');

@@ -6,7 +6,7 @@
 #  Usage:  .\deploy_to_server.ps1
 # ============================================================
 
-$KEY        = "$env:USERPROFILE\.ssh\vstay-prod-key.pem"
+$KEY        = if (Test-Path (Join-Path $PSScriptRoot "vstay-prod-key.pem")) { Join-Path $PSScriptRoot "vstay-prod-key.pem" } else { "$env:USERPROFILE\.ssh\vstay-prod-key.pem" }
 $SERVER     = "ubuntu@15.206.172.50"
 $APP_DIR    = "/home/ubuntu/hostel-app"
 $START_TIME = Get-Date
@@ -54,7 +54,7 @@ Write-Host "  Server reachable." -ForegroundColor Green
 
 # Step 2: Pull latest images
 Write-Host "`n=== Step 2: Pulling latest images from Docker Hub ===" -ForegroundColor Cyan
-ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd $APP_DIR && docker compose pull frontend backend"
+ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd $APP_DIR && docker compose pull frontend backend websocket"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "docker compose pull failed."
     exit 1
@@ -63,7 +63,7 @@ Write-Host "  Images pulled." -ForegroundColor Green
 
 # Step 3: Restart containers
 Write-Host "`n=== Step 3: Restarting containers ===" -ForegroundColor Cyan
-ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd $APP_DIR && docker compose up -d --no-build frontend backend"
+ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd $APP_DIR && docker compose up -d --no-build frontend backend websocket redis"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "docker compose up failed."
     exit 1

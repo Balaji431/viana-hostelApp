@@ -103,7 +103,10 @@ try {
 
     while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         $dept = strtolower(trim($row['department']));
-        if ($dept == 'messages' || strpos($dept, 'warden') !== false) $dept = 'warden';
+        // IMPORTANT: parent_warden must be checked BEFORE the generic warden check
+        // because strpos($dept, 'warden') would match 'parent_warden' too.
+        if ($dept === 'parent_warden' || strpos($dept, 'parent') !== false) $dept = 'parent_warden';
+        else if ($dept == 'messages' || $dept === 'warden' || strpos($dept, 'warden') !== false) $dept = 'warden';
         else if (strpos($dept, 'maint') !== false) $dept = 'maintenance';
         else if (strpos($dept, 'sec') !== false) $dept = 'security';
         $summary[$dept] = (int)$row['unread_count'];

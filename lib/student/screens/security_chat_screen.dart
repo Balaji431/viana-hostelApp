@@ -8,6 +8,7 @@ import '../../shared/user_provider.dart';
 import '../../shared/category_provider.dart';
 import '../../core/api_service.dart';
 import '../../core/notification_service.dart';
+import '../../core/websocket_service.dart';
 import '../../core/services/chat_cache_service.dart';
 import '../../core/models/request_model.dart';
 import '../../shared/chat/request_card.dart';
@@ -43,6 +44,8 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
   bool _isTyping = false;
   bool _isSending = false;
   Timer? _timer;
+  StreamSubscription? _wsSubscription;
+  VoidCallback? _wsConnListener;
   String? _activeRequestId;
   int _offset = 0;
   final int _limit = 50;
@@ -57,6 +60,18 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
     _scrollController.addListener(_onScroll);
     _initializeChat();
     NotificationService.fcmRefreshNotifier.addListener(_fetchMessages);
+
+    // WebSocket real-time subscription
+    _wsSubscription = WebSocketService.instance.onNewMessage.listen(_onWebSocketMessage);
+    _wsConnListener = () {
+      if (mounted) {
+        if (WebSocketService.instance.isConnected) {
+          _fetchMessages(silent: true);
+        }
+        _startTimer();
+      }
+    };
+    WebSocketService.instance.isConnectedNotifier.addListener(_wsConnListener!);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final user = context.read<UserProvider>();
@@ -134,6 +149,10 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
       }
     });
 
+    if (_activeRequestId != null && _activeRequestId!.isNotEmpty) {
+      WebSocketService.instance.joinRoom(_activeRequestId!);
+    }
+
     _fetchMessages();
     _startTimer();
   }
@@ -148,11 +167,70 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    final interval = WebSocketService.instance.isConnected ? 60 : 10;
+    _timer = Timer.periodic(Duration(seconds: interval), (timer) {
       if (mounted) {
         _fetchMessages(silent: true);
       }
     });
+  }
+
+  void _onWebSocketMessage(Map<String, dynamic> event) {
+    if (!mounted) return;
+    final eventReqId = (event['request_id'] ?? event['data']?['request_id'])?.toString();
+    if (eventReqId != null && _activeRequestId != null && eventReqId.isNotEmpty && _activeRequestId!.isNotEmpty && eventReqId != _activeRequestId) {
+      return;
+    }
+
+    final user = context.read<UserProvider>();
+    final rawMsg = event['data'] is Map ? Map<String, dynamic>.from(event['data']) : event;
+    final msgId = (rawMsg['message_id'] ?? rawMsg['id'])?.toString();
+    final senderId = rawMsg['sender_id']?.toString() ?? '';
+    final messageText = rawMsg['message']?.toString() ?? '';
+    final messageType = rawMsg['message_type']?.toString() ?? 'text';
+    final timestamp = rawMsg['timestamp'] ?? DateTime.now().toIso8601String();
+
+    if (msgId == null || msgId.isEmpty || messageText.isEmpty) return;
+
+    final bool isMe = (senderId == user.dbId?.toString() || senderId == user.username);
+
+    String type = 'text';
+    if (messageType == 'request' || messageType == 'request_card') {
+      type = 'request';
+    } else if (messageType == 'status' || messageType == 'admin_reply') {
+      type = 'admin_reply';
+    } else if (messageType == 'call') {
+      type = 'call';
+    }
+
+    final newMsg = {
+      'id': msgId,
+      'content': messageText,
+      'sender': isMe ? 'student' : 'security',
+      'timestamp': timestamp,
+      'type': type,
+      'status': 'sent',
+      'request_id': eventReqId ?? _activeRequestId,
+      'request_data': rawMsg,
+    };
+
+    setState(() {
+      final existingIndex = _messages.indexWhere((m) => m['id']?.toString() == msgId);
+      if (existingIndex >= 0) {
+        _messages[existingIndex] = newMsg;
+      } else {
+        if (isMe) {
+          _messages.removeWhere((m) =>
+              m['status'] == 'sending' &&
+              m['content'].toString().trim() == messageText.trim());
+        }
+        _messages.insert(0, newMsg);
+      }
+    });
+
+    if (!isMe && _activeRequestId != null && _activeRequestId!.isNotEmpty) {
+      ApiService.markRead(_activeRequestId!, user.username);
+    }
   }
 
   DateTime _parseTimestamp(dynamic timestamp) {
@@ -338,6 +416,13 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
 
   @override
   void dispose() {
+    if (_activeRequestId != null && _activeRequestId!.isNotEmpty) {
+      WebSocketService.instance.leaveRoom(_activeRequestId!);
+    }
+    _wsSubscription?.cancel();
+    if (_wsConnListener != null) {
+      WebSocketService.instance.isConnectedNotifier.removeListener(_wsConnListener!);
+    }
     NotificationService.fcmRefreshNotifier.removeListener(_fetchMessages);
     _timer?.cancel();
     _messageController.removeListener(_onMessageChanged);
@@ -536,6 +621,7 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
 
     return LinenGridBackground(
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         backgroundColor: Colors.transparent,
         appBar: SkeuomorphicNavBar(
           title: _assignedStaffName,
@@ -632,7 +718,9 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
               child: ListView.builder(
                 controller: _scrollController, 
                 reverse: true, 
-                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
                 itemCount: _filteredMessages.length + (_isMoreLoading ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == _filteredMessages.length) {
@@ -1020,97 +1108,108 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(15, 10, 15, 30),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF131D2E).withOpacity(0.95) : Colors.white,
-        border: Border(top: BorderSide(color: isDark ? Colors.white.withOpacity(0.1) : Colors.black12)),
-      ),
-      child: Column(
-        children: [
-          if (_currentFilter != 'Calls')
-            GestureDetector(
-              onTap: _showCategoryPicker,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _selectedCategory ?? 'Select a request category...', 
-                        style: TextStyle(
-                          color: _selectedCategory == null 
-                              ? (isDark ? Colors.white60 : Colors.grey) 
-                              : (isDark ? Colors.white : const Color(0xFF1B2B48)), 
-                          fontWeight: FontWeight.bold,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Icon(Icons.keyboard_arrow_down, color: isDark ? Colors.white70 : Colors.grey),
-                  ],
-                ),
-              ),
+    return SafeArea(
+      top: false,
+      bottom: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(15, 8, 15, 10),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF131D2E).withOpacity(0.95) : Colors.white,
+          border: Border(top: BorderSide(color: isDark ? Colors.white.withOpacity(0.1) : Colors.black12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.25 : 0.05),
+              blurRadius: 4,
+              offset: const Offset(0, -2),
             ),
-          Row(
-            children: [
-              Expanded(
+          ],
+        ),
+        child: Column(
+          children: [
+            if (_currentFilter != 'Calls')
+              GestureDetector(
+                onTap: _showCategoryPicker,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
                     color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
-                    borderRadius: BorderRadius.circular(25),
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
                   ),
-                  child: TextField(
-                    controller: _messageController,
-                    enabled: _currentFilter == 'All', 
-                    style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      filled: false,
-                      hintText: 'Type a message',
-                      hintStyle: TextStyle(color: isDark ? Colors.white60 : Colors.black54, fontSize: 14),
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _selectedCategory ?? 'Select a request category...', 
+                          style: TextStyle(
+                            color: _selectedCategory == null 
+                                ? (isDark ? Colors.white60 : Colors.grey) 
+                                : (isDark ? Colors.white : const Color(0xFF1B2B48)), 
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Icon(Icons.keyboard_arrow_down, color: isDark ? Colors.white70 : Colors.grey),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: (_isTyping && !_isSending) ? _handleSendMessage : null,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(12),
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                     decoration: BoxDecoration(
-                      color: (_isTyping && !_isSending) 
-                          ? Colors.blue 
-                          : (isDark ? Colors.white12 : Colors.grey.shade200), 
-                      shape: BoxShape.circle,
+                      color: isDark ? Colors.white.withOpacity(0.08) : Colors.white,
+                      borderRadius: BorderRadius.circular(25),
+                      border: Border.all(color: isDark ? Colors.white.withOpacity(0.14) : Colors.grey.shade300),
                     ),
-                    child: Icon(
-                      Icons.send, 
-                      color: (_isTyping && !_isSending) 
-                          ? Colors.white 
-                          : (isDark ? Colors.white38 : Colors.grey), 
-                      size: 20,
+                    child: TextField(
+                      controller: _messageController,
+                      enabled: _currentFilter == 'All', 
+                      style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        filled: false,
+                        hintText: 'Type a message',
+                        hintStyle: TextStyle(color: isDark ? Colors.white60 : Colors.black54, fontSize: 14),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 10),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: (_isTyping && !_isSending) ? _handleSendMessage : null,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: (_isTyping && !_isSending) 
+                            ? Colors.blue 
+                            : (isDark ? Colors.white12 : Colors.grey.shade200), 
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.send, 
+                        color: (_isTyping && !_isSending) 
+                            ? Colors.white 
+                            : (isDark ? Colors.white38 : Colors.grey), 
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

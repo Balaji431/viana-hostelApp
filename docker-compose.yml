@@ -61,6 +61,49 @@ services:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - UPLOAD_LIMIT=500M
 
+  websocket:
+    build:
+      context: .
+      dockerfile: Dockerfile.websocket_php
+    image: balaji182/vstay-websocket:latest
+    container_name: hostel_websocket
+    restart: always
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_HOST=db
+      - DB_NAME=stay_simats
+      - DB_USER=${DB_USER:-user}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - LOG_LEVEL=debug
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./hostel_backend:/var/www/html
+    depends_on:
+      - db
+      - redis
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: hostel_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
 volumes:
   db_data:
   backend_uploads:
+  redis_data:

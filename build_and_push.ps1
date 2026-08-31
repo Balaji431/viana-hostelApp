@@ -135,7 +135,7 @@ if (Test-Path $bootstrapPath) {
 }
 
 Write-Host "`n=== Step 4: Starting Docker Compose Build ===" -ForegroundColor Cyan
-docker compose up -d --build backend frontend
+docker compose up -d --build backend frontend websocket redis
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Docker Compose build failed!"
@@ -158,21 +158,46 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "`n=== Step 7: Pushing Backend Image to Docker Hub ===" -ForegroundColor Cyan
-docker push "${DOCKER_USERNAME}/vstay-backend:latest"
+Write-Host "`n=== Step 6a: Building WebSocket Docker Image ===" -ForegroundColor Cyan
+docker build -t "${DOCKER_USERNAME}/vstay-websocket:latest" -f Dockerfile.websocket_php .
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to push Backend image! Are you logged in? (Run 'docker login')"
+    Write-Error "WebSocket Docker build failed!"
     exit $LASTEXITCODE
+}
+
+# Helper function to push Docker images with automatic retry on transient network/registry timeouts
+function Push-DockerImageWithRetry([string]$ImageName, [int]$MaxAttempts = 3) {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        Write-Host "  Pushing $ImageName (Attempt $attempt of $MaxAttempts)..." -ForegroundColor Gray
+        docker push $ImageName
+        if ($LASTEXITCODE -eq 0) {
+            return $true
+        }
+        Write-Warning "  Push failed on attempt $attempt. Retrying in 5 seconds..."
+        Start-Sleep -Seconds 5
+    }
+    return $false
+}
+
+Write-Host "`n=== Step 7: Pushing Backend Image to Docker Hub ===" -ForegroundColor Cyan
+if (-not (Push-DockerImageWithRetry "${DOCKER_USERNAME}/vstay-backend:latest")) {
+    Write-Error "Failed to push Backend image! Are you logged in? (Run 'docker login')"
+    exit 1
 }
 
 Write-Host "`n=== Step 8: Pushing Frontend Image to Docker Hub ===" -ForegroundColor Cyan
-docker push "${DOCKER_USERNAME}/vstay-frontend:latest"
-
-if ($LASTEXITCODE -ne 0) {
+if (-not (Push-DockerImageWithRetry "${DOCKER_USERNAME}/vstay-frontend:latest")) {
     Write-Error "Failed to push Frontend image! Are you logged in? (Run 'docker login')"
-    exit $LASTEXITCODE
+    exit 1
 }
+
+Write-Host "`n=== Step 8a: Pushing WebSocket Image to Docker Hub ===" -ForegroundColor Cyan
+if (-not (Push-DockerImageWithRetry "${DOCKER_USERNAME}/vstay-websocket:latest")) {
+    Write-Error "Failed to push WebSocket image! Are you logged in? (Run 'docker login')"
+    exit 1
+}
+
 
 Write-Host "`n=== Step 9: Warming Up Backend Cache ===" -ForegroundColor Cyan
 Write-Host "Waiting 5 seconds for containers to start..." -ForegroundColor Gray
@@ -197,8 +222,9 @@ Write-Host "  Build sentinel written." -ForegroundColor DarkGray
 
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host " SUCCESS: Images pushed to Docker Hub!"  -ForegroundColor Green
-Write-Host " Backend:  ${DOCKER_USERNAME}/vstay-backend:latest"  -ForegroundColor Green
-Write-Host " Frontend: ${DOCKER_USERNAME}/vstay-frontend:latest" -ForegroundColor Green
+Write-Host " Backend:   ${DOCKER_USERNAME}/vstay-backend:latest"   -ForegroundColor Green
+Write-Host " Frontend:  ${DOCKER_USERNAME}/vstay-frontend:latest"  -ForegroundColor Green
+Write-Host " WebSocket: ${DOCKER_USERNAME}/vstay-websocket:latest" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host " NOTE: Both files are now set to PRODUCTION." -ForegroundColor Yellow

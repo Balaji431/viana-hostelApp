@@ -214,11 +214,75 @@ function syncStudentOnDemand($email, $db) {
 
     // 4. Insert into parent tables
     $parentId = "P_" . $roll;
+    $parentsList = $foundRecord['parents'] ?? [];
+    $parentEmail = null;
+    $parentName = null;
+    $parentPhone = $phone;
+
+    if (is_array($parentsList) && !empty($parentsList)) {
+        foreach ($parentsList as $p) {
+            $rel = strtolower(trim($p['relation'] ?? ''));
+            $em = trim($p['email'] ?? '');
+            if ($rel === 'father' && !empty($em)) {
+                $parentEmail = strtolower($em);
+                $parentName = trim($p['name'] ?? '');
+                $parentPhone = trim($p['phone'] ?? $phone);
+                break;
+            }
+        }
+        if (empty($parentEmail)) {
+            foreach ($parentsList as $p) {
+                $rel = strtolower(trim($p['relation'] ?? ''));
+                $em = trim($p['email'] ?? '');
+                if ($rel === 'mother' && !empty($em)) {
+                    $parentEmail = strtolower($em);
+                    $parentName = trim($p['name'] ?? '');
+                    $parentPhone = trim($p['phone'] ?? $phone);
+                    break;
+                }
+            }
+        }
+        if (empty($parentEmail)) {
+            foreach ($parentsList as $p) {
+                $em = trim($p['email'] ?? '');
+                if (!empty($em)) {
+                    $parentEmail = strtolower($em);
+                    $parentName = trim($p['name'] ?? '');
+                    $parentPhone = trim($p['phone'] ?? $phone);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Strip leading country codes (91, +91, 0)
+    if ($parentPhone) {
+        $digits = preg_replace('/[^0-9]/', '', $parentPhone);
+        if (strlen($digits) > 10 && substr($digits, 0, 2) === '91') {
+            $digits = substr($digits, 2);
+        }
+        if (strlen($digits) === 11 && substr($digits, 0, 1) === '0') {
+            $digits = substr($digits, 1);
+        }
+        $parentPhone = $digits;
+    }
+
     $insertParentStmt = $db->prepare("
-        INSERT INTO parent_users (parent_id, password, contact) 
-        VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE contact = VALUES(contact)
+        INSERT INTO parent_users (parent_id, email, name, password, contact) 
+        VALUES (:parent_id, :email, :name, :password, :contact)
+        ON DUPLICATE KEY UPDATE 
+            email = COALESCE(NULLIF(VALUES(email), ''), email),
+            name = COALESCE(NULLIF(VALUES(name), ''), name),
+            contact = COALESCE(NULLIF(VALUES(contact), ''), contact)
     ");
-    $insertParentStmt->execute([$parentId, $pwHash, $phone]);
+
+    $insertParentStmt->execute([
+        ':parent_id' => $parentId,
+        ':email'     => $parentEmail,
+        ':name'      => $parentName,
+        ':password'  => $pwHash,
+        ':contact'   => $parentPhone
+    ]);
 
     $insertMapStmt = $db->prepare("
         INSERT INTO parent_student_map (parent_id, student_id) 
@@ -228,3 +292,4 @@ function syncStudentOnDemand($email, $db) {
 
     return true;
 }
+

@@ -11,7 +11,7 @@ import 'app_logger.dart';
 class ApiService {
   // Simply change this single URL to switch between environments:
 
-  static const String baseUrl = 'http://localhost:8081/';
+  static const String baseUrl = 'https://vstay.saveetha.com/api/';
 
   static String? currentUserId;
   static String? currentUsername;
@@ -1012,7 +1012,6 @@ class ApiService {
   // Consolidated: Mark messages as delivered THEN seen immediately
   static Future<Map<String, dynamic>> markRead(String requestId, String userId) async {
     try {
-      AppLogger.info("Marking messages as read: $requestId");
       final response = await http.post(
         buildUri('/chat/mark_read.php'),
         headers: {'Content-Type': 'application/json'},
@@ -1021,10 +1020,9 @@ class ApiService {
           'user_id': userId,
         }),
       );
-      AppLogger.response("Mark read: ${response.statusCode}");
       return json.decode(response.body);
     } catch (e) {
-      AppLogger.error("Mark read error: $e");
+      AppLogger.error('Mark read error: $e');
       return {"success": false, "message": "Network error: $e"};
     }
   }
@@ -1034,7 +1032,6 @@ class ApiService {
   // Mark messages as delivered when user opens chat
   static Future<Map<String, dynamic>> markDelivered(String requestId, String userId) async {
     try {
-      AppLogger.info("Marking messages as delivered: $requestId");
       final response = await http.post(
         Uri.parse('$baseUrl/chat/mark_delivered.php'),
         headers: {'Content-Type': 'application/json'},
@@ -1043,10 +1040,9 @@ class ApiService {
           'user_id': userId,
         }),
       );
-      AppLogger.response("Mark delivered: ${response.statusCode}");
       return json.decode(response.body);
     } catch (e) {
-      AppLogger.error("Mark delivered error: $e");
+      AppLogger.error('Mark delivered error: $e');
       return {"success": false, "message": "Network error: $e"};
     }
   }
@@ -1054,7 +1050,6 @@ class ApiService {
   // Mark messages as seen when user reads them
   static Future<Map<String, dynamic>> markSeen(String requestId, String userId) async {
     try {
-      AppLogger.info("Marking messages as seen: $requestId");
       final response = await http.post(
         Uri.parse('$baseUrl/chat/mark_seen.php'),
         headers: {'Content-Type': 'application/json'},
@@ -1063,10 +1058,9 @@ class ApiService {
           'user_id': userId,
         }),
       );
-      AppLogger.response("Mark seen: ${response.statusCode}");
       return json.decode(response.body);
     } catch (e) {
-      AppLogger.error("Mark seen error: $e");
+      AppLogger.error('Mark seen error: $e');
       return {"success": false, "message": "Network error: $e"};
     }
   }
@@ -1074,29 +1068,25 @@ class ApiService {
   // Update user last seen (for online status)
   static Future<void> updateLastSeen(String userId) async {
     try {
-      AppLogger.info("Updating last seen: $userId");
       await http.post(
         Uri.parse('$baseUrl/chat/update_last_seen.php'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'user_id': userId}),
       );
-      AppLogger.info("Last seen updated");
     } catch (e) {
-      AppLogger.error("Update last seen error: $e");
+      AppLogger.error('Update last seen error: $e');
     }
   }
 
   // Get user online/offline status
   static Future<Map<String, dynamic>> getUserStatus(String userId) async {
     try {
-      AppLogger.info("Getting user status: $userId");
       final response = await http.get(
         Uri.parse('$baseUrl/chat/get_user_status.php?user_id=$userId'),
       );
-      AppLogger.response("User status: ${response.statusCode}");
       return json.decode(response.body);
     } catch (e) {
-      AppLogger.error("Get user status error: $e");
+      AppLogger.error('Get user status error: $e');
       return {"success": false, "status": "offline"};
     }
   }
@@ -1109,14 +1099,14 @@ class ApiService {
     }
     try {
       final url = _buildUrl(endpoint);
-      AppLogger.request("GET $url");
+      // NOTE: AppLogger.request/response are already emitted by HttpClientWrapper.
+      // Do NOT add them here — it would print every GET twice.
       final response = await http.get(Uri.parse(url)).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
           throw Exception('Request timeout');
         },
       );
-      AppLogger.response("Status: ${response.statusCode}");
       
       if (response.statusCode != 200) {
         try {
@@ -1132,7 +1122,7 @@ class ApiService {
       
       return jsonDecode(response.body);
     } catch (e) {
-      AppLogger.error("GET error: $e");
+      AppLogger.error('GET error: $e');
       return {'success': false, 'message': 'Connection Error: $e'};
     }
   }
@@ -1140,13 +1130,13 @@ class ApiService {
   static Future<Map<String, dynamic>> postRequest(String endpoint, Map<String, dynamic> data) async {
     try {
       final url = _buildUrl(endpoint);
-      AppLogger.request("POST $url");
+      // NOTE: AppLogger.request/response are already emitted by HttpClientWrapper.
+      // Do NOT add them here — it would print every POST twice.
       final response = await http.post(
         Uri.parse(url),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-
         },
         body: jsonEncode(data),
       ).timeout(
@@ -1155,7 +1145,6 @@ class ApiService {
           throw Exception('Request timeout');
         },
       );
-      AppLogger.response("Status: ${response.statusCode}");
       
       if (response.statusCode != 200) {
         try {
@@ -1171,7 +1160,7 @@ class ApiService {
       
       return jsonDecode(response.body);
     } catch (e) {
-      AppLogger.error("POST error: $e");
+      AppLogger.error('POST error: $e');
       return {'success': false, 'message': 'Connection Error: $e'};
     }
   }

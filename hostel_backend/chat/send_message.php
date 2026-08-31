@@ -258,11 +258,66 @@ try {
         exit;
     }
 
+    $t0_http_received = (int)round(microtime(true) * 1000);
+
     // 4. Insert message
     $insert = $db->prepare("INSERT INTO chat_messages (request_id, sender_id, receiver_id, message, message_type, status) VALUES (?, ?, ?, ?, ?, 'sent')");
     if ($insert->execute([$request_id, $sender_username, $receiver_id, $message, $message_type])) {
+        $t1_db_inserted = (int)round(microtime(true) * 1000);
         $message_id = $db->lastInsertId();
-        echo json_encode(["success" => true, "message" => "Message sent", "message_id" => $message_id, "request_id" => $request_id, "receiver_id" => $receiver_id]);
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // REDIS EVENT PUBLISH (Sub-second Real-time WebSocket Delivery)
+        // ─────────────────────────────────────────────────────────────────────
+        $t2_redis_published = $t1_db_inserted;
+        try {
+            $redis_host = getenv('REDIS_HOST') ?: 'redis';
+            $redis_port = (int)(getenv('REDIS_PORT') ?: 6379);
+            $redis_sock = @fsockopen($redis_host, $redis_port, $r_err, $r_msg, 0.5);
+            if ($redis_sock) {
+                stream_set_timeout($redis_sock, 1);
+                $t2_redis_published = (int)round(microtime(true) * 1000);
+                $event_payload = json_encode([
+                    'event' => 'new_message',
+                    'request_id' => $request_id,
+                    'receiver_id' => $receiver_id,
+                    'sender_id' => $sender_username,
+                    'message' => $message,
+                    'message_type' => $message_type,
+                    'message_id' => $message_id,
+                    'timestamp' => date('Y-m-d H:i:s'),
+                    'timings' => [
+                        't0_http_received_ms' => $t0_http_received,
+                        't1_db_inserted_ms' => $t1_db_inserted,
+                        't2_redis_published_ms' => $t2_redis_published,
+                    ]
+                ]);
+                $cmd = "*3\r\n$7\r\nPUBLISH\r\n$17\r\nvstay_chat_events\r\n$" . strlen($event_payload) . "\r\n" . $event_payload . "\r\n";
+                fwrite($redis_sock, $cmd);
+                fgets($redis_sock);
+                $t2_redis_published = (int)round(microtime(true) * 1000);
+                fclose($redis_sock);
+            }
+        } catch (\Throwable $re) {
+            // Non-blocking: Redis publish failure never blocks response or FCM
+        }
+
+        file_put_contents('debug_chat.log', sprintf("[%s] [TIMING] send_message.php req_id=%s msg_id=%s | t0_received=%d ms | t1_db_inserted=%d ms (+%d ms) | t2_redis_published=%d ms (+%d ms)\n", date('Y-m-d H:i:s'), $request_id, $message_id, $t0_http_received, $t1_db_inserted, ($t1_db_inserted - $t0_http_received), $t2_redis_published, ($t2_redis_published - $t1_db_inserted)), FILE_APPEND);
+
+        echo json_encode([
+            "success" => true,
+            "message" => "Message sent",
+            "message_id" => $message_id,
+            "request_id" => $request_id,
+            "receiver_id" => $receiver_id,
+            "timings" => [
+                "t0_http_received_ms" => $t0_http_received,
+                "t1_db_inserted_ms" => $t1_db_inserted,
+                "t2_redis_published_ms" => $t2_redis_published,
+                "db_duration_ms" => ($t1_db_inserted - $t0_http_received),
+                "redis_publish_duration_ms" => ($t2_redis_published - $t1_db_inserted),
+            ]
+        ]);
         
         // ─────────────────────────────────────────────────────────────────────
         // FCM TOKEN RESOLUTION — Critical fix for Student → Warden flow

@@ -726,7 +726,62 @@ try {
         exit();
     }
 
+    // 3.8. Search in parent_users table (Parent Google Login)
+    $parent_query = "SELECT p.*, s.full_name as student_name, s.username as student_username, s.id as std_id
+                     FROM parent_users p
+                     LEFT JOIN parent_student_map psm ON (CONVERT(p.parent_id USING utf8mb4) = CONVERT(psm.parent_id USING utf8mb4))
+                     LEFT JOIN users s ON (CONVERT(psm.student_id USING utf8mb4) = CONVERT(s.username USING utf8mb4))
+                     WHERE LOWER(CONVERT(COALESCE(p.email, '') USING utf8mb4)) = LOWER(CONVERT(:email USING utf8mb4)) LIMIT 0,1";
+    $p_stmt = $db->prepare($parent_query);
+    $p_stmt->bindParam(':email', $email);
+    $p_stmt->execute();
+
+    if ($p_stmt->rowCount() > 0) {
+        $p_row = $p_stmt->fetch(PDO::FETCH_ASSOC);
+
+        $parent_name = !empty($p_row['name']) ? $p_row['name'] : ("Parent of " . ($p_row['student_name'] ?? 'Student'));
+
+        $user_data = [
+            "id" => $p_row['id'],
+            "username" => $p_row['parent_id'],
+            "register_no" => $p_row['parent_id'],
+            "full_name" => $parent_name,
+            "phone" => $p_row['contact'] ?? '',
+            "email" => $p_row['email'] ?? $email,
+            "role" => 'parent',
+            "profile_pic" => "",
+            "linked_student_id" => $p_row['std_id'],
+            "linked_student_username" => $p_row['student_username'],
+            "linked_student_name" => $p_row['student_name'],
+            "token" => generateJWT($p_row['id'], $p_row['parent_id'], 'parent')
+        ];
+
+        if ($p_row['student_username']) {
+            $prof_query = "SELECT room_allocation, institution, hostel_name, profile_pic FROM profile WHERE reg_no = ?";
+            $prof_stmt = $db->prepare($prof_query);
+            $prof_stmt->execute([$p_row['student_username']]);
+            $prof = $prof_stmt->fetch(PDO::FETCH_ASSOC);
+            if ($prof) {
+                $user_data['linked_student_room'] = $prof['room_allocation'];
+                $user_data['linked_student_institution'] = $prof['institution'];
+                $user_data['linked_student_hostel'] = $prof['hostel_name'];
+                $user_data['linked_student_profile_pic'] = $prof['profile_pic'];
+            }
+        }
+
+        logActivity($p_row['id'], $p_row['parent_id'], 'parent', 'LOGIN', 'parent_users', null, ['login_time' => date('Y-m-d H:i:s')]);
+        logAudit($p_row['id'], $p_row['parent_id'], 'parent', 'LOGIN_SUCCESS', 'Authentication', null, [
+            'registration_no' => $p_row['parent_id'],
+            'timestamp' => date('Y-m-d H:i:s'),
+            'ip_address' => getClientIp(),
+            'source' => 'Google Parent Login'
+        ]);
+        sendResponse(true, "Parent Login successful", $user_data);
+        exit();
+    }
+
     // 4. Not found anywhere
+
     logAudit(null, $email, 'student', 'LOGIN_FAILED', 'Authentication', null, [
         'registration_no' => $email,
         'timestamp' => date('Y-m-d H:i:s'),

@@ -12,6 +12,7 @@ import 'ui_provider.dart';
 import 'category_provider.dart';
 import 'wallpaper_provider.dart';
 import '../core/notification_service.dart';
+import '../core/websocket_service.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
 import '../core/providers/mapping_provider.dart';
 import '../core/providers/allocation_provider.dart';
@@ -214,8 +215,20 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     }
 
     NotificationService.fcmRefreshNotifier.addListener(_onFCMCountRefresh);
+    WebSocketService.instance.isConnectedNotifier.addListener(_onWSConnChange);
+    _startCountTimer();
+  }
 
-    _countTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+  void _onWSConnChange() {
+    if (mounted) {
+      _startCountTimer();
+    }
+  }
+
+  void _startCountTimer() {
+    _countTimer?.cancel();
+    final interval = WebSocketService.instance.isConnected ? 60 : 10;
+    _countTimer = Timer.periodic(Duration(seconds: interval), (timer) {
       if (mounted) {
         final currentUser = Provider.of<UserProvider>(context, listen: false);
         final currentCatProvider =
@@ -253,6 +266,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   @override
   void dispose() {
     NotificationService.fcmRefreshNotifier.removeListener(_onFCMCountRefresh);
+    WebSocketService.instance.isConnectedNotifier.removeListener(_onWSConnChange);
     _pageController.dispose();
     _countTimer?.cancel();
     if (kIsWeb) {
@@ -329,7 +343,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
             top: false,
             bottom: false,
             child: Scaffold(
-              extendBody: !isDesktop,
+              extendBody: false,
               backgroundColor: isDesktop ? Colors.black : const Color(0xFFE8E4DB),
               body: Container(
                 decoration: isDesktop
@@ -369,7 +383,9 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       ),
               ),
               bottomNavigationBar:
-                  (!isDesktop && ui.showBottomNavBar) ? _buildBottomNavigationBar(tabs) : null,
+                  (!isDesktop && ui.showBottomNavBar && !(_phoneNavigatorKey.currentState?.canPop() ?? false)) 
+                      ? _buildBottomNavigationBar(tabs) 
+                      : null,
             ),
           ),
         );
