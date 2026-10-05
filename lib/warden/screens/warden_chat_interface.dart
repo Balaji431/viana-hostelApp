@@ -18,6 +18,7 @@ import '../../shared/chat/call_log_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../widgets/warden_modals.dart';
+import '../../core/services/chat_cache_service.dart';
 
 class WardenChatInterface extends StatefulWidget {
   final String channel;
@@ -279,6 +280,10 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
             _activeMessages.clear();
             _activeMessages.addAll(updatedList);
             _isLoading = false;
+
+            // Merge and persist into local device storage
+            final cKey = _activeRequestId ?? _activeConversation?['request_id']?.toString() ?? 'warden_${widget.channel}';
+            ChatCacheService.mergeWithLocal(cKey, updatedList);
           });
           
           final user = context.read<UserProvider>();
@@ -440,9 +445,14 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
             ? SkeuomorphicNavBar(
                 title: widget.channel == "parent_warden" 
                   ? "Parent Logs" 
-                  : "${widget.channel[0].toUpperCase()}${widget.channel.substring(1).toLowerCase()} Logs",
+                  : (widget.channel.toLowerCase() == "warden" || widget.channel.toLowerCase() == "students"
+                      ? "Students Logs"
+                      : "${widget.channel[0].toUpperCase()}${widget.channel.substring(1).toLowerCase()} Logs"),
                 onBack: () {
-                  if (Navigator.canPop(context)) {
+                  final isDesktop = MediaQuery.of(context).size.width >= 768;
+                  if (isDesktop) {
+                    context.read<UIProvider>().setActiveChatChannel(null);
+                  } else if (Navigator.canPop(context)) {
                     Navigator.pop(context);
                   } else {
                     context.read<UIProvider>().setActiveChatChannel(null);
@@ -591,14 +601,19 @@ class _WardenChatInterfaceState extends State<WardenChatInterface> {
 
   Widget _buildConversationCard(Map<String, dynamic> conv, bool isDark) {
     final String name = conv['name']?.toString() ?? "Student";
-    final String timeStr = _formatTimestampForTime(conv['last_time']);
+    final String timeStr = conv['last_time'] == null ? '' : _formatTimestampForTime(conv['last_time']);
     final int unread = int.tryParse(conv['unread_count']?.toString() ?? "0") ?? 0;
     
     String initials = "";
-    if (name.isNotEmpty) {
-      final parts = name.split(' ');
-      initials = parts[0][0].toUpperCase();
-      if (parts.length > 1) initials += parts[1][0].toUpperCase();
+    final trimmedName = name.trim();
+    if (trimmedName.isNotEmpty) {
+      final parts = trimmedName.split(RegExp(r'\s+'));
+      if (parts.isNotEmpty && parts[0].isNotEmpty) {
+        initials = parts[0][0].toUpperCase();
+      }
+      if (parts.length > 1 && parts[1].isNotEmpty) {
+        initials += parts[1][0].toUpperCase();
+      }
     }
 
     return MouseRegion(

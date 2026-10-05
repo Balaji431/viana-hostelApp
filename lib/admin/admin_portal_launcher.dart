@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/hierarchical_hostel_provider.dart';
 import '../core/styles.dart';
-import '../core/user_provider.dart';
+import '../shared/user_provider.dart';
 import '../shared/wallpaper_provider.dart';
 import '../shared/widgets/skeuo_button.dart';
+import '../shared/widgets/user_avatar_header.dart';
 import 'simple_admin_screen.dart';
 
 class AdminPortalLauncher extends StatelessWidget {
@@ -57,33 +58,36 @@ class AdminPortalLauncher extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: SkeuomorphicColors.goldGlossyGradient,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                        border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
-                      ),
-                      child: Center(
-                        child: Text(
-                          initials,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF1B2B48),
-                            fontFamily: 'Lato',
+                    if (user != null)
+                      UserHeaderAvatar(user: user, size: 44)
+                    else
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: SkeuomorphicColors.goldGlossyGradient,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                          border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                        ),
+                        child: Center(
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF1B2B48),
+                              fontFamily: 'Lato',
+                            ),
                           ),
                         ),
                       ),
-                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(

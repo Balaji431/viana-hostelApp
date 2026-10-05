@@ -194,7 +194,7 @@ $callbackUrl = $baseUrl . '/payments/razorpay_callback.php';
   <button class="pay-btn" id="payBtn" onclick="startPayment()">
     Pay ₹<?= number_format($amount, 2) ?> Securely
   </button>
-  <button class="cancel-btn" onclick="window.close()">Cancel &amp; return to app</button>
+  <a class="cancel-btn" id="cancelBtn" href="vstay://payment-cancelled">Cancel &amp; return to app</a>
 
   <p class="secure-note">
     🔒 Secured by Razorpay · 256-bit SSL
@@ -270,6 +270,18 @@ function startPayment() {
 // Auto-open checkout when page loads (best UX — no extra tap needed)
 window.addEventListener('load', function() {
   setTimeout(startPayment, 600);
+});
+
+document.getElementById('cancelBtn').addEventListener('click', function(e) {
+  var isAndroid = /android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    setTimeout(function() {
+      window.location.href = 'intent://payment-cancelled#Intent;scheme=vstay;package=com.vianasoft.stay;end;';
+    }, 400);
+  }
+  setTimeout(function() {
+    try { window.close(); } catch(err) {}
+  }, 800);
 });
 </script>
 </body>

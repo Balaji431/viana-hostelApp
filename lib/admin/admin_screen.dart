@@ -13,15 +13,16 @@ import 'screens/admin_hostel_manager_screen.dart';
 import 'screens/hostel_detail_screen.dart';
 import 'screens/category_manager_screen.dart';
 import 'screens/room_master_screen.dart';
-import 'screens/temporary_stay_admin_screen.dart';
 import '../shared/widgets/skeuomorphic_navbar.dart';
 import '../shared/user_provider.dart';
 import '../shared/main_layout.dart';
 import 'package:intl/intl.dart';
 import '../warden/widgets/warden_modals.dart';
+import '../shared/widgets/raise_issue_header_button.dart';
 
 class AdminScreen extends StatefulWidget {
-  const AdminScreen({super.key});
+  final String? title;
+  const AdminScreen({super.key, this.title});
 
   @override
   State<AdminScreen> createState() => _AdminScreenState();
@@ -31,9 +32,24 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
   @override
   bool get wantKeepAlive => true;
 
-  int _roomCount = 2932;
+  int _roomCount = 2933;
   List<Map<String, dynamic>> _announcements = [];
   bool _isLoadingAnnouncements = true;
+
+  UserProvider? _userProvider;
+  int _lastRefreshTick = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final up = Provider.of<UserProvider>(context, listen: false);
+    if (_userProvider != up) {
+      _userProvider?.removeListener(_handleGlobalRefreshListener);
+      _userProvider = up;
+      _lastRefreshTick = _userProvider!.dashboardRefreshTick;
+      _userProvider!.addListener(_handleGlobalRefreshListener);
+    }
+  }
 
   @override
   void initState() {
@@ -42,15 +58,11 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
       _refreshData();
       NotificationService.fcmRefreshNotifier.addListener(_onNotificationReceived);
     });
-    _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
-    context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
   }
 
-  int _lastRefreshTick = 0;
-
   void _handleGlobalRefreshListener() {
-    if (!mounted) return;
-    final user = context.read<UserProvider>();
+    if (!mounted || _userProvider == null) return;
+    final user = _userProvider!;
     if (user.dashboardRefreshTick > _lastRefreshTick) {
       _lastRefreshTick = user.dashboardRefreshTick;
       _refreshData();
@@ -59,7 +71,8 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
 
   @override
   void dispose() {
-    context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
+    _userProvider?.removeListener(_handleGlobalRefreshListener);
+    _userProvider = null;
     NotificationService.fcmRefreshNotifier.removeListener(_onNotificationReceived);
     super.dispose();
   }
@@ -109,7 +122,7 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
     try {
       final response = await ApiService.getRequest('rooms/fetch_room_master.php?page=1&limit=1&t=${DateTime.now().millisecondsSinceEpoch}');
       if (response['status'] == 'success' || response['success'] == true) {
-        final total = int.tryParse(response['total']?.toString() ?? '2932') ?? 2932;
+        final total = int.tryParse(response['total']?.toString() ?? '2933') ?? 2933;
         if (mounted) {
           setState(() {
             _roomCount = total;
@@ -125,26 +138,26 @@ class _AdminScreenState extends State<AdminScreen> with AutomaticKeepAliveClient
   Widget build(BuildContext context) {
     super.build(context);
     final wallpaper = context.watch<WallpaperProvider>();
+    final user = context.watch<UserProvider>();
     final isDark = wallpaper.isDarkTheme;
+    final headerTitle = widget.title ?? (user.role == UserRole.superAdmin ? 'Super Admin' : 'Admin Dashboard');
 
     return LinenGridBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: SkeuomorphicNavBar(
-          title: 'Admin Dashboard',
+          title: headerTitle,
           onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
           rightAction: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const RaiseIssueHeaderButton(),
+              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
                 onPressed: _refreshData,
                 constraints: const BoxConstraints(),
                 padding: EdgeInsets.zero,
-              ),
-              const SizedBox(width: 8),
-              ProfileButton(
-                onTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(4),
               ),
             ],
           ),

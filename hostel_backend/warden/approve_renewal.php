@@ -10,14 +10,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin']);
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
 
 $data = json_decode(file_get_contents("php://input"), true);
 
-$renewalId = $data['renewal_id'];
-$wardenId = $data['warden_id'] ?? null;
+$renewalId = $data['renewal_id'] ?? null;
+$wardenId = $authUser['id'] ?? ($data['warden_id'] ?? null);
 
 try {
     // 1️⃣ Get request details
@@ -31,16 +34,35 @@ try {
 
     $regNo = $req['student_reg_no'];
 
-    // 2️⃣ Extend validity (1 year from CURRENT valid_to)
+    // 2️⃣ Extend validity (1 year from latest date)
+    $pStmt = $conn->prepare("SELECT renewal_date, valid_to FROM profile WHERE reg_no = ?");
+    $pStmt->bind_param("s", $regNo);
+    $pStmt->execute();
+    $pRes = $pStmt->get_result()->fetch_assoc();
+
+    $baseDate = date('Y-m-d');
+    if ($pRes) {
+        if (!empty($pRes['renewal_date']) && strtotime($pRes['renewal_date']) > strtotime($baseDate)) {
+            $baseDate = $pRes['renewal_date'];
+        }
+        if (!empty($pRes['valid_to']) && strtotime($pRes['valid_to']) > strtotime($baseDate)) {
+            $baseDate = $pRes['valid_to'];
+        }
+    }
+    $newDate = date('Y-m-d', strtotime("$baseDate +1 year"));
+    $remDays = max(0, (int)round((strtotime($newDate) - strtotime(date('Y-m-d'))) / 86400));
+
     $updateProfile = "
         UPDATE profile 
         SET valid_from = IF(valid_from IS NULL OR valid_from = '0000-00-00', CURRENT_DATE, valid_from),
-            valid_to = DATE_ADD(valid_to, INTERVAL 1 YEAR)
+            valid_to = ?,
+            renewal_date = ?,
+            remaining_days = ?
         WHERE reg_no = ?
     ";
 
     $stmt2 = $conn->prepare($updateProfile);
-    $stmt2->bind_param("s", $regNo);
+    $stmt2->bind_param("ssis", $newDate, $newDate, $remDays, $regNo);
     $stmt2->execute();
 
     // 3️⃣ Get warden name

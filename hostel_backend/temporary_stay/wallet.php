@@ -11,6 +11,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../send_notification.php';
+require_once __DIR__ . '/../utils/auth_helper.php';
+
+$authUser = requireAuth();
 
 $database = new Database();
 $db = $database->getConnection();
@@ -160,12 +163,98 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     try {
         $wallet = getOrCreateWallet($db, $email, $student_id, $reg_no);
 
-        // Fetch recent transactions using indexed wallet_id or email
+        // Fetch recent transactions using indexed wallet_id or email variants
+        $allVariants = [];
+        if (!empty($email)) {
+            $allVariants[] = $email;
+            $allVariants[] = strtolower($email);
+            if (strpos($email, '@') === false) {
+                $allVariants[] = strtolower($email) . '.simats@saveetha.com';
+                $allVariants[] = strtolower($email) . '@saveetha.com';
+            } else {
+                $pfx = explode('@', $email)[0];
+                $allVariants[] = $pfx;
+                $pfxClean = explode('.', $pfx)[0];
+                $allVariants[] = $pfxClean;
+                $allVariants[] = $pfxClean . '.simats@saveetha.com';
+            }
+        }
+        if (!empty($reg_no)) {
+            $r = trim($reg_no);
+            $allVariants[] = $r;
+            $allVariants[] = strtolower($r) . '.simats@saveetha.com';
+            $allVariants[] = strtolower($r) . '@saveetha.com';
+        }
+        if (!empty($wallet['email'])) {
+            $allVariants[] = $wallet['email'];
+            $allVariants[] = strtolower($wallet['email']);
+        }
+        $allVariants = array_values(array_unique(array_filter($allVariants)));
+
         $transactions = [];
-        if (!empty($wallet['id'])) {
-            $stmtTxn = $db->prepare("SELECT * FROM wallet_transactions WHERE wallet_id = ? ORDER BY id DESC LIMIT 30");
-            $stmtTxn->execute([(int)$wallet['id']]);
+        $walletId = (int)($wallet['id'] ?? 0);
+        $sqlWhere = [];
+        $sqlParams = [];
+        if ($walletId > 0) {
+            $sqlWhere[] = "wallet_id = ?";
+            $sqlParams[] = $walletId;
+        }
+        if (!empty($allVariants)) {
+            $ph = implode(',', array_fill(0, count($allVariants), '?'));
+            $sqlWhere[] = "LOWER(email) IN ($ph)";
+            foreach ($allVariants as $v) {
+                $sqlParams[] = strtolower($v);
+            }
+        }
+
+        if (!empty($sqlWhere)) {
+            $stmtTxn = $db->prepare("SELECT * FROM wallet_transactions WHERE (" . implode(' OR ', $sqlWhere) . ") ORDER BY id DESC LIMIT 50");
+            $stmtTxn->execute($sqlParams);
             $transactions = $stmtTxn->fetchAll(PDO::FETCH_ASSOC);
+
+            // Verify and synchronize wallet balance with exact transaction ledger
+            $stmtSum = $db->prepare("
+                SELECT 
+                    COALESCE(SUM(CASE WHEN txn_type = 'credit' THEN amount WHEN txn_type = 'debit' THEN -amount ELSE 0 END), 0) as ledger_bal,
+                    COUNT(*) as total_count
+                FROM wallet_transactions 
+                WHERE (" . implode(' OR ', $sqlWhere) . ")
+            ");
+            $stmtSum->execute($sqlParams);
+            $sumRow = $stmtSum->fetch(PDO::FETCH_ASSOC);
+            if ($sumRow && (int)$sumRow['total_count'] > 0) {
+                $ledgerBal = (float)$sumRow['ledger_bal'];
+                // A wallet can NEVER have a negative balance. If debits exceed recorded credits, there was an untracked opening deposit / top-up.
+                if ($ledgerBal < 0) {
+                    $missingCredit = abs($ledgerBal);
+                    try {
+                        $recRef = 'CR-RECON-' . strtoupper(substr(md5(uniqid()), 0, 8));
+                        $db->prepare("INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description) VALUES (?, ?, 'credit', ?, 0.00, ?, 'Deposit / Payment Reconciliation')")
+                           ->execute([$walletId, $wallet['email'], $missingCredit, $recRef]);
+                        $transactions[] = [
+                            'wallet_id' => $walletId,
+                            'email' => $wallet['email'],
+                            'txn_type' => 'credit',
+                            'amount' => $missingCredit,
+                            'balance_after' => 0.00,
+                            'reference_id' => $recRef,
+                            'description' => 'Deposit / Payment Reconciliation',
+                            'created_at' => date('Y-m-d H:i:s')
+                        ];
+                    } catch (Exception $eRec) {}
+                    $ledgerBal = 0.00;
+                }
+
+                $cleanBal = max(0.0, $ledgerBal);
+                if (abs((float)$wallet['balance'] - $cleanBal) > 0.001) {
+                    $wallet['balance'] = $cleanBal;
+                    if ($walletId > 0) {
+                        $db->prepare("UPDATE user_wallets SET balance = ? WHERE id = ?")->execute([$cleanBal, $walletId]);
+                    }
+                }
+            } else {
+                $wallet['balance'] = max(0.0, (float)$wallet['balance']);
+            }
         }
 
         // Fetch stay request details using indexed request_id or email
@@ -174,19 +263,26 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             $stmtReq = $db->prepare("SELECT *, GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), hold_expires_at)) as hold_remaining_seconds 
                                      FROM temporary_stay_requests WHERE request_id = ? LIMIT 1");
             $stmtReq->execute([$request_id]);
-            $stayRequest = $stmtReq->fetch(PDO::FETCH_ASSOC);
+            $fetched = $stmtReq->fetch(PDO::FETCH_ASSOC);
+            if ($fetched) {
+                $stayRequest = $fetched;
+            }
         } else if (!empty($email) || !empty($reg_no)) {
             $checkEmail = !empty($email) ? $email : $wallet['email'];
             $stmtReq = $db->prepare("SELECT *, GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), hold_expires_at)) as hold_remaining_seconds 
                                      FROM temporary_stay_requests WHERE email = ? ORDER BY id DESC LIMIT 1");
             $stmtReq->execute([$checkEmail]);
-            $stayRequest = $stmtReq->fetch(PDO::FETCH_ASSOC);
+            $fetched = $stmtReq->fetch(PDO::FETCH_ASSOC);
+            if ($fetched) {
+                $stayRequest = $fetched;
+            }
         }
 
         echo json_encode([
             "success" => true,
             "wallet" => $wallet,
             "balance" => (float)$wallet['balance'],
+            "transaction_count" => count($transactions),
             "transactions" => $transactions,
             "stay_request" => $stayRequest
         ]);
@@ -214,8 +310,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     try {
         $wallet = getOrCreateWallet($db, $email, $student_id, $reg_no);
 
-        // 1. ADD FUNDS
+        // 1. ADD FUNDS (Restricted to Administrators; Students must use Razorpay)
         if ($action === 'add_funds') {
+            $userRole = strtolower($authUser['role'] ?? '');
+            if (!in_array($userRole, ['admin', 'super_admin'])) {
+                http_response_code(403);
+                echo json_encode([
+                    "success" => false,
+                    "message" => "Direct wallet top-up requires administrator authorization. Students must use the Razorpay payment gateway."
+                ]);
+                exit();
+            }
+
             $amount = (float)($input['amount'] ?? 0);
             if ($amount <= 0) {
                 echo json_encode(["success" => false, "message" => "Amount must be greater than 0"]);
@@ -301,16 +407,38 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 ]);
                 exit();
             }
-
             $txnId = 'TXN-' . strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 10));
-            $newBalance = $wallet['balance'] - $feeToPay;
 
             $db->beginTransaction();
 
-            // 1. Debit Wallet
+            // Re-fetch wallet with FOR UPDATE lock to prevent race conditions / stale reads
+            $lockedWalletStmt = $db->prepare("SELECT id, balance FROM user_wallets WHERE id = ? LIMIT 1 FOR UPDATE");
+            $lockedWalletStmt->execute([$wallet['id']]);
+            $lockedWallet = $lockedWalletStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$lockedWallet) {
+                $db->rollBack();
+                echo json_encode(["success" => false, "message" => "Wallet not found. Please try again."]);
+                exit();
+            }
+            $lockedBalance = (float)$lockedWallet['balance'];
+            if ($lockedBalance < $feeToPay) {
+                $db->rollBack();
+                $shortage = $feeToPay - $lockedBalance;
+                echo json_encode([
+                    "success" => false,
+                    "insufficient_balance" => true,
+                    "balance" => $lockedBalance,
+                    "amount_required" => $feeToPay,
+                    "shortage" => $shortage,
+                    "message" => "Insufficient wallet balance. Please add ₹" . number_format($shortage, 2) . " to complete payment."
+                ]);
+                exit();
+            }
+            $newBalance = $lockedBalance - $feeToPay;
+
+            // 1. Debit Wallet (atomic — using locked balance prevents stale reads)
             $db->prepare("UPDATE user_wallets SET balance = ? WHERE id = ?")->execute([$newBalance, $wallet['id']]);
-            $db->prepare("INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description) VALUES (?, ?, 'debit', ?, ?, ?, ?)")
-               ->execute([$wallet['id'], $email, $feeToPay, $newBalance, $txnId, "Stay Fee for Room " . $req['room_no'] . " (" . $req['hostel_name'] . ")"]);
+            $db->prepare("INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description) VALUES (?, ?, 'debit', ?, ?, ?, ?)")->execute([$wallet['id'], $email, $feeToPay, $newBalance, $txnId, "Stay Fee for Room " . $req['room_no'] . " (" . $req['hostel_name'] . ")"]);
 
             // 2. Mark Temporary Stay as Paid & Allocated
             $db->prepare("UPDATE temporary_stay_requests SET payment_status = 'paid', status = 'allocated', hold_status = 'confirmed', payment_txn_id = ? WHERE request_id = ?")
@@ -349,6 +477,34 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     sendFCM($userFCM['fcm_token'], $notifTitle, $notifBody, $request_id, 'system', 'VSTAY Allocation', $notifBody, 'temporary_stay', 'student');
                 }
             } catch (Exception $eNotif) {}
+
+            // 6. Outbound real-time sync to VStudy Short Stay ERP API
+            $vstudySync = null;
+            try {
+                require_once __DIR__ . '/../utils/vstudy_sync_helper.php';
+                $rollNumber = explode('@', $req['email'])[0];
+                if (!is_numeric($rollNumber) || empty($rollNumber)) {
+                    $uStmt = $db->prepare("SELECT username FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1");
+                    $uStmt->execute([$req['email']]);
+                    $uRow = $uStmt->fetch(PDO::FETCH_ASSOC);
+                    if (!empty($uRow['username'])) {
+                        $rollNumber = $uRow['username'];
+                    } else {
+                        $rollNumber = !empty($req['doc_number']) ? $req['doc_number'] : $req['request_id'];
+                    }
+                }
+                $rCode = !empty($req['room_code']) ? $req['room_code'] : $req['room_no'];
+                $vstudySync = syncShortStayToVStudy(
+                    $rollNumber,
+                    $rCode,
+                    $req['hostel_name'] ?? '',
+                    $req['from_date'] ?? date('Y-m-d'),
+                    $req['to_date'] ?? date('Y-m-d', strtotime('+1 day')),
+                    generateUuidV4()
+                );
+            } catch (Exception $eSync) {
+                error_log("VStudy short stay sync error from wallet: " . $eSync->getMessage());
+            }
 
             echo json_encode([
                 "success" => true,

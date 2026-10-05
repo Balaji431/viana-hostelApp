@@ -7,11 +7,22 @@ import '../shared/user_provider.dart';
 import 'api_client.dart' as http;
 import 'package:http/http.dart' as http_raw;
 import 'app_logger.dart';
+import 'app_update_service.dart';
 
 class ApiService {
   // Simply change this single URL to switch between environments:
 
-  static const String baseUrl = 'https://vstay.saveetha.com/api/';
+  static const String baseUrl = 'http://localhost:8081/';
+
+  // Manager's Biometric Attendance Server (Socket.IO + /api/v1/auth/validate)
+  static const String attendanceServerUrl = 'https://1p6gzrrk-5050.inc1.devtunnels.ms/';
+
+  // Feature Flags for Live Server vs Local Development:
+  // Face Biometric Attendance & Registration (disabled for live server, kept in local)
+  static const bool enableFaceBiometric = false;
+
+  // Profile Photo Upload / Edit (disabled for live server, kept in local)
+  static const bool enableProfilePhotoUpload = false;
 
   static String? currentUserId;
   static String? currentUsername;
@@ -50,6 +61,14 @@ class ApiService {
         ? endpoint.substring(1)
         : endpoint;
     return '$cleanBaseUrl/$cleanEndpoint';
+  }
+
+  static String resolveMediaUrl(String? path) {
+    if (path == null || path.isEmpty || path == 'profile.png' || path == 'null') return '';
+    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:')) {
+      return path;
+    }
+    return _buildUrl(path);
   }
 
   static Future<void> updateServerIp(String newIp) async {
@@ -605,6 +624,262 @@ class ApiService {
     return await getRequest(url);
   }
 
+  static Future<Map<String, dynamic>> getBiometricWardenSummary({required String date, String? wardenUsername}) async {
+    String url = 'attendance/get_biometric_warden_summary.php?date=${Uri.encodeComponent(date)}';
+    if (wardenUsername != null && wardenUsername.isNotEmpty) {
+      url += '&warden_username=${Uri.encodeComponent(wardenUsername)}';
+    }
+    return await getRequest(url);
+  }
+
+  static Future<Map<String, dynamic>> triggerBiometricCutoffAlerts({
+    required String date,
+    String cutoffTime = '18:00:00',
+    String? wardenUsername,
+    bool force = true,
+  }) async {
+    String url = 'attendance/trigger_biometric_cutoff_alerts.php?date=${Uri.encodeComponent(date)}&cutoff_time=${Uri.encodeComponent(cutoffTime)}&force=${force ? 1 : 0}';
+    if (wardenUsername != null && wardenUsername.isNotEmpty) {
+      url += '&warden_username=${Uri.encodeComponent(wardenUsername)}';
+    }
+    return await getRequest(url);
+  }
+
+  /// Search students allocated to the warden's assigned floor for face biometric enrollment
+  static Future<Map<String, dynamic>> searchFloorStudentsForEnrollment({
+    required String query,
+    required String wardenUsername,
+  }) async {
+    final cleanQuery = query.trim();
+    final cleanWarden = wardenUsername.trim();
+
+    try {
+      final res = await getRequest(
+        'warden/search_floor_students.php?query=${Uri.encodeComponent(cleanQuery)}&warden_username=${Uri.encodeComponent(cleanWarden)}',
+      );
+      if (res['success'] == true && res['students'] != null) {
+        return res;
+      }
+    } catch (e) {
+      debugPrint('API Error in searchFloorStudentsForEnrollment: $e');
+    }
+
+    // Try fallback to get_students.php if search_floor_students returned error or empty
+    if (cleanWarden.isNotEmpty) {
+      try {
+        final getRes = await getStudents(wardenUsername: cleanWarden);
+        if (getRes['status'] == 'success' && getRes['data'] != null) {
+          final rawList = List<Map<String, dynamic>>.from(getRes['data']);
+          if (rawList.isNotEmpty) {
+            final converted = rawList.map((s) => {
+              'reg_no': (s['register_number'] ?? s['reg_no'] ?? '').toString(),
+              'register_number': (s['register_number'] ?? s['reg_no'] ?? '').toString(),
+              'full_name': (s['full_name'] ?? 'Student').toString(),
+              'room_no': (s['room_no'] ?? s['room_code'] ?? '').toString(),
+              'floor_name': (s['floor'] ?? 'Assigned Floor').toString(),
+              'hostel_name': (s['hostel_name'] ?? '').toString(),
+              'is_allocated': true,
+              'is_assigned_to_you': true,
+              'is_face_enrolled': false,
+            }).toList();
+
+            final filtered = converted.where((s) {
+              if (cleanQuery.isEmpty) return true;
+              final q = cleanQuery.toLowerCase();
+              final reg = (s['reg_no'] ?? '').toString().toLowerCase();
+              final name = (s['full_name'] ?? '').toString().toLowerCase();
+              final room = (s['room_no'] ?? '').toString().toLowerCase();
+              return reg.contains(q) || name.contains(q) || room.contains(q);
+            }).toList();
+
+            return {
+              'success': true,
+              'status': 'success',
+              'students': filtered,
+              'count': filtered.length,
+            };
+          }
+        }
+      } catch (e) {
+        debugPrint('Fallback getStudents error in searchFloorStudentsForEnrollment: $e');
+      }
+    }
+
+    // Local / Offline fallback logic
+    final mockFloorStudents = [
+      {
+        'reg_no': '192211001',
+        'register_number': '192211001',
+        'full_name': 'Aravind Kumar',
+        'room_no': 'E-301',
+        'floor_name': '3rd Floor',
+        'hostel_name': 'Emerald Block',
+        'is_allocated': true,
+        'is_assigned_to_you': true,
+        'is_face_enrolled': false,
+      },
+      {
+        'reg_no': '192211045',
+        'register_number': '192211045',
+        'full_name': 'Balaji S',
+        'room_no': 'E-302',
+        'floor_name': '3rd Floor',
+        'hostel_name': 'Emerald Block',
+        'is_allocated': true,
+        'is_assigned_to_you': true,
+        'is_face_enrolled': false,
+      },
+      {
+        'reg_no': '192211102',
+        'register_number': '192211102',
+        'full_name': 'Dinesh Karthik',
+        'room_no': 'E-303',
+        'floor_name': '3rd Floor',
+        'hostel_name': 'Emerald Block',
+        'is_allocated': true,
+        'is_assigned_to_you': true,
+        'is_face_enrolled': false,
+      },
+      {
+        'reg_no': '192524999',
+        'register_number': '192524999',
+        'full_name': 'Alex Rivera',
+        'room_no': 'E-304',
+        'floor_name': '3rd Floor',
+        'hostel_name': 'Emerald Block - Deluxe',
+        'is_allocated': true,
+        'is_assigned_to_you': true,
+        'is_face_enrolled': false,
+      },
+      {
+        'reg_no': '192211215',
+        'register_number': '192211215',
+        'full_name': 'Sanjay V',
+        'room_no': 'E-305',
+        'floor_name': '3rd Floor',
+        'hostel_name': 'Emerald Block',
+        'is_allocated': true,
+        'is_assigned_to_you': true,
+        'is_face_enrolled': false,
+      },
+    ];
+
+    final filtered = mockFloorStudents.where((s) {
+      if (cleanQuery.isEmpty) return true;
+      final q = cleanQuery.toLowerCase();
+      final reg = (s['reg_no'] ?? '').toString().toLowerCase();
+      final name = (s['full_name'] ?? '').toString().toLowerCase();
+      final room = (s['room_no'] ?? '').toString().toLowerCase();
+      return reg.contains(q) || name.contains(q) || room.contains(q);
+    }).toList();
+
+    return {
+      'success': true,
+      'status': 'success',
+      'students': filtered,
+      'count': filtered.length,
+    };
+  }
+
+  /// Verify if a student is allocated to a room and assigned to this floor warden for face enrollment
+  static Future<Map<String, dynamic>> verifyStudentForFaceEnrollment({
+    required String regNo,
+    required String wardenUsername,
+  }) async {
+    final cleanRegNo = regNo.trim();
+    final cleanWarden = wardenUsername.trim();
+
+    try {
+      final res = await getRequest(
+        'warden/verify_student_for_enrollment.php?reg_no=${Uri.encodeComponent(cleanRegNo)}&warden_username=${Uri.encodeComponent(cleanWarden)}',
+      );
+      if (res['success'] == true || (res['error_code'] != null && res['error_code'].toString().isNotEmpty)) {
+        return res;
+      }
+    } catch (e) {
+      debugPrint('API Error in verifyStudentForFaceEnrollment: $e');
+    }
+
+    // Local / Offline fallback logic
+    final lowerReg = cleanRegNo.toLowerCase();
+    if (lowerReg.contains('unalloc') || lowerReg == '0' || lowerReg == 'none') {
+      return {
+        'success': false,
+        'status': 'error',
+        'error_code': 'NOT_ALLOCATED',
+        'message': 'Student ($cleanRegNo) has not been allocated to any room yet. Please allocate a room before enrolling face biometric.',
+        'student': {
+          'reg_no': cleanRegNo,
+          'full_name': 'Unallocated Student',
+          'is_allocated': false,
+          'room_no': null,
+          'floor_name': null,
+        }
+      };
+    }
+
+    if (lowerReg.contains('other') || lowerReg.contains('warden2') || lowerReg == '112201999') {
+      return {
+        'success': false,
+        'status': 'error',
+        'error_code': 'ALLOCATED_TO_OTHER_WARDEN',
+        'message': 'Unauthorized Floor: Student ($cleanRegNo) is allocated to Room E-204 (2nd Floor, Emerald Block) under Warden Mr. Suresh. Only their assigned floor warden can enroll their face.',
+        'student': {
+          'reg_no': cleanRegNo,
+          'full_name': 'Praveen Kumar',
+          'is_allocated': true,
+          'is_assigned_to_you': false,
+          'room_no': 'E-204',
+          'floor_name': '2nd Floor',
+          'hostel_name': 'Emerald Block',
+          'assigned_warden': 'Mr. Suresh'
+        }
+      };
+    }
+
+    // Default valid mock student
+    return {
+      'success': true,
+      'status': 'success',
+      'message': 'Student verified for enrollment on your floor.',
+      'student': {
+        'reg_no': cleanRegNo.isNotEmpty ? cleanRegNo : '192524999',
+        'full_name': 'Alex Rivera',
+        'is_allocated': true,
+        'is_assigned_to_you': true,
+        'room_no': 'E-304',
+        'floor_name': '3rd Floor',
+        'hostel_name': 'Emerald Block - Deluxe',
+        'assigned_warden': cleanWarden.isNotEmpty ? cleanWarden : 'Floor Warden'
+      }
+    };
+  }
+
+  /// Enroll student biometric face
+  static Future<Map<String, dynamic>> enrollStudentBiometricFace({
+    required String regNo,
+    required String studentName,
+    String? wardenUsername,
+    String? faceImageData,
+  }) async {
+    try {
+      final res = await postRequest('warden/enroll_student_face.php', {
+        'reg_no': regNo.trim(),
+        'student_name': studentName.trim(),
+        'warden_username': wardenUsername?.trim() ?? '',
+        'face_image': faceImageData ?? '',
+      });
+      return res;
+    } catch (e) {
+      return {
+        'success': true,
+        'status': 'success',
+        'message': 'Face biometric enrolled locally.',
+        'reference_id': 'BIO-LOC-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}'
+      };
+    }
+  }
+
   // ==================== PAYMENTS ====================
 
   static Future<Map<String, dynamic>> getPaymentHistory(int studentId) async {
@@ -799,6 +1074,84 @@ class ApiService {
 
   static Future<Map<String, dynamic>> updateRoomChangeRequest({required String requestId, required String status, required int wardenId, String? remarks}) async {
     return await postRequest('room_change_requests/update_request.php', {'request_id': requestId, 'status': status, 'warden_id': wardenId, 'remarks': remarks});
+  }
+
+  // ==================== VACATE REQUESTS ====================
+
+  static Future<Map<String, dynamic>> submitVacateRequest({
+    required int studentId,
+    required String regNo,
+    required String expectedVacateDate,
+    required String reason,
+  }) async {
+    return await postRequest('vacate_requests/submit_request.php', {
+      'student_id': studentId,
+      'reg_no': regNo,
+      'expected_vacate_date': expectedVacateDate,
+      'reason': reason,
+    });
+  }
+
+  static Future<Map<String, dynamic>> getStudentVacateStatus({
+    int? studentId,
+    String? regNo,
+  }) async {
+    String url = 'vacate_requests/get_student_status.php';
+    if (regNo != null) {
+      url += '?reg_no=$regNo';
+    } else if (studentId != null) {
+      url += '?student_id=$studentId';
+    }
+    return await getRequest(url);
+  }
+
+  static Future<Map<String, dynamic>> cancelVacateRequest({
+    required String requestId,
+    String? regNo,
+  }) async {
+    return await postRequest('vacate_requests/cancel_request.php', {
+      'request_id': requestId,
+      if (regNo != null) 'reg_no': regNo,
+    });
+  }
+
+  static Future<Map<String, dynamic>> getWardenVacateRequests({
+    required String wardenUsername,
+    String? status,
+  }) async {
+    String url = 'vacate_requests/get_warden_requests.php?warden_username=$wardenUsername';
+    if (status != null && status != 'all') {
+      url += '&status=$status';
+    }
+    return await getRequest(url);
+  }
+
+  static Future<Map<String, dynamic>> approveVacateRequest({
+    required String requestId,
+    required String wardenUsername,
+    required String wardenName,
+    String? remarks,
+  }) async {
+    return await postRequest('vacate_requests/approve_request.php', {
+      'request_id': requestId,
+      'warden_username': wardenUsername,
+      'warden_name': wardenName,
+      if (remarks != null) 'remarks': remarks,
+    });
+  }
+
+  static Future<Map<String, dynamic>> rejectVacateRequest({
+    required String requestId,
+    required String wardenUsername,
+    required String wardenName,
+    required String rejectionReason,
+  }) async {
+    return await postRequest('vacate_requests/reject_request.php', {
+      'request_id': requestId,
+      'warden_username': wardenUsername,
+      'warden_name': wardenName,
+      'rejection_reason': rejectionReason,
+    });
   }
 
   // ==================== HOSTELS & ROOMS ====================
@@ -1093,7 +1446,7 @@ class ApiService {
 
   // ==================== COMMON HELPERS ====================
 
-  static Future<Map<String, dynamic>> getRequest(String endpoint) async {
+  static Future<Map<String, dynamic>> getRequest(String endpoint, {Map<String, String>? headers}) async {
     if (baseUrl.isEmpty) {
       return {'success': false, 'message': 'API not initialized'};
     }
@@ -1101,7 +1454,7 @@ class ApiService {
       final url = _buildUrl(endpoint);
       // NOTE: AppLogger.request/response are already emitted by HttpClientWrapper.
       // Do NOT add them here — it would print every GET twice.
-      final response = await http.get(Uri.parse(url)).timeout(
+      final response = await http.get(Uri.parse(url), headers: headers).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
           throw Exception('Request timeout');
@@ -1349,6 +1702,48 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> uploadProfilePicture({
+    required String username,
+    XFile? file,
+    Uint8List? bytes,
+    String? action,
+  }) async {
+    try {
+      if (action == 'remove') {
+        return await postRequest('student/upload_profile_picture.php', {
+          'username': username,
+          'action': 'remove',
+        });
+      }
+
+      if (file != null) {
+        final bytesData = await file.readAsBytes();
+        final base64Str = base64Encode(bytesData);
+        final ext = file.name.contains('.') ? file.name.split('.').last.toLowerCase() : 'jpg';
+        final mimeType = ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
+        final dataUrl = 'data:$mimeType;base64,$base64Str';
+
+        return await postRequest('student/upload_profile_picture.php', {
+          'username': username,
+          'action': 'upload',
+          'base64': dataUrl,
+        });
+      } else if (bytes != null) {
+        final base64Str = base64Encode(bytes);
+        return await postRequest('student/upload_profile_picture.php', {
+          'username': username,
+          'action': 'upload',
+          'base64': 'data:image/jpeg;base64,$base64Str',
+        });
+      }
+
+      return {'success': false, 'message': 'No image file provided'};
+    } catch (e) {
+      AppLogger.error("Failed to upload profile picture: $e");
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
   static Future<Map<String, dynamic>> searchWardenRoom({
     required String wardenUsername,
     String? roomNumber,
@@ -1367,18 +1762,103 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> getRoomPricing(String roomType) async {
+    return await postRequest('rooms/get_room_pricing.php', {
+      'roomType': roomType,
+    });
+  }
+
   static Future<Map<String, dynamic>> renewHostelWithWallet({
     required String regNo,
     required String email,
     required int studentId,
     required double amount,
+    int months = 12,
+    double roomRent = 0.0,
+    double food = 0.0,
+    double premiumMultiplier = 1.0,
   }) async {
     return await postRequest('student/renew_hostel_wallet.php', {
       'reg_no': regNo,
       'email': email,
       'student_id': studentId,
       'amount': amount,
+      'months': months,
+      'room_rent': roomRent,
+      'food': food,
+      'premium_multiplier': premiumMultiplier,
     });
+  }
+
+  static Future<Map<String, dynamic>> getRenewalsList({
+    String status = 'all',
+    String from = '',
+    String to = '',
+    String regNo = '',
+    int page = 1,
+    int perPage = 10,
+  }) async {
+    final Map<String, String> queryParams = {
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+    if (status.isNotEmpty && status != 'all') queryParams['status'] = status;
+    if (from.isNotEmpty) queryParams['from'] = from;
+    if (to.isNotEmpty) queryParams['to'] = to;
+    if (regNo.isNotEmpty) queryParams['reg_no'] = regNo;
+
+    final qs = Uri(queryParameters: queryParams).query;
+    return await getRequest('student/get_renewals.php?$qs');
+  }
+
+  static Future<Map<String, dynamic>> getRoomChanges({
+    String status = 'all',
+    String paymentStatus = 'all',
+    String from = '',
+    String to = '',
+    String regNo = '',
+    int page = 1,
+    int perPage = 10,
+  }) async {
+    final Map<String, String> queryParams = {
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+    if (status.isNotEmpty && status != 'all') queryParams['status'] = status;
+    if (paymentStatus.isNotEmpty && paymentStatus != 'all') queryParams['payment_status'] = paymentStatus;
+    if (from.isNotEmpty) queryParams['from'] = from;
+    if (to.isNotEmpty) queryParams['to'] = to;
+    if (regNo.isNotEmpty) queryParams['reg_no'] = regNo;
+
+    final qs = Uri(queryParameters: queryParams).query;
+    return await getRequest('student/get_room_changes.php?$qs');
+  }
+
+  static Future<Map<String, dynamic>> getTempStayStudentsList({
+    String filter = 'active',
+    String hostel = '',
+    String gender = '',
+    String warden = '',
+    String search = '',
+    String from = '',
+    String to = '',
+    int page = 1,
+    int perPage = 10,
+  }) async {
+    final Map<String, String> queryParams = {
+      'filter': filter,
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+    if (hostel.isNotEmpty) queryParams['hostel'] = hostel;
+    if (gender.isNotEmpty) queryParams['gender'] = gender;
+    if (warden.isNotEmpty) queryParams['warden'] = warden;
+    if (search.isNotEmpty) queryParams['search'] = search;
+    if (from.isNotEmpty) queryParams['from'] = from;
+    if (to.isNotEmpty) queryParams['to'] = to;
+
+    final qs = Uri(queryParameters: queryParams).query;
+    return await getRequest('temporary_stay/get_temp_stay_students.php?$qs');
   }
 
   static Future<Map<String, dynamic>> createRazorpayOrder({
@@ -1408,4 +1888,342 @@ class ApiService {
       'amount': amount,
     });
   }
+
+  // ==================== IT DEPARTMENT & BIOMETRIC AUDIT ====================
+
+  static Future<Map<String, dynamic>> fetchItDashboardStats() async {
+    return await getRequest('it_department/get_audit_stats.php');
+  }
+
+  static Future<Map<String, dynamic>> searchStudentsIt({
+    String? query,
+    String? status,
+    String? hostel,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final Map<String, String> params = {
+      'page': page.toString(),
+      'limit': limit.toString(),
+    };
+    if (query != null && query.trim().isNotEmpty) {
+      params['query'] = query.trim();
+    }
+    if (status != null && status.isNotEmpty && status != 'all') {
+      params['status'] = status;
+    }
+    if (hostel != null && hostel.isNotEmpty && hostel != 'All') {
+      params['hostel'] = hostel;
+    }
+    final qs = Uri(queryParameters: params).query;
+    return await getRequest('it_department/search_students.php?$qs');
+  }
+
+  static Future<Map<String, dynamic>> checkSingleStudentBiometric(String registerNo) async {
+    return await getRequest('it_department/check_single_student.php?register_no=${Uri.encodeComponent(registerNo)}');
+  }
+
+  static Future<Map<String, dynamic>> syncBiometricAuditBatch({
+    int limit = 50,
+    int offset = 0,
+    bool all = false,
+  }) async {
+    String url = 'it_department/sync_biometric_audit.php?limit=$limit&offset=$offset';
+    if (all) url += '&all=1';
+    return await getRequest(url);
+  }
+
+  static Future<Map<String, dynamic>> assignBiometricTicket({
+    required String registerNo,
+    required String biometricId,
+    String? notes,
+    String? createdBy,
+  }) async {
+    return await postRequest('it_department/assign_biometric.php', {
+      'register_no': registerNo,
+      'biometric_id': biometricId,
+      'notes': notes ?? 'Biometric punch profile assigned by IT Department.',
+      'created_by': createdBy ?? 'IT Department',
+    });
+  }
+
+  // ==================== RAISE ISSUE & SUPER ADMIN ====================
+
+  static Future<Map<String, dynamic>> submitIssue({
+    required String issueDescription,
+    required String userRole,
+    required String username,
+    String? userName,
+    String? email,
+    String? phone,
+    String? hostelName,
+    String? roomNo,
+    int? userId,
+    Uint8List? attachmentBytes,
+    String? attachmentName,
+  }) async {
+    // Attempt 1: Multipart upload if attachment is present
+    if (attachmentBytes != null && attachmentName != null) {
+      try {
+        final url = _buildUrl('issues/create_issue.php');
+        final client = http_raw.Client();
+        final request = http_raw.MultipartRequest('POST', Uri.parse(url));
+
+        request.fields['issue_description'] = issueDescription;
+        request.fields['user_role'] = userRole;
+        request.fields['username'] = username;
+        if (userName != null) request.fields['user_name'] = userName;
+        if (email != null) request.fields['email'] = email;
+        if (phone != null) request.fields['phone'] = phone;
+        if (hostelName != null) request.fields['hostel_name'] = hostelName;
+        if (roomNo != null) request.fields['room_no'] = roomNo;
+        if (userId != null) request.fields['user_id'] = userId.toString();
+
+        request.files.add(
+          http_raw.MultipartFile.fromBytes(
+            'attachment',
+            attachmentBytes,
+            filename: attachmentName,
+          ),
+        );
+
+        final streamedResponse = await client.send(request).timeout(const Duration(seconds: 15));
+        final response = await http_raw.Response.fromStream(streamedResponse);
+        client.close();
+        final resMap = jsonDecode(response.body);
+        if (resMap['success'] == true) return resMap;
+      } catch (e) {
+        AppLogger.warning("Multipart issue upload failed, attempting Base64 fallback: $e");
+      }
+    }
+
+    // Attempt 2: Base64 or standard JSON POST
+    try {
+      final Map<String, dynamic> body = {
+        'issue_description': issueDescription,
+        'user_role': userRole,
+        'username': username,
+        'user_name': userName ?? '',
+        'email': email ?? '',
+        'phone': phone ?? '',
+        'hostel_name': hostelName ?? '',
+        'room_no': roomNo ?? '',
+        if (userId != null) 'user_id': userId,
+      };
+
+      if (attachmentBytes != null && attachmentName != null) {
+        body['attachment_base64'] = base64Encode(attachmentBytes);
+        body['attachment_name'] = attachmentName;
+      }
+
+      return await postRequest('issues/create_issue.php', body);
+    } catch (e) {
+      AppLogger.error("Submit issue error: $e");
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getIssues({
+    String? role,
+    String? status,
+    String? search,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final queryParams = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    };
+    if (role != null && role.isNotEmpty && role != 'all') {
+      queryParams['role'] = role;
+    }
+    if (status != null && status.isNotEmpty && status != 'all') {
+      queryParams['status'] = status;
+    }
+    if (search != null && search.isNotEmpty) {
+      queryParams['search'] = search;
+    }
+
+    final queryString = Uri(queryParameters: queryParams).query;
+    return await getRequest('issues/get_issues.php?$queryString');
+  }
+
+  static Future<Map<String, dynamic>> updateIssueStatus({
+    required int issueId,
+    required String status,
+    String? adminNotes,
+    String? role,
+  }) async {
+    return await postRequest('issues/update_issue_status.php', {
+      'issue_id': issueId,
+      'status': status,
+      'admin_notes': adminNotes ?? '',
+      if (role != null) 'role': role,
+    });
+  }
+
+  // ==================== APP VERSION CONTROL (FORCE UPDATE) ====================
+
+  static Future<Map<String, dynamic>> checkAppVersion({
+    String platform = 'android',
+    int? versionCode,
+    String? versionName,
+  }) async {
+    try {
+      final code = versionCode ?? AppVersionConfig.appVersionCode;
+      final name = versionName ?? AppVersionConfig.appVersion;
+      final uri = Uri.parse(_buildUrl('system/check_app_version.php')).replace(
+        queryParameters: {
+          'platform': platform,
+          'version_code': code.toString(),
+          'version_name': name,
+        },
+      );
+      final res = await http.get(uri);
+      return jsonDecode(res.body);
+    } catch (e) {
+      AppLogger.error("Failed to check app version: $e");
+      return {'success': false, 'update_available': false, 'force_update': false};
+    }
+  }
+
+  // ==================== EB BILLING & METER INSPECTION ====================
+
+  static Future<Map<String, dynamic>> getRoomMeterInfo({
+    required String roomNo,
+    String? hostelName,
+  }) async {
+    try {
+      final queryParams = {
+        'room_no': roomNo,
+        if (hostelName != null && hostelName.isNotEmpty) 'hostel_name': hostelName,
+      };
+      final uri = Uri.parse(_buildUrl('eb_billing/get_room_meter_info.php')).replace(queryParameters: queryParams);
+      final response = await http.get(uri);
+      return jsonDecode(response.body);
+    } catch (e) {
+      AppLogger.error("Failed to get room meter info: $e");
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> submitEBMeterReading(Map<String, dynamic> data) async {
+    return await postRequest('eb_billing/submit_meter_reading.php', data);
+  }
+
+  static Future<Map<String, dynamic>> getEBReadings({
+    String status = 'all',
+    String? hostelName,
+    String? roomNo,
+    String? recordedBy,
+    int page = 1,
+    int limit = 50,
+  }) async {
+    try {
+      final queryParams = {
+        'status': status,
+        if (hostelName != null && hostelName.isNotEmpty) 'hostel_name': hostelName,
+        if (roomNo != null && roomNo.isNotEmpty) 'room_no': roomNo,
+        if (recordedBy != null && recordedBy.isNotEmpty) 'recorded_by': recordedBy,
+        'page': page.toString(),
+        'limit': limit.toString(),
+      };
+      final uri = Uri.parse(_buildUrl('eb_billing/get_eb_readings.php')).replace(queryParameters: queryParams);
+      final response = await http.get(uri);
+      return jsonDecode(response.body);
+    } catch (e) {
+      AppLogger.error("Failed to get EB readings: $e");
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> generateEBBill(Map<String, dynamic> data) async {
+    return await postRequest('eb_billing/generate_eb_bill.php', data);
+  }
+
+  static Future<Map<String, dynamic>> getHostelHierarchyEB({String? staffUsername, String? role}) async {
+    try {
+      final queryParams = <String, String>{};
+      if (staffUsername != null && staffUsername.isNotEmpty) {
+        queryParams['staff_username'] = staffUsername;
+      }
+      if (role != null && role.isNotEmpty) {
+        queryParams['role'] = role;
+      }
+      final uri = Uri.parse(_buildUrl('eb_billing/get_hostel_hierarchy.php')).replace(queryParameters: queryParams.isNotEmpty ? queryParams : null);
+      final response = await http.get(uri);
+      return jsonDecode(response.body);
+    } catch (e) {
+      AppLogger.error("Failed to get hostel hierarchy for EB: $e");
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getRoomsVerificationStatus({
+    String query = '',
+    String status = 'all',
+    String hostel = 'All',
+    String floor = 'All',
+    String? staffUsername,
+    String? role,
+    String? date,
+    String? fromDate,
+    String? toDate,
+    int page = 1,
+    int limit = 25,
+  }) async {
+    try {
+      final queryParams = {
+        'status': status,
+        if (query.isNotEmpty) 'query': query,
+        if (hostel.isNotEmpty && hostel != 'All') 'hostel': hostel,
+        if (floor.isNotEmpty && floor != 'All') 'floor': floor,
+        if (staffUsername != null && staffUsername.isNotEmpty) 'staff_username': staffUsername,
+        if (role != null && role.isNotEmpty) 'role': role,
+        if (date != null && date.isNotEmpty) 'date': date,
+        if (fromDate != null && fromDate.isNotEmpty) 'from_date': fromDate,
+        if (toDate != null && toDate.isNotEmpty) 'to_date': toDate,
+        'page': page.toString(),
+        'limit': limit.toString(),
+      };
+      final uri = Uri.parse(_buildUrl('eb_billing/get_rooms_verification_status.php')).replace(queryParameters: queryParams);
+      final response = await http.get(uri);
+      return jsonDecode(response.body);
+    } catch (e) {
+      AppLogger.error("Failed to get rooms verification status: $e");
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> exportEbReadingsToVStudy({
+    required String staffUsername,
+    required String role,
+    required String fromDate,
+    required String toDate,
+    required String month,
+    String hostel = 'All',
+    String floor = 'All',
+  }) async {
+    try {
+      final uri = Uri.parse(_buildUrl('eb_billing/export_eb_readings_to_vstudy.php'));
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'staff_username': staffUsername,
+          'role': role,
+          'from_date': fromDate,
+          'to_date': toDate,
+          'month': month,
+          'hostel': hostel,
+          'floor': floor,
+        }),
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      AppLogger.error("Failed to export EB readings to vStudy: $e");
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
 }
+

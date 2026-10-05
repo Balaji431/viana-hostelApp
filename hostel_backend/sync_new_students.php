@@ -17,6 +17,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 
 require_once __DIR__ . '/config/api_config.php';
 require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/utils/auth_helper.php';
+
+if (PHP_SAPI !== 'cli') {
+    requireAuth(['super_admin', 'admin']);
+}
 
 try {
     $db = (new Database())->getConnection();
@@ -65,6 +70,33 @@ try {
         return $all;
     }
 
+    function parseDateSafe($val, $fallback = null) {
+        if (empty($val)) return $fallback;
+        $val = trim($val);
+        if (preg_match('/^(\d{1,2})[\.\/](\d{1,2})[\.\/](\d{4})$/', $val, $m)) {
+            $d = (int)$m[1];
+            $mo = (int)$m[2];
+            $y = (int)$m[3];
+            if ($mo > 12 && $d <= 12) {
+                $tmp = $d; $d = $mo; $mo = $tmp;
+            }
+            return sprintf('%04d-%02d-%02d', $y, $mo, $d);
+        }
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})/', $val, $m)) {
+            return sprintf('%04d-%02d-%02d', (int)$m[1], (int)$m[2], (int)$m[3]);
+        }
+        try {
+            $dt = new DateTime($val);
+            return $dt->format('Y-m-d');
+        } catch (Exception $e) {
+            $ts = strtotime($val);
+            if ($ts !== false && $ts > 0) {
+                return date('Y-m-d', $ts);
+            }
+        }
+        return $fallback;
+    }
+
     // 1. Fetch from external APIs
     $bookedRooms = fetchAuthPages("https://vstudy.saveetha.com/api/hostel-settings/booked-rooms/external");
     $paidApps    = fetchAuthPages("https://vstudy.saveetha.com/api/hostel-applications/paid");
@@ -72,7 +104,7 @@ try {
     $pwHash = password_hash('welcome123', PASSWORD_BCRYPT);
     $today  = new DateTime('today');
 
-    $checkUserStmt  = $db->prepare("SELECT id, email_override FROM users WHERE username = ?");
+    $checkUserStmt  = $db->prepare("SELECT id FROM users WHERE username = ?");
     $insertUserStmt = $db->prepare("
         INSERT INTO users (
             username, full_name, email, phone_number, role, password, Campus, Institution,
@@ -82,12 +114,10 @@ try {
             :HostelName, :HostelType, :RoomType, :RoomId, '1', 1
         )
     ");
-    // email_override=1 → do NOT overwrite email/phone set manually by admin
+    // Preserve existing emails & phone numbers on update (only sync room transfers, hostel, campus, etc.)
     $updateUserStmt = $db->prepare("
         UPDATE users SET 
             full_name = ?, 
-            email = IF(email_override = 1, email, ?),
-            phone_number = IF(email_override = 1, phone_number, ?),
             Campus = ?, HostelName = ?, HostelType = ?, RoomType = ?, RoomId = ?
         WHERE username = ? AND role = 'student'
     ");
@@ -96,19 +126,19 @@ try {
         INSERT INTO profile (
             full_name, reg_no, user_id, email, personal_phone, room_allocation, warden,
             institution, hostel_name, address, renewal_date, remaining_days,
-            check_in_date, valid_from
+            check_in_date, valid_from, valid_to
         ) VALUES (
             :full_name, :reg_no, :user_id, :email, :personal_phone, :room_allocation, :warden,
             :institution, :hostel_name, :address, :renewal_date, :remaining_days,
-            :check_in_date, :valid_from
+            :check_in_date, :valid_from, :valid_to
         ) ON DUPLICATE KEY UPDATE 
             full_name = VALUES(full_name),
-            email = COALESCE(VALUES(email), email),
-            personal_phone = COALESCE(VALUES(personal_phone), personal_phone),
             room_allocation = VALUES(room_allocation), 
             warden = COALESCE(NULLIF(VALUES(warden),''), warden), 
             hostel_name = VALUES(hostel_name),
-            renewal_date = VALUES(renewal_date), remaining_days = VALUES(remaining_days),
+            renewal_date = VALUES(renewal_date),
+            valid_to = VALUES(valid_to),
+            remaining_days = VALUES(remaining_days),
             check_in_date = VALUES(check_in_date), valid_from = VALUES(valid_from)
     ");
 
@@ -144,32 +174,32 @@ try {
         $email  = trim($b['email'] ?? '');
         $phone  = trim($b['phone'] ?? '');
         $gender = strtolower(trim($b['gender'] ?? ''));
-        $campus = trim($b['campus'] ?? 'Thandalam Campus');
+        $campus = trim($b['campus'] ?? '');
         $hostel = trim($b['hostelName'] ?? '');
         $roomNo = trim($b['roomNumber'] ?? '');
+        if (empty($campus) || $campus === 'SIMATS') {
+            if (stripos($hostel, 'Radiance') !== false || stripos($hostel, 'Stunner') !== false || strpos($roomNo, 'P-') === 0 || strpos($roomNo, 'P0') === 0) {
+                $campus = 'Poonamallee Campus';
+            } else {
+                $campus = 'Thandalam Campus';
+            }
+        }
         $rType  = trim($b['roomType'] ?? '');
         $hType  = ($gender === 'female' || strpos(strtolower($hostel), 'girls') !== false || strpos(strtolower($hostel), 'ponni') !== false || strpos(strtolower($hostel), 'vaigai') !== false || strpos(strtolower($hostel), 'siruvani') !== false) ? 'Girls' : 'Boys';
         $renStr = trim($b['renewalDate'] ?? '');
         $booked = trim($b['bookedAt'] ?? $b['paidAt'] ?? '');
 
-        $calcRenewal = null;
-        if (!empty($renStr) && strtotime($renStr) !== false) {
-            $calcRenewal = new DateTime($renStr);
-        } else if (!empty($booked) && strtotime($booked) !== false) {
-            $calcRenewal = (clone new DateTime($booked))->modify('+1 year');
-        } else {
-            $calcRenewal = (clone $today)->modify('+1 year');
-        }
+        $parsedRen = parseDateSafe($renStr);
+        $parsedBooked = parseDateSafe($booked);
 
-        $renFormatted = $calcRenewal->format('Y-m-d');
-        $remDays = ($calcRenewal < $today) ? 0 : (int)$today->diff($calcRenewal)->format('%r%a');
-
-        $checkInFormatted = null;
-        if (!empty($booked) && strtotime($booked) !== false) {
-            $checkInFormatted = (new DateTime($booked))->format('Y-m-d');
-        } else {
-            $checkInFormatted = $today->format('Y-m-d');
+        $renFormatted = null;
+        $remDays = null;
+        if (!empty($parsedRen)) {
+            $calcRenewal = new DateTime($parsedRen);
+            $renFormatted = $calcRenewal->format('Y-m-d');
+            $remDays = ($calcRenewal < $today) ? 0 : (int)$today->diff($calcRenewal)->format('%r%a');
         }
+        $checkInFormatted = $parsedBooked ?: null;
 
         $checkUserStmt->execute([$roll]);
         $existingRow   = $checkUserStmt->fetch(PDO::FETCH_ASSOC);
@@ -192,8 +222,7 @@ try {
             $existingId = $db->lastInsertId();
             $newStudentsAdded++;
         } else {
-            // Pass email & phone twice: once for IF() true branch, once for IF() false branch
-            $updateUserStmt->execute([$name, $email, $phone, $campus, $hostel, $hType, $rType, $roomNo, $roll]);
+            $updateUserStmt->execute([$name, $campus, $hostel, $hType, $rType, $roomNo, $roll]);
         }
 
         $assignedWarden = null;
@@ -207,18 +236,18 @@ try {
             ':full_name'       => $name,
             ':reg_no'          => $roll,
             ':user_id'         => $existingId,
-            // If email_override is set, pass null so ON DUPLICATE KEY skips the email update
-            ':email'           => ($emailOverride ? null : $email),
-            ':personal_phone'  => ($emailOverride ? null : $phone),
+            ':email'           => $email,
+            ':personal_phone'  => $phone,
             ':room_allocation' => $roomNo,
             ':warden'          => $assignedWarden,
             ':institution'     => 'SIMATS',
             ':hostel_name'     => $hostel,
-            ':address'         => 'Thandalam Campus, Chennai',
-            ':renewal_date'   => $renFormatted,
-            ':remaining_days' => $remDays,
+            ':address'         => ($campus ?: 'Thandalam Campus') . ', Chennai',
+            ':renewal_date'    => $renFormatted,
+            ':remaining_days'  => $remDays,
             ':check_in_date'   => $checkInFormatted,
-            ':valid_from'      => $checkInFormatted
+            ':valid_from'      => $checkInFormatted,
+            ':valid_to'        => $renFormatted
         ]);
 
         $parentId = "P_" . $roll;
@@ -241,22 +270,28 @@ try {
         $email  = trim($app['student']['email'] ?? '');
         $phone  = trim($app['student']['phone'] ?? '');
         $gender = strtolower(trim($app['room']['gender'] ?? ''));
-        $campus = trim($app['hostel']['campus'] ?? 'Thandalam Campus');
+        $campus = trim($app['hostel']['campus'] ?? '');
         $hostel = trim($app['hostel']['name'] ?? '');
         $roomNo = trim($app['room']['roomNumber'] ?? '');
+        if (empty($campus) || $campus === 'SIMATS') {
+            if (stripos($hostel, 'Radiance') !== false || stripos($hostel, 'Stunner') !== false || strpos($roomNo, 'P-') === 0 || strpos($roomNo, 'P0') === 0) {
+                $campus = 'Poonamallee Campus';
+            } else {
+                $campus = 'Thandalam Campus';
+            }
+        }
         $rType  = trim($app['room']['roomType'] ?? '');
         $hType  = ($gender === 'female' || strpos(strtolower($hostel), 'girls') !== false || strpos(strtolower($hostel), 'ponni') !== false || strpos(strtolower($hostel), 'vaigai') !== false || strpos(strtolower($hostel), 'siruvani') !== false) ? 'Girls' : 'Boys';
         $paid   = trim($app['paidAt'] ?? $app['appliedAt'] ?? '');
 
+        $rawRenewal = trim($app['renewalDate'] ?? $app['renewal_date'] ?? '');
         $calcRenewal = null;
-        if (!empty($paid) && strtotime($paid) !== false) {
-            $calcRenewal = (clone new DateTime($paid))->modify('+1 year');
-        } else {
-            $calcRenewal = (clone $today)->modify('+1 year');
+        if (!empty($rawRenewal) && strtotime($rawRenewal) !== false) {
+            $calcRenewal = new DateTime($rawRenewal);
         }
 
-        $renFormatted = $calcRenewal->format('Y-m-d');
-        $remDays = ($calcRenewal < $today) ? 0 : (int)$today->diff($calcRenewal)->format('%r%a');
+        $renFormatted = $calcRenewal ? $calcRenewal->format('Y-m-d') : null;
+        $remDays = ($calcRenewal && $calcRenewal >= $today) ? (int)$today->diff($calcRenewal)->format('%r%a') : 0;
 
         $checkInFormatted = null;
         if (!empty($paid) && strtotime($paid) !== false) {
@@ -306,7 +341,7 @@ try {
             ':warden'          => $assignedWarden,
             ':institution'     => 'SIMATS',
             ':hostel_name'     => $hostel,
-            ':address'         => 'Thandalam Campus, Chennai',
+            ':address'         => ($campus ?: 'Thandalam Campus') . ', Chennai',
             ':renewal_date'   => $renFormatted,
             ':remaining_days' => $remDays,
             ':check_in_date'   => $checkInFormatted,

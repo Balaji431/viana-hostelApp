@@ -10,6 +10,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/auth_helper.php';
+
+$authUser = requireAuth();
 
 $raw_input = file_get_contents("php://input");
 $data = json_decode($raw_input);
@@ -18,8 +21,28 @@ $user_id = $data->user_id ?? null;
 $old_password = $data->old_password ?? null;
 $new_password = $data->new_password ?? null;
 
-if (!$user_id || !$old_password || !$new_password) {
+if (!$user_id || !$new_password) {
     echo json_encode(['success' => false, 'message' => 'Missing required fields']);
+    exit;
+}
+
+$isAdmin = in_array(strtolower($authUser['role'] ?? ''), ['admin', 'super_admin']);
+
+// Non-admins can only change their own password and MUST supply their old password
+if (!$isAdmin) {
+    if ((int)$user_id !== (int)($authUser['id'] ?? 0)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Forbidden: You cannot change another user\'s password.']);
+        exit;
+    }
+    if (empty($old_password)) {
+        echo json_encode(['success' => false, 'message' => 'Current password is required']);
+        exit;
+    }
+}
+
+if (strlen($new_password) < 6) {
+    echo json_encode(['success' => false, 'message' => 'New password must be at least 6 characters long']);
     exit;
 }
 
@@ -28,8 +51,8 @@ try {
     $db = $database->getConnection();
 
     // Determine the correct table based on role
-    $role = $data->role ?? 'student';
-    $table = ($role === 'parent') ? 'parent_users' : 'users';
+    $role = $data->role ?? ($authUser['role'] ?? 'student');
+    $table = (strtolower($role) === 'parent') ? 'parent_users' : 'users';
 
     // 1. Fetch current password hash
     $query = "SELECT password FROM $table WHERE id = :id LIMIT 1";
@@ -45,13 +68,12 @@ try {
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     $current_hash = $row['password'];
 
-    // 2. Verify old password
-    // Allow 'admin123' etc. as fallback to match login.php master passwords
-    $is_master_password = ($old_password === 'admin123' || $old_password === 'password' || $old_password === '123456');
-    
-    if (!password_verify($old_password, $current_hash) && $old_password !== $current_hash && !$is_master_password) {
-        echo json_encode(['success' => false, 'message' => 'Incorrect old password']);
-        exit;
+    // 2. Verify old password for non-admin requests
+    if (!$isAdmin) {
+        if (!password_verify($old_password, $current_hash) && $old_password !== $current_hash) {
+            echo json_encode(['success' => false, 'message' => 'Incorrect old password']);
+            exit;
+        }
     }
 
     // 3. Hash and update new password

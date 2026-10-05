@@ -7,6 +7,7 @@ import '../../shared/screens/privacy_policy_screen.dart';
 import '../../warden/widgets/warden_widgets.dart' show LinenBackground;
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../core/api_service.dart';
+import '../../shared/widgets/user_avatar_header.dart';
 
 class MaintenanceSettingsTab extends StatefulWidget {
   const MaintenanceSettingsTab({super.key});
@@ -74,23 +75,7 @@ class _MaintenanceSettingsTabState extends State<MaintenanceSettingsTab> {
       ),
       child: Column(
         children: [
-          Container(
-            width: 100,
-            height: 100,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: SkeuomorphicColors.goldGlossyGradient,
-              boxShadow: [
-                BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5)),
-              ],
-            ),
-            child: Center(
-              child: Text(
-                displayName.isNotEmpty ? displayName[0].toUpperCase() : 'M',
-                style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Color(0xFF1a2744)),
-              ),
-            ),
-          ),
+          UserHeaderAvatar(user: user, size: 100),
           const SizedBox(height: 15),
           Text(
             displayName,

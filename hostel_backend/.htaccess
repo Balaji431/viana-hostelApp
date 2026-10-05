@@ -16,7 +16,7 @@
     # Set Access-Control headers in the always table
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Origin, Accept, X-User-Id, X-User-Username, X-User-Role"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Origin, Accept, X-User-Id, X-User-Username, X-User-Role, x-client-id, x-client-secret, X-Client-Id, X-Client-Secret"
     Header always set Access-Control-Expose-Headers "Content-Type, Authorization, X-Requested-With, Origin, Accept, X-User-Id, X-User-Username, X-User-Role"
     Header always set Access-Control-Allow-Credentials "true"
 </IfModule>
@@ -26,6 +26,37 @@ RewriteEngine On
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ $1 [R=200,L]
 
+# Strip trailing newlines / %0A / carriage return / whitespace from URL
+RewriteCond %{THE_REQUEST} \s/+([^\s\?]+?)(%0[aAdD]|\r|\n|\s)+(\?|\s) [NC]
+RewriteRule ^ /%1 [R=307,L,NE]
+
+# Webhook route for student onboarding (clean URL or .php, singular or plural)
+RewriteRule ^(?:api/)?(?:webhooks?|vstudy)/vstudy(?:_webhook)?(?:\.php)?$ webhooks/vstudy.php [L,QSA]
+RewriteRule ^(?:api/)?webhooks?/hostel(?:-applications?)?(?:\.php)?$ webhooks/vstudy.php [L,QSA]
+RewriteRule ^(?:api/)?vstudy-webhook(?:\.php)?$ webhooks/vstudy.php [L,QSA]
+RewriteRule ^(?:api/)?students?/webhook-new-student(?:\.php)?$ student/webhook_new_student.php [L,QSA]
+RewriteRule ^(?:api/)?students?/webhook-transfer(?:\.php)?$ student/webhook_transfer.php [L,QSA]
+RewriteRule ^(?:api/)?students?/webhook-renewal(?:\.php)?$ student/webhook_renewal.php [L,QSA]
+RewriteRule ^(?:api/)?students?/webhook-renewal-date-change(?:\.php)?$ student/webhook_renewal_date_change.php [L,QSA]
+RewriteRule ^(?:api/)?rooms?/webhook-add-room(?:\.php)?$ rooms/webhook_add_room.php [L,QSA]
+RewriteRule ^(?:api/)?rooms?/webhook-add-group(?:\.php)?$ rooms/webhook_add_group.php [L,QSA]
+RewriteRule ^(?:api/)?students?/webhook-temporary-stay(?:\.php)?$ temporary_stay/webhook_temporary_stay.php [L,QSA]
+RewriteRule ^(?:api/)?temporary-stay/webhook-temporary-stay(?:\.php)?$ temporary_stay/webhook_temporary_stay.php [L,QSA]
+RewriteRule ^(?:api/)?students?/(?:webhook|wabhook)-vacate-room(?:\.php)?$ student/webhook_vacate_room.php [L,QSA]
+RewriteRule ^(?:api/)?rooms?/(?:webhook|wabhook)-vacate-room(?:\.php)?$ student/webhook_vacate_room.php [L,QSA]
+
 # Route /api/ requests to root directory
 RewriteRule ^api/(.*)$ $1 [L,QSA]
+
+# Security Hardening: Block direct access to logs, sql, text, json, env, and backup files
+<FilesMatch "(?i)\.(log|sql|txt|json|csv|env|bak|old|swp|sh|md|git.*)$">
+    Require all denied
+</FilesMatch>
+
+# Block access to dotfiles
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+
 

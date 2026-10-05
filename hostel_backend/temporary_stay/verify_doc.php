@@ -27,8 +27,16 @@ if (empty($docNumber)) {
 $fileName = '';
 $targetPath = '';
 
+$validExtensions = ['pdf', 'jpg', 'jpeg', 'png'];
+
 if (isset($_FILES['doc_file']) && $_FILES['doc_file']['error'] === UPLOAD_ERR_OK) {
     $file = $_FILES['doc_file'];
+    $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($fileExt, $validExtensions)) {
+        echo json_encode(["success" => false, "matched" => false, "message" => "Invalid document file type. Please upload a PDF or Image (JPG/PNG) file."]);
+        exit();
+    }
+
     $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9_\.-]/', '_', basename($file['name']));
     $targetPath = $uploadDir . $fileName;
 
@@ -38,6 +46,12 @@ if (isset($_FILES['doc_file']) && $_FILES['doc_file']['error'] === UPLOAD_ERR_OK
     }
 } else if (!empty($inputJSON['file_base64']) && !empty($inputJSON['file_name'])) {
     $rawName = basename($inputJSON['file_name']);
+    $fileExt = strtolower(pathinfo($rawName, PATHINFO_EXTENSION));
+    if (!in_array($fileExt, $validExtensions)) {
+        echo json_encode(["success" => false, "matched" => false, "message" => "Invalid document file type. Please upload a PDF or Image (JPG/PNG) file."]);
+        exit();
+    }
+
     $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9_\.-]/', '_', $rawName);
     $targetPath = $uploadDir . $fileName;
 
@@ -47,6 +61,10 @@ if (isset($_FILES['doc_file']) && $_FILES['doc_file']['error'] === UPLOAD_ERR_OK
         exit();
     }
 } else {
+    echo json_encode(["success" => false, "matched" => false, "message" => "No document file was provided for upload."]);
+    exit();
+}
+
 $cleanTypedDoc = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $docNumber));
 $userEmail = trim($_POST['email'] ?? $inputJSON['email'] ?? '');
 
@@ -161,13 +179,6 @@ if ($fileExt === 'pdf') {
     preg_match_all('/[a-zA-Z0-9]{3,}/', $rawContent, $asciiMatches);
     $extractedText = implode(' ', $asciiMatches[0] ?? []);
 }
-
-$cleanExtracted = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $extractedText));
-
-// Universal Verification Logic:
-// 1. Text match (full string, 5+ char chunk, or 4+ digits)
-// 2. Scanned image PDF / valid document file check (file uploaded cleanly & non-empty)
-$matched = true; // Valid document uploaded successfully for Admin review
 
 $relPath = 'uploads/temp_stay_docs/' . $fileName;
 

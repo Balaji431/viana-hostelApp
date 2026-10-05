@@ -71,9 +71,9 @@ function getFeeForRoomType($conn, $room_type_name, $request_id = null) {
 /**
  * Helper to fetch the floorwise warden for the requested room code
  */
-function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '') {
+function getWardenDetailsForRequestedRoom($conn, $requested_room_code, $reason_text = '') {
     if (empty($requested_room_code)) {
-        return 'warden1';
+        return ['username' => 'warden1', 'name' => 'Hostel Warden'];
     }
 
     // 1. Direct check in rooms_groups_details (live physical rooms sync table)
@@ -89,21 +89,27 @@ function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '
     $rgd_res = $rgd_stmt->get_result()->fetch_assoc();
     
     if ($rgd_res) {
-        if (!empty($rgd_res['warden_bio_id'])) {
-            return trim($rgd_res['warden_bio_id']);
+        $wname = trim($rgd_res['warden_name'] ?? '');
+        $wbio = trim($rgd_res['warden_bio_id'] ?? '');
+
+        if (!empty($wname)) {
+            return [
+                'username' => !empty($wbio) ? $wbio : $wname,
+                'name' => $wname
+            ];
         }
-        if (!empty($rgd_res['warden_name'])) {
-            $wname = trim($rgd_res['warden_name']);
-            $staff_w = $conn->query("SELECT COALESCE(staff_bio_id, username) as uname FROM mapping_staff WHERE LOWER(TRIM(name)) LIKE '%" . strtolower($conn->real_escape_string($wname)) . "%' LIMIT 1");
+        if (!empty($wbio)) {
+            $staff_w = $conn->query("SELECT name FROM mapping_staff WHERE staff_bio_id = '" . $conn->real_escape_string($wbio) . "' OR username = '" . $conn->real_escape_string($wbio) . "' LIMIT 1");
             if ($staff_w && $sw_row = $staff_w->fetch_assoc()) {
-                return $sw_row['uname'];
+                return ['username' => $wbio, 'name' => trim($sw_row['name'])];
             }
+            return ['username' => $wbio, 'name' => 'Hostel Warden'];
         }
         if (!empty($rgd_res['hostel_name'])) {
             $hname = trim($rgd_res['hostel_name']);
-            $staff_h = $conn->query("SELECT COALESCE(staff_bio_id, username) as uname FROM mapping_staff WHERE LOWER(role) = 'warden' AND LOWER(TRIM(hostel_name)) LIKE '%" . strtolower($conn->real_escape_string($hname)) . "%' LIMIT 1");
+            $staff_h = $conn->query("SELECT COALESCE(staff_bio_id, username) as uname, name FROM mapping_staff WHERE LOWER(role) = 'warden' AND LOWER(TRIM(hostel_name)) LIKE '%" . strtolower($conn->real_escape_string($hname)) . "%' LIMIT 1");
             if ($staff_h && $sh_row = $staff_h->fetch_assoc()) {
-                return $sh_row['uname'];
+                return ['username' => $sh_row['uname'], 'name' => trim($sh_row['name'])];
             }
         }
     }
@@ -122,14 +128,20 @@ function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '
     $f_name = strtolower(trim($location['floor'] ?? ''));
     $w_name = strtolower(trim($location['wing_code'] ?? ''));
 
-    // Extract hostel name from reason if location not found
-    if (empty($h_name) && !empty($reason_text)) {
-        if (stripos($reason_text, 'Ponni') !== false) $h_name = 'ponni';
-        else if (stripos($reason_text, 'Porunai') !== false) $h_name = 'porunai';
-        else if (stripos($reason_text, 'Vaigai') !== false) $h_name = 'vaigai';
-        else if (stripos($reason_text, 'Bhavani') !== false) $h_name = 'bhavani';
-        else if (stripos($reason_text, 'Kaveri') !== false) $h_name = 'kaveri';
-        else if (stripos($reason_text, 'Krishna') !== false) $h_name = 'krishna';
+    // Extract hostel name from reason or requested room if location not found
+    if (empty($h_name)) {
+        $combined_text = strtolower(($requested_room_code ?? '') . ' ' . ($reason_text ?? ''));
+        if (strpos($combined_text, 'radiance') !== false || strpos($combined_text, 'p-05') !== false || strpos($combined_text, 'p05') !== false) $h_name = 'radiance inn';
+        else if (strpos($combined_text, 'stunner') !== false || strpos($combined_text, 'p-10') !== false || strpos($combined_text, 'p10') !== false) $h_name = 'stunners den';
+        else if (strpos($combined_text, 'ponni') !== false || strpos($combined_text, 't-09') !== false || strpos($combined_text, 't09') !== false) $h_name = 'ponni';
+        else if (strpos($combined_text, 'porunai') !== false || strpos($combined_text, 't-19') !== false || strpos($combined_text, 't19') !== false) $h_name = 'porunai';
+        else if (strpos($combined_text, 'vaigai') !== false || strpos($combined_text, 't-32') !== false || strpos($combined_text, 't32') !== false) $h_name = 'vaigai';
+        else if (strpos($combined_text, 'bhavani') !== false) $h_name = 'bhavani';
+        else if (strpos($combined_text, 'kaveri') !== false || strpos($combined_text, 't-12') !== false || strpos($combined_text, 't12') !== false) $h_name = 'kaveri';
+        else if (strpos($combined_text, 'krishna') !== false || strpos($combined_text, 't-30') !== false || strpos($combined_text, 't30') !== false) $h_name = 'krishna';
+        else if (strpos($combined_text, 'siruvani') !== false || strpos($combined_text, 't-14') !== false || strpos($combined_text, 't14') !== false) $h_name = 'siruvani';
+        else if (strpos($combined_text, 'noyyal') !== false || strpos($combined_text, 't-22') !== false || strpos($combined_text, 't22') !== false) $h_name = 'noyyal';
+        else if (strpos($combined_text, 'palar') !== false || strpos($combined_text, 't-10') !== false || strpos($combined_text, 't10') !== false) $h_name = 'palar';
     }
     
     // 3. Fetch matching warden from mapping_staff
@@ -138,8 +150,22 @@ function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '
                                LEFT JOIN users su ON ms.staff_bio_id COLLATE utf8mb4_general_ci = su.username COLLATE utf8mb4_general_ci
                                WHERE LOWER(TRIM(ms.role)) COLLATE utf8mb4_general_ci = 'warden' COLLATE utf8mb4_general_ci");
     if (!$staff_res) {
+        if (strpos($h_name, 'radiance') !== false || strpos($requested_room_code, 'P-05') !== false || strpos($requested_room_code, 'P05') !== false) return '29563';
+        if (strpos($h_name, 'stunner') !== false || strpos($requested_room_code, 'P-10') !== false || strpos($requested_room_code, 'P10') !== false) return '2919';
         return 'warden1';
     }
+
+    $normFloor = function($val) {
+        $v = strtolower(trim($val ?? ''));
+        if (strpos($v, 'ground') !== false || strpos($v, 'f00') !== false || strpos($v, 'g floor') !== false) return 'ground';
+        if (strpos($v, 'first') !== false || strpos($v, '1st') !== false || strpos($v, 'f01') !== false) return '1st floor';
+        if (strpos($v, 'second') !== false || strpos($v, '2nd') !== false || strpos($v, 'f02') !== false) return '2nd floor';
+        if (strpos($v, 'third') !== false || strpos($v, '3rd') !== false || strpos($v, 'f03') !== false) return '3rd floor';
+        if (strpos($v, 'fourth') !== false || strpos($v, '4th') !== false || strpos($v, 'f04') !== false) return '4th floor';
+        if (strpos($v, 'fifth') !== false || strpos($v, '5th') !== false || strpos($v, 'f05') !== false) return '5th floor';
+        if (strpos($v, 'sixth') !== false || strpos($v, '6th') !== false || strpos($v, 'f06') !== false) return '6th floor';
+        return $v;
+    };
     
     $staff_list = [];
     while ($staff = $staff_res->fetch_assoc()) {
@@ -159,35 +185,23 @@ function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '
         if (!$hostel_match) continue;
         
         // Match floor
+        $f_name_norm = $normFloor($f_name);
+        $ms_f_norm = $normFloor($ms_f);
+        
         $floor_match = false;
-        $f_name_norm = $f_name;
-        $ms_f_norm = $ms_f;
-        
-        if ($f_name === 'f00' || $f_name === 'ground' || $f_name === 'ground floor') $f_name_norm = 'ground';
-        if ($f_name === 'f01' || $f_name === '1st floor') $f_name_norm = '1st floor';
-        if ($f_name === 'f02' || $f_name === '2nd floor') $f_name_norm = '2nd floor';
-        if ($f_name === 'f03' || $f_name === '3rd floor') $f_name_norm = '3rd floor';
-        if ($f_name === 'f04' || $f_name === '4th floor') $f_name_norm = '4th floor';
-        
-        if ($ms_f === 'f00' || $ms_f === 'ground' || $ms_f === 'ground floor') $ms_f_norm = 'ground';
-        if ($ms_f === 'f01' || $ms_f === '1st floor') $ms_f_norm = '1st floor';
-        if ($ms_f === 'f02' || $ms_f === '2nd floor') $ms_f_norm = '2nd floor';
-        if ($ms_f === 'f03' || $ms_f === '3rd floor') $ms_f_norm = '3rd floor';
-        if ($ms_f === 'f04' || $ms_f === '4th floor') $ms_f_norm = '4th floor';
-        
-        if ($ms_f_norm === $f_name_norm || empty($ms_f) || empty($f_name)) {
+        if ($ms_f_norm === $f_name_norm || empty($ms_f_norm) || empty($f_name_norm)) {
             $floor_match = true;
         }
         
         if (!$floor_match) continue;
         
-        if ($ms_w !== $w_name && !empty($ms_w) && !empty($w_name)) {
+        if ($ms_w !== $w_name && !empty($ms_w) && !empty($w_name) && $ms_w !== 'all') {
             continue;
         }
         
         $score = 0;
         if ($ms_w === $w_name && !empty($w_name)) $score += 10;
-        if ($ms_f_norm === $f_name_norm && !empty($f_name)) $score += 5;
+        if ($ms_f_norm === $f_name_norm && !empty($f_name_norm)) $score += 5;
         if ($ms_h === $h_name && !empty($h_name)) $score += 1;
         
         $staff['score'] = $score;
@@ -195,14 +209,29 @@ function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '
     }
     
     if (empty($staff_list)) {
-        return 'warden1'; // Fallback
+        // Precise campus-aware fallbacks
+        if (strpos($h_name, 'radiance') !== false || strpos($requested_room_code, 'P-05') !== false || strpos($requested_room_code, 'P05') !== false) {
+            return ['username' => '29563', 'name' => 'Syed Surath Nisha'];
+        }
+        if (strpos($h_name, 'stunner') !== false || strpos($requested_room_code, 'P-10') !== false || strpos($requested_room_code, 'P10') !== false) {
+            return ['username' => '2919', 'name' => 'Saroj Kumar Tivari'];
+        }
+        return ['username' => 'warden1', 'name' => 'Hostel Warden'];
     }
     
     usort($staff_list, function($a, $b) {
         return $b['score'] <=> $a['score'];
     });
     
-    return $staff_list[0]['username'] ?? 'warden1';
+    return [
+        'username' => $staff_list[0]['username'] ?? 'warden1',
+        'name' => $staff_list[0]['name'] ?? 'Hostel Warden'
+    ];
+}
+
+function getWardenForRequestedRoom($conn, $requested_room_code, $reason_text = '') {
+    $info = getWardenDetailsForRequestedRoom($conn, $requested_room_code, $reason_text);
+    return $info['username'] ?? 'warden1';
 }
 
 try {
@@ -276,7 +305,7 @@ try {
                 }
                 if (!$is_match) {
                     $assigned_warden = getWardenForRequestedRoom($conn, $row['requested_room'], $row['reason'] ?? '');
-                    if ($assigned_warden !== $warden_username && $assigned_warden !== 'warden1') {
+                    if ($assigned_warden !== $warden_username) {
                         continue;
                     }
                 }
@@ -285,11 +314,24 @@ try {
         $amt = (float)($row['amount_to_pay'] ?? 0.0);
         $rtype = $row['requested_room_type'] ?? 'Standard';
 
+        $r_code = strtoupper($row['requested_room'] ?? $row['current_room'] ?? '');
+        $r_reason = strtolower($row['reason'] ?? '');
+        $campus = 'Thandalam Campus';
+        if (strpos($r_code, 'P-05') !== false || strpos($r_code, 'P05') !== false ||
+            strpos($r_code, 'P-10') !== false || strpos($r_code, 'P10') !== false ||
+            strpos($r_code, 'P-') !== false || strpos($r_code, 'P0') !== false ||
+            strpos($r_reason, 'radiance') !== false || strpos($r_reason, 'stunner') !== false) {
+            $campus = 'Poonamallee Campus';
+        }
+
+        $warden_info = getWardenDetailsForRequestedRoom($conn, $row['requested_room'], $row['reason'] ?? '');
+
         $requests[] = [
             'request_id' => $row['request_id'],
             'student_id' => (int)$row['student_id'],
             'student_name' => $row['student_name'],
             'student_reg_no' => $row['student_reg_no'],
+            'campus' => $campus,
             'current_room' => $row['current_room'],
             'requested_room' => $row['requested_room'],
             'requested_room_type' => $rtype,
@@ -297,6 +339,8 @@ try {
             'payment_status' => $row['payment_status'] ?? 'unpaid',
             'reason' => $row['reason'],
             'status' => $row['status'],
+            'assigned_warden_name' => $warden_info['name'],
+            'assigned_warden_username' => $warden_info['username'],
             'processed_by' => $row['processed_by'] ? (int)$row['processed_by'] : null,
             'processed_by_name' => $row['processed_by_name'],
             'remarks' => $row['remarks'],

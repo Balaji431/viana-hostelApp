@@ -11,6 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once '../config/database.php';
 require_once '../utils/activity_logger.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin']);
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -75,7 +78,7 @@ try {
     $hostel_name = $profile_row ? ($profile_row['hostel_name'] ?? null) : null;
 
     // 3. Insert into checkout_students
-    $warden_user = $data['warden_username'] ?? 'warden';
+    $warden_user = $authUser['username'] ?? 'warden';
     $profile_json = json_encode($profile_row);
     $user_json = json_encode($user_row);
     

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'core/api_service.dart';
 import 'core/deferred_app_services.dart' deferred as app_services;
+import 'core/play_update_service.dart';
 import 'core/royal_theme.dart';
 import 'shared/auth_wrapper.dart';
 import 'shared/deferred_routes.dart' deferred as deferred_routes;
@@ -50,19 +51,13 @@ void main() async {
     return true;
   };
 
-  // ─── CRITICAL: Don't await SharedPreferences before runApp ───────────────
-  // Awaiting SharedPreferences.getInstance() before runApp() blocks Frame 1
-  // from painting until the disk read resolves (~80–120ms on mobile).
-  // App starts immediately with prefs=null; real prefs are injected post-frame.
+  // Load SharedPreferences before runApp so user session is restored immediately on Frame 1
+  final prefs = await SharedPreferences.getInstance();
+
   runApp(
     MultiProvider(
-      // ─── LOGIN-ONLY PROVIDERS ────────────────────────────────────────────
-      // Only providers required to render the Login screen are here.
-      // Dashboard providers (Category, Request, HierarchicalHostel, Mapping,
-      // Allocation) are scoped inside MainResponsiveLayout so they are never
-      // instantiated until after a successful login.
       providers: [
-        ChangeNotifierProvider(create: (_) => UserProvider(prefs: null)),
+        ChangeNotifierProvider(create: (_) => UserProvider(prefs: prefs)),
         ChangeNotifierProvider(create: (_) => UIProvider()),
         ChangeNotifierProvider(create: (_) => WallpaperProvider()),
       ],
@@ -70,14 +65,11 @@ void main() async {
     ),
   );
 
-  _scheduleAppServicesInitialization();
+  _scheduleAppServicesInitialization(prefs);
 }
 
-void _scheduleAppServicesInitialization() {
+void _scheduleAppServicesInitialization(SharedPreferences prefs) {
   WidgetsBinding.instance.addPostFrameCallback((_) async {
-    // Load SharedPreferences now (post-frame, so it never blocks Frame 1)
-    // and inject into UserProvider so session restore happens right after paint.
-    final prefs = await SharedPreferences.getInstance();
     final context = navigatorKey.currentContext;
     if (context != null && context.mounted) {
       try {
@@ -95,6 +87,13 @@ void _scheduleAppServicesInitialization() {
       await app_services.loadLibrary();
       await app_services.initializeDeferredAppServices(navigatorKey);
     });
+
+    // Google Play In-App Updates check (Android-native, runs 2s after launch)
+    if (!kIsWeb) {
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        PlayUpdateService.checkForUpdate(context: navigatorKey.currentContext);
+      });
+    }
   });
 }
 
@@ -166,7 +165,13 @@ class _DeferredRoutePage extends StatefulWidget {
 }
 
 class _DeferredRoutePageState extends State<_DeferredRoutePage> {
-  late final Future<void> _routeLibrary = deferred_routes.loadLibrary();
+  Future<void>? _routeLibrary;
+
+  @override
+  void initState() {
+    super.initState();
+    _routeLibrary = deferred_routes.loadLibrary();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -179,8 +184,41 @@ class _DeferredRoutePageState extends State<_DeferredRoutePage> {
             body: SizedBox.expand(),
           );
         }
+        if (snapshot.hasError) {
+          return Scaffold(
+            backgroundColor: const Color(0xFF0F1520),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.amber, size: 48),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Failed to load screen resources.\nPlease try again.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontSize: 15),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E3A8A),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _routeLibrary = deferred_routes.loadLibrary();
+                      });
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
         return deferred_routes.buildDeferredRoutePage(context, widget.settings);
       },
     );
   }
 }
+

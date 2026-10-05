@@ -12,22 +12,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 require_once '../config/database.php';
 require_once '../utils/auth_helper.php';
 
+$authUser = requireAuth(['warden', 'admin', 'super_admin', 'security', 'it']);
+
 try {
     $db = (new Database())->getConnection();
 
-    $warden_username = isset($_GET['warden_username']) ? trim($_GET['warden_username']) : '';
+    $is_admin = in_array(strtolower($authUser['role'] ?? ''), ['admin', 'super_admin', 'superadmin']);
+    $warden_username = $authUser['username'] ?? '';
 
-    if (empty($warden_username)) {
-        // Fallback to JWT payload if present
-        $auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        if (empty($auth_header) && function_exists('apache_request_headers')) {
-            $headers = apache_request_headers();
-            $auth_header = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-        }
-        if (preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
-            $payload = validateJWT($matches[1]);
-            if ($payload) $warden_username = $payload['username'];
-        }
+    // Only authorized admins can filter by another warden's username
+    if ($is_admin && !empty($_GET['warden_username']) && strtolower(trim($_GET['warden_username'])) !== 'admin') {
+        $warden_username = trim($_GET['warden_username']);
     }
 
     if (empty($warden_username)) {
@@ -48,9 +43,8 @@ try {
 
     $w_name = $w_user ? $w_user['full_name'] : $warden_username;
     $w_bio  = $w_user ? $w_user['username']  : $warden_username;
-    $is_admin = ($w_user && in_array(strtolower($w_user['role']), ['admin', 'superadmin'])) || strtolower($warden_username) === 'admin';
 
-    if ($is_admin) {
+    if ($is_admin && (!isset($_GET['warden_username']) || strtolower(trim($_GET['warden_username'])) === 'admin')) {
         // ADMIN QUERY
         $stmt = $db->prepare("
             SELECT DISTINCT

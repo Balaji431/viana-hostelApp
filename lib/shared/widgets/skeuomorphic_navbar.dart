@@ -6,20 +6,28 @@ import '../wallpaper_provider.dart';
 
 class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
+  final Widget? leftAction;
   final Widget? rightAction;
   final VoidCallback? onBack;
   final VoidCallback? onHomeTap;
   final double height;
   final VoidCallback? onTitleLongPress;
+  final Gradient? gradient;
+  final Color? titleColor;
+  final Color? borderColor;
 
   const SkeuomorphicNavBar({
     super.key,
     required this.title,
+    this.leftAction,
     this.rightAction,
     this.onBack,
     this.onHomeTap,
     this.height = 56.0,
     this.onTitleLongPress,
+    this.gradient,
+    this.titleColor,
+    this.borderColor,
   });
 
   Widget? _processRightAction(Widget? action) {
@@ -99,22 +107,24 @@ class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget 
 
     return Container(
       decoration: BoxDecoration(
-        gradient: isDark
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  const Color(0xFF18253B).withOpacity(0.95),
-                  const Color(0xFF0F1726).withOpacity(0.95),
-                ],
-              )
-            : SkeuomorphicColors.royalHeaderGradient,
+        gradient: gradient ??
+            (isDark
+                ? LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF18253B).withOpacity(0.95),
+                      const Color(0xFF0F1726).withOpacity(0.95),
+                    ],
+                  )
+                : SkeuomorphicColors.royalHeaderGradient),
         border: Border(
           bottom: BorderSide(
-            color: isDark
-                ? const Color(0xFFD4AF37).withOpacity(0.4)
-                : const Color(0xFF1A2744),
-            width: 1,
+            color: borderColor ??
+                (isDark
+                    ? const Color(0xFFD4AF37).withOpacity(0.4)
+                    : const Color(0xFF1A2744)),
+            width: 1.5,
           ),
         ),
         boxShadow: const [
@@ -153,6 +163,27 @@ class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget 
                     ),
                   ),
                 )
+              else if (leftAction != null)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 48),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: leftAction,
+                  ),
+                )
+              else if (Navigator.of(context).canPop())
+                SizedBox(
+                  width: 48,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(Icons.chevron_left, color: Colors.white, size: 28),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                )
               else if (processedRightAction != null)
                 const SizedBox(width: 48)
               else
@@ -173,7 +204,7 @@ class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget 
                       style: GoogleFonts.tinos(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: titleColor ?? Colors.white,
                         shadows: [
                           const Shadow(
                             color: Color.fromRGBO(0, 0, 0, 0.3),
@@ -199,7 +230,7 @@ class SkeuomorphicNavBar extends StatelessWidget implements PreferredSizeWidget 
                     child: processedRightAction,
                   ),
                 )
-              else if (onBack != null)
+              else if (onBack != null || leftAction != null)
                 const SizedBox(width: 48)
               else
                 const SizedBox.shrink(),

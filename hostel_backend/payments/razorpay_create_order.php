@@ -25,8 +25,8 @@ if (file_exists($secrets_file)) {
     $secrets = include($secrets_file);
 }
 
-$RAZORPAY_KEY_ID     = getenv('RAZORPAY_KEY_ID')     ?: ($secrets['RAZORPAY_KEY_ID']     ?? 'rzp_live_TUPCTe6VWo1LGj');
-$RAZORPAY_KEY_SECRET = getenv('RAZORPAY_KEY_SECRET') ?: ($secrets['RAZORPAY_KEY_SECRET'] ?? 'd2gnwZ52h6jypg2fzI04jVxj');
+$RAZORPAY_KEY_ID     = getenv('RAZORPAY_KEY_ID')     ?: ($secrets['RAZORPAY_KEY_ID']     ?? '');
+$RAZORPAY_KEY_SECRET = getenv('RAZORPAY_KEY_SECRET') ?: ($secrets['RAZORPAY_KEY_SECRET'] ?? '');
 
 if (empty($RAZORPAY_KEY_ID) || empty($RAZORPAY_KEY_SECRET)) {
     http_response_code(500);

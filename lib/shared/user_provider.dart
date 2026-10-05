@@ -8,7 +8,7 @@ import '../core/notification_service.dart';
 import '../core/app_logger.dart';
 import '../core/websocket_service.dart';
 
-enum UserRole { student, warden, admin, parent, maintenance, security, staff, guest }
+enum UserRole { student, warden, admin, parent, maintenance, security, staff, guest, it, superAdmin, developer }
 
 class UserProvider with ChangeNotifier {
   final SharedPreferences? _prefs;
@@ -27,6 +27,7 @@ class UserProvider with ChangeNotifier {
     if (_prefsInitialized) return; // already initialized — skip
     _prefsInitialized = true;
     _initializeFromPrefs(prefs);
+    notifyListeners();
   }
 
   Future<SharedPreferences> _getPrefs() async {
@@ -37,15 +38,19 @@ class UserProvider with ChangeNotifier {
     try {
       final String? userDataStr = prefs.getString('user_data');
       final String? loginTimeStr = prefs.getString('login_time');
+      final String? lastActiveStr = prefs.getString('last_active_time') ?? loginTimeStr;
 
-      if (userDataStr != null && loginTimeStr != null) {
-        final DateTime loginTime = DateTime.parse(loginTimeStr);
+      if (userDataStr != null && (lastActiveStr != null || loginTimeStr != null)) {
+        final DateTime lastActive = DateTime.parse(lastActiveStr ?? loginTimeStr!);
         final DateTime now = DateTime.now();
 
-        if (now.difference(loginTime).inDays < 7) {
+        // 7-day inactivity sliding window: active as long as user opened app within 7 days
+        if (now.difference(lastActive).inDays < 7) {
           final Map<String, dynamic> userData =
               Map<String, dynamic>.from(jsonDecode(userDataStr));
           _loginSync(userData);
+          // Refresh last active timestamp so the 7-day timer resets on each app open
+          unawaited(prefs.setString('last_active_time', now.toIso8601String()));
           try {
             WebSocketService.instance.connect(
               username: username,
@@ -54,6 +59,13 @@ class UserProvider with ChangeNotifier {
           } catch (e) {
             AppLogger.error("Failed to initialize WebSocket on session restore: $e");
           }
+        } else {
+          // Inactive for 7+ days: automatically log out and clean up
+          AppLogger.auth('Session expired after 7 days of inactivity — logging out');
+          unawaited(prefs.remove('user_data'));
+          unawaited(prefs.remove('login_time'));
+          unawaited(prefs.remove('last_active_time'));
+          _isLoggedIn = false;
         }
       }
     } catch (e) {
@@ -74,6 +86,7 @@ class UserProvider with ChangeNotifier {
   String _dob = "";
   String _address = "";
   String _institution = "";
+  String _campus = "";
   String _hostelName = "";
   String _hostelType = "Boys";
   String _roomNumber = "";
@@ -88,8 +101,8 @@ class UserProvider with ChangeNotifier {
   String _roomFacility = "";
   String _roomBathAttached = "";
   String _profilePic = "";
-  DateTime _renewalDate = DateTime.now().add(const Duration(days: 365));
-  DateTime _checkInDate = DateTime.now();
+  DateTime? _renewalDate;
+  DateTime? _checkInDate;
   bool get hasBadConduct => _conduct.toLowerCase() == 'poor';
   String _renewalStatus = 'Approved';
   String _conduct = 'Good';
@@ -149,6 +162,32 @@ class UserProvider with ChangeNotifier {
   String get dob => _dob;
   String get address => _address;
   String get institution => _institution;
+
+  /// Dynamic campus resolver based on hostel name and room code
+  static String getCampusForHostel(String? hostelName, [String? roomCode]) {
+    final h = (hostelName ?? '').toLowerCase().trim();
+    final r = (roomCode ?? '').toUpperCase().trim();
+    if (h.contains('radiance') ||
+        h.contains('stunner') ||
+        r.startsWith('P-05') ||
+        r.startsWith('P05') ||
+        r.startsWith('P-10') ||
+        r.startsWith('P10') ||
+        r.startsWith('P-') ||
+        r.startsWith('P0')) {
+      return 'Poonamallee Campus';
+    }
+    return 'Thandalam Campus';
+  }
+
+  /// Campus getter for the logged-in user
+  String get campus {
+    if (_campus.isNotEmpty && _campus.toLowerCase() != 'null') {
+      return _campus;
+    }
+    return getCampusForHostel(_hostelName, roomNumber);
+  }
+
   String get hostelName => _hostelName;
   String get hostelType => _hostelType;
   String get roomNumber {
@@ -196,8 +235,9 @@ class UserProvider with ChangeNotifier {
 
   String get profilePic => _profilePic;
 
-  DateTime get renewalDate => _renewalDate;
-  DateTime get checkInDate => _checkInDate;
+  DateTime? get renewalDate => _renewalDate;
+  DateTime? get checkInDate => _checkInDate;
+  bool get hasRenewalDate => _renewalDate != null;
   String get renewalStatus => _renewalStatus;
   String get conduct => _conduct;
   String get conductRemarks => _conductRemarks;
@@ -269,8 +309,11 @@ class UserProvider with ChangeNotifier {
 
   static UserRole stringToRole(String roleStr) {
     final lower = roleStr.toLowerCase().trim();
+    if (lower == 'developer' || lower == 'dev') return UserRole.developer;
+    if (lower == 'super_admin' || lower == 'superadmin' || lower == 'super admin') return UserRole.superAdmin;
+    if (lower == 'it' || lower == 'it_department' || lower == 'it department' || lower == 'it_admin' || lower == 'it dept') return UserRole.it;
     if (lower == 'admin') return UserRole.admin;
-    if (lower == 'warden') return UserRole.warden;
+    if (lower == 'warden' || lower == 'main warden' || lower == 'main_warden') return UserRole.warden;
     if (lower == 'parent') return UserRole.parent;
     if (lower == 'maintenance') return UserRole.maintenance;
     if (lower == 'security') return UserRole.security;
@@ -320,18 +363,25 @@ class UserProvider with ChangeNotifier {
     return '8-sharing';
   }
 
-  DateTime _parseDate(dynamic date) {
-    if (date == null || date == "" || date == "0000-00-00") {
-      return DateTime.now();
+  DateTime? _parseDate(dynamic date) {
+    if (date == null) return null;
+    final dateStr = date.toString().trim();
+    if (dateStr.isEmpty || dateStr == "0000-00-00" || dateStr == "null" || dateStr.toUpperCase() == "N/A") {
+      return null;
     }
     try {
-      String dateStr = date.toString();
-      // Handle MySQL 8.0 invalid date strings like '2026-04-31'
-      // DateTime.parse will fail for April 31. We try to catch this.
       return DateTime.parse(dateStr);
     } catch (e) {
-      debugPrint("Invalid date detected: $date. Falling back to current date.");
-      return DateTime.now();
+      try {
+        if (dateStr.contains('.')) {
+          final parts = dateStr.split('.');
+          if (parts.length == 3) {
+            return DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+          }
+        }
+      } catch (_) {}
+      debugPrint("Invalid date detected: $date. Cannot parse.");
+      return null;
     }
   }
 
@@ -440,6 +490,7 @@ class UserProvider with ChangeNotifier {
       return val.toString().replaceAll(' - ', '-').replaceAll('- ', '-').replaceAll(' ', '').replaceAll('T-32', 'T32').trim();
     }
     _institution = userData['institution']?.toString() ?? "";
+    _campus = userData['campus']?.toString() ?? userData['Campus']?.toString() ?? "";
     _hostelName = userData['hostel_name']?.toString() ?? "";
     _roomNumber = _cleanRoom(userData['room_no'] ?? userData['room_allocation']);
     _roomCode = _cleanRoom(userData['room_code'] ?? userData['room_no'] ?? userData['room_allocation']);
@@ -463,8 +514,18 @@ class UserProvider with ChangeNotifier {
     _profilePic = userData['profile_pic']?.toString() ?? "";
     _conduct = userData['conduct']?.toString() ?? "Good";
     _conductRemarks = userData['conduct_remarks']?.toString() ?? "";
-    _checkInDate = _parseDate(userData['valid_from']);
-    _renewalDate = _parseDate(userData['valid_to']);
+    _checkInDate = _parseDate(userData['valid_from'] ?? userData['check_in_date']);
+    final rDate = _parseDate(userData['renewal_date']);
+    final vDate = _parseDate(userData['valid_to']);
+    if (vDate != null && rDate != null) {
+      _renewalDate = vDate.isAfter(rDate) ? vDate : rDate;
+    } else if (vDate != null) {
+      _renewalDate = vDate;
+    } else if (rDate != null) {
+      _renewalDate = rDate;
+    } else {
+      _renewalDate = null;
+    }
 
     if (userData['temporary_stay_request'] != null) {
       _temporaryStayRequest = Map<String, dynamic>.from(userData['temporary_stay_request']);
@@ -579,8 +640,10 @@ class UserProvider with ChangeNotifier {
     unawaited(() async {
       try {
         final prefs = await _getPrefs();
+        final nowStr = DateTime.now().toIso8601String();
         await prefs.setString('user_data', jsonEncode(userData));
-        await prefs.setString('login_time', DateTime.now().toIso8601String());
+        await prefs.setString('login_time', nowStr);
+        await prefs.setString('last_active_time', nowStr);
       } catch (e) {
         AppLogger.error("Failed to update persistence cache: $e");
       }
@@ -638,19 +701,20 @@ class UserProvider with ChangeNotifier {
       final prefs = await _getPrefs();
       final String? userDataStr = prefs.getString('user_data');
       final String? loginTimeStr = prefs.getString('login_time');
+      final String? lastActiveStr = prefs.getString('last_active_time') ?? loginTimeStr;
 
-      if (userDataStr != null && loginTimeStr != null) {
-        final DateTime loginTime = DateTime.parse(loginTimeStr);
+      if (userDataStr != null && (lastActiveStr != null || loginTimeStr != null)) {
+        final DateTime lastActive = DateTime.parse(lastActiveStr ?? loginTimeStr!);
         final DateTime now = DateTime.now();
 
-        // Check if session is older than 7 days
-        if (now.difference(loginTime).inDays < 7) {
+        // Check if inactive for 7 days
+        if (now.difference(lastActive).inDays < 7) {
           final Map<String, dynamic> userData =
               Map<String, dynamic>.from(jsonDecode(userDataStr));
-          await login(
-              userData); // Re-use login logic for consistency and safety
+          await login(userData);
+          unawaited(prefs.setString('last_active_time', now.toIso8601String()));
         } else {
-          // Expired
+          // Expired after 7 days of continuous inactivity
           await logout();
         }
       }
@@ -789,11 +853,21 @@ class UserProvider with ChangeNotifier {
     if (userData.containsKey('profile_pic')) {
       _profilePic = userData['profile_pic']?.toString() ?? _profilePic;
     }
-    if (userData.containsKey('valid_from')) {
-      _checkInDate = _parseDate(userData['valid_from']);
+    if (userData.containsKey('valid_from') || userData.containsKey('check_in_date')) {
+      _checkInDate = _parseDate(userData['valid_from'] ?? userData['check_in_date']);
     }
-    if (userData.containsKey('valid_to')) {
-      _renewalDate = _parseDate(userData['valid_to']);
+    if (userData.containsKey('valid_to') || userData.containsKey('renewal_date')) {
+      final rDate = _parseDate(userData['renewal_date']);
+      final vDate = _parseDate(userData['valid_to']);
+      if (vDate != null && rDate != null) {
+        _renewalDate = vDate.isAfter(rDate) ? vDate : rDate;
+      } else if (vDate != null) {
+        _renewalDate = vDate;
+      } else if (rDate != null) {
+        _renewalDate = rDate;
+      } else {
+        _renewalDate = null;
+      }
     }
     notifyListeners();
   }
@@ -845,14 +919,17 @@ class UserProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('user_data');
     await prefs.remove('login_time');
+    await prefs.remove('last_active_time');
     await prefs.remove('unread_counts_cache');
     notifyListeners();
   }
 
   void extendRenewal(int months) {
-    _renewalDate = DateTime(
-        _renewalDate.year, _renewalDate.month + months, _renewalDate.day);
-    notifyListeners();
+    if (_renewalDate != null) {
+      _renewalDate = DateTime(
+          _renewalDate!.year, _renewalDate!.month + months, _renewalDate!.day);
+      notifyListeners();
+    }
   }
 
   Future<void> updateHostelName(String newName) async {
@@ -870,6 +947,27 @@ class UserProvider with ChangeNotifier {
       }
     } catch (e) {
       AppLogger.error("Failed to update cached hostel name: $e");
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> updateProfilePic(String newProfilePic) async {
+    _profilePic = newProfilePic;
+
+    // Also update in SharedPreferences so it survives restarts
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? userDataStr = prefs.getString('user_data');
+      if (userDataStr != null) {
+        final Map<String, dynamic> userData =
+            Map<String, dynamic>.from(jsonDecode(userDataStr));
+        userData['profile_pic'] = newProfilePic;
+        userData['profileimage'] = newProfilePic;
+        await prefs.setString('user_data', jsonEncode(userData));
+      }
+    } catch (e) {
+      AppLogger.error("Failed to update cached profile pic: $e");
     }
 
     notifyListeners();

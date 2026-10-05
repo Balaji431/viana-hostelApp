@@ -157,12 +157,14 @@ class _SecurityChatScreenState extends State<SecurityChatScreen> {
     _startTimer();
   }
 
-  void _loadLocalMessages() {
-    final local = ChatCacheService.loadMessages(widget.department.toLowerCase());
-    setState(() {
-      _messages.clear();
-      _messages.addAll(local.reversed.toList());
-    });
+  Future<void> _loadLocalMessages() async {
+    final local = await ChatCacheService.loadMessages(widget.department.toLowerCase());
+    if (mounted && local.isNotEmpty) {
+      setState(() {
+        _messages.clear();
+        _messages.addAll(local.reversed.toList());
+      });
+    }
   }
 
   void _startTimer() {

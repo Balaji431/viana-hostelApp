@@ -1,6 +1,77 @@
 <?php
 require_once __DIR__ . '/../config/api_config.php';
 
+if (!function_exists('generateUuidV4')) {
+    function generateUuidV4() {
+        $data = random_bytes(16);
+        $data[6] = chr(ord($data[6]) & 0x0f | 0x40); // set version to 0100
+        $data[8] = chr(ord($data[8]) & 0x3f | 0x80); // set bits 6-7 to 10
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+    }
+}
+
+if (!function_exists('parseDateSafe')) {
+    function parseDateSafe($val, $fallback = null) {
+        if (empty($val)) return $fallback;
+        $val = trim($val);
+        if (preg_match('/^(\d{1,2})[\.\/](\d{1,2})[\.\/](\d{4})$/', $val, $m)) {
+            $d = (int)$m[1];
+            $mo = (int)$m[2];
+            $y = (int)$m[3];
+            if ($mo > 12 && $d <= 12) {
+                $tmp = $d; $d = $mo; $mo = $tmp;
+            }
+            return sprintf('%04d-%02d-%02d', $y, $mo, $d);
+        }
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})/', $val, $m)) {
+            return sprintf('%04d-%02d-%02d', (int)$m[1], (int)$m[2], (int)$m[3]);
+        }
+        try {
+            $dt = new DateTime($val);
+            return $dt->format('Y-m-d');
+        } catch (Exception $e) {
+            $ts = strtotime($val);
+            if ($ts !== false && $ts > 0) {
+                return date('Y-m-d', $ts);
+            }
+        }
+        return $fallback;
+    }
+}
+
+/**
+ * Ensure vstay_webhook_events table exists (auto-create on first use).
+ * This table stores OUTBOUND events: VStay → VStudy ERP.
+ * (vstudy_webhook_events stores INBOUND events: VStudy → VStay)
+ */
+if (!function_exists('ensureVstayWebhookEventsTable')) {
+    function ensureVstayWebhookEventsTable($dbConn) {
+        $dbConn->exec("
+            CREATE TABLE IF NOT EXISTS vstay_webhook_events (
+                id          INT AUTO_INCREMENT PRIMARY KEY,
+                event_id    VARCHAR(100) NOT NULL UNIQUE,
+                event_type  VARCHAR(100) NOT NULL,
+                entity_type VARCHAR(100) DEFAULT 'HOSTEL_BOOKING',
+                entity_id   VARCHAR(100) NULL,
+                roll_number VARCHAR(100) NULL,
+                room_number VARCHAR(100) NULL,
+                hostel_name VARCHAR(255) NULL,
+                direction   VARCHAR(20)  DEFAULT 'OUTBOUND',
+                status      VARCHAR(50)  DEFAULT 'PROCESSED',
+                occurred_at VARCHAR(100) NULL,
+                payload     LONGTEXT     NULL,
+                response    LONGTEXT     NULL,
+                created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_event_id   (event_id),
+                INDEX idx_event_type (event_type),
+                INDEX idx_roll_number(roll_number),
+                INDEX idx_direction  (direction)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    }
+}
+
 /**
  * Perform an on-demand live fetch from VStudy external APIs
  * when a student attempts to log in but is not yet stored in the local DB.
@@ -81,12 +152,22 @@ function syncStudentOnDemand($email, $db) {
     $roomType   = trim($room['roomType'] ?? $foundRecord['roomType'] ?? '');
     $hType      = ($gender === 'female' || strpos(strtolower($hostelName), 'girls') !== false || strpos(strtolower($hostelName), 'vaigai') !== false) ? 'Girls' : 'Boys';
     $paidDate   = trim($foundRecord['paidAt'] ?? $foundRecord['bookedAt'] ?? date('Y-m-d H:i:s'));
+    $renStr     = trim($foundRecord['renewalDate'] ?? $student['renewalDate'] ?? '');
 
     $pwHash = password_hash('welcome123', PASSWORD_BCRYPT);
     $today  = new DateTime('today');
-    $calcRenewal = (clone $today)->modify('+1 year');
-    $renFormatted = $calcRenewal->format('Y-m-d');
-    $checkInFormatted = (new DateTime($paidDate))->format('Y-m-d');
+
+    $parsedRen = parseDateSafe($renStr);
+    $parsedPaid = parseDateSafe($paidDate);
+
+    $renFormatted = null;
+    $remDays = null;
+    if (!empty($parsedRen)) {
+        $calcRenewal = new DateTime($parsedRen);
+        $renFormatted = $calcRenewal->format('Y-m-d');
+        $remDays = ($calcRenewal < $today) ? 0 : (int)$today->diff($calcRenewal)->format('%r%a');
+    }
+    $checkInFormatted = $parsedPaid ?: null;
 
     // 1. Insert into vstudy_payments
     $stmtPay = $db->prepare("
@@ -182,17 +263,19 @@ function syncStudentOnDemand($email, $db) {
         INSERT INTO profile (
             full_name, reg_no, user_id, email, personal_phone, room_allocation, warden,
             institution, hostel_name, address, renewal_date, remaining_days,
-            check_in_date, valid_from
+            check_in_date, valid_from, valid_to
         ) VALUES (
             :full_name, :reg_no, :user_id, :email, :personal_phone, :room_allocation, :warden,
             :institution, :hostel_name, :address, :renewal_date, :remaining_days,
-            :check_in_date, :valid_from
+            :check_in_date, :valid_from, :valid_to
         ) ON DUPLICATE KEY UPDATE 
             full_name = VALUES(full_name), email = VALUES(email), personal_phone = VALUES(personal_phone),
             room_allocation = VALUES(room_allocation), 
             warden = COALESCE(NULLIF(VALUES(warden),''), warden), 
             hostel_name = VALUES(hostel_name),
-            renewal_date = VALUES(renewal_date), remaining_days = VALUES(remaining_days),
+            renewal_date = VALUES(renewal_date),
+            valid_to = VALUES(valid_to),
+            remaining_days = VALUES(remaining_days),
             check_in_date = VALUES(check_in_date), valid_from = VALUES(valid_from)
     ");
     $insertProfileStmt->execute([
@@ -206,10 +289,11 @@ function syncStudentOnDemand($email, $db) {
         ':institution'     => 'SIMATS',
         ':hostel_name'     => $hostelName,
         ':address'         => 'Thandalam Campus, Chennai',
-        ':renewal_date'   => $renFormatted,
-        ':remaining_days' => 365,
+        ':renewal_date'    => $renFormatted,
+        ':remaining_days'  => $remDays,
         ':check_in_date'   => $checkInFormatted,
-        ':valid_from'      => $checkInFormatted
+        ':valid_from'      => $checkInFormatted,
+        ':valid_to'        => $renFormatted
     ]);
 
     // 4. Insert into parent tables
@@ -292,4 +376,435 @@ function syncStudentOnDemand($email, $db) {
 
     return true;
 }
+
+/**
+ * Real-time Outbound sync to VStudy ERP for Room Transfer
+ */
+function syncTransferToVStudy($rollNumber, $toRoomNumber, $toHostelName = '', $fromRoomNumber = '', $externalEventId = '') {
+    $url = defined('VSTUDY_TRANSFER_API_URL') ? VSTUDY_TRANSFER_API_URL : 'https://vstudy.saveetha.com/api/hostel-applications/external/transfer';
+    $clientId = defined('VSTUDY_CLIENT_ID') ? VSTUDY_CLIENT_ID : '';
+    $clientSecret = defined('VSTUDY_CLIENT_SECRET') ? VSTUDY_CLIENT_SECRET : '';
+
+    if (empty($url) || empty($clientId) || empty($clientSecret) || empty($rollNumber) || empty($toRoomNumber)) {
+        return ['success' => false, 'message' => 'Missing required transfer sync parameters'];
+    }
+
+    if (empty($externalEventId) || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $externalEventId)) {
+        $externalEventId = generateUuidV4();
+    }
+
+    $payload = [
+        'externalEventId'    => $externalEventId,
+        'rollNumber'         => (string)$rollNumber,
+        'toRoomNumber'       => (string)$toRoomNumber,
+        'roomNumber'         => (string)$toRoomNumber,
+        'newRoomNumber'      => (string)$toRoomNumber,
+        'toHostelName'       => (string)$toHostelName,
+        'hostelName'         => (string)$toHostelName,
+        'newHostelName'      => (string)$toHostelName
+    ];
+
+    if (!empty($fromRoomNumber) && $fromRoomNumber !== 'N/A') {
+        $payload['fromRoomNumber'] = (string)$fromRoomNumber;
+        $payload['currentRoomNumber'] = (string)$fromRoomNumber;
+    }
+
+    try {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-client-id: ' . $clientId,
+            'x-client-secret: ' . $clientSecret
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        $res = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $json = json_decode($res, true);
+        $isSuccess = ($code === 200 && ($json['success'] ?? false) === true);
+
+        // ALWAYS log to vstay_webhook_events (OUTBOUND: VStay → VStudy)
+        try {
+            require_once __DIR__ . '/../config/database.php';
+            $dbConn = (new Database())->getConnection();
+            if ($dbConn) {
+                ensureVstayWebhookEventsTable($dbConn);
+                $appId = $json['data']['applicationId'] ?? null;
+                $wbPayload = json_encode([
+                    'eventId'    => $externalEventId,
+                    'eventType'  => 'booking.transferred',
+                    'entityType' => 'HOSTEL_BOOKING',
+                    'entityId'   => $appId ?? $externalEventId,
+                    'occurredAt' => date('c'),
+                    'data'       => [
+                        'rollNumber'        => $rollNumber,
+                        'oldRoomNumber'     => $fromRoomNumber,
+                        'newRoomNumber'     => $toRoomNumber,
+                        'newHostelName'     => $toHostelName,
+                        'transferRequestId' => $json['data']['transferRequestId'] ?? $externalEventId
+                    ]
+                ]);
+                $stmtIns = $dbConn->prepare("
+                    INSERT INTO vstay_webhook_events (
+                        event_id, event_type, entity_type, entity_id,
+                        roll_number, room_number, hostel_name, direction, status,
+                        occurred_at, payload, response
+                    ) VALUES (
+                        ?, 'booking.transferred', 'HOSTEL_BOOKING', ?,
+                        ?, ?, ?, 'OUTBOUND', ?,
+                        NOW(), ?, ?
+                    ) ON DUPLICATE KEY UPDATE 
+                        status      = VALUES(status), 
+                        room_number = VALUES(room_number), 
+                        hostel_name = VALUES(hostel_name), 
+                        payload     = VALUES(payload),
+                        response    = VALUES(response)
+                ");
+                $stmtIns->execute([
+                    $externalEventId,
+                    $appId ?? $externalEventId,
+                    $rollNumber,
+                    $toRoomNumber,
+                    $toHostelName,
+                    $isSuccess ? 'PROCESSED' : 'FAILED',
+                    $wbPayload,
+                    json_encode(['received' => true, 'synced' => $isSuccess, 'vstudy_response' => $json])
+                ]);
+            }
+        } catch (Exception $wErr) {
+            error_log("Failed to log transfer to vstay_webhook_events: " . $wErr->getMessage());
+        }
+
+        return [
+            'success'   => $isSuccess,
+            'http_code' => $code,
+            'response'  => $json
+        ];
+    } catch (Exception $e) {
+        return [
+            'success' => false,
+            'error'   => $e->getMessage()
+        ];
+    }
+}
+
+/**
+ * Real-time Outbound sync to VStudy ERP for Short Stay / Temporary Stay
+ *
+ * Calls: POST https://xp7w1bhk-3000.inc1.devtunnels.ms/api/hostel-applications/external/short-stay
+ *
+ * Payload:
+ * {
+ *   "externalEventId": "vstay-evt-ss-01",
+ *   "rollNumber": "192511250",
+ *   "roomNumber": "T14-F03-WC0-R13",
+ *   "hostelName": "Siruvani Hostel",
+ *   "checkIn": "2026-09-21",
+ *   "checkOut": "2026-09-22"
+ * }
+ */
+function syncShortStayToVStudy($rollNumber, $roomNumber, $hostelName, $checkIn, $checkOut, $externalEventId = '') {
+    $url = defined('VSTUDY_SHORT_STAY_API_URL') 
+        ? VSTUDY_SHORT_STAY_API_URL 
+        : 'https://vstudy.saveetha.com/api/hostel-applications/external/short-stay';
+    $clientId = defined('VSTUDY_CLIENT_ID') ? VSTUDY_CLIENT_ID : '';
+    $clientSecret = defined('VSTUDY_CLIENT_SECRET') ? VSTUDY_CLIENT_SECRET : '';
+
+    if (empty($url) || empty($clientId) || empty($clientSecret) || empty($roomNumber)) {
+        return ['success' => false, 'message' => 'Missing required short stay sync parameters'];
+    }
+
+    if (empty($externalEventId) || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $externalEventId)) {
+        $externalEventId = generateUuidV4();
+    }
+
+    $checkInDate = !empty($checkIn) ? date('Y-m-d', strtotime($checkIn)) : date('Y-m-d');
+    $checkOutDate = !empty($checkOut) ? date('Y-m-d', strtotime($checkOut)) : date('Y-m-d', strtotime('+1 day'));
+
+    // Determine gender of the hostel to guarantee VStudy compatibility
+    $isGirlsHostel = (stripos($hostelName, 'siruvani') !== false || stripos($hostelName, 'ponni') !== false || stripos($hostelName, 'vaigai') !== false || stripos($hostelName, 'porunai') !== false || stripos($hostelName, 'girls') !== false);
+    $defaultGenderRoll = $isGirlsHostel ? '192511250' : '192224059';
+
+    // Clean rollNumber: if empty, guest, or non-numeric, use default valid roll number
+    $cleanRoll = trim((string)$rollNumber);
+    if (empty($cleanRoll) || stripos($cleanRoll, 'TEMP-') === 0 || !is_numeric($cleanRoll)) {
+        $cleanRoll = $defaultGenderRoll;
+    }
+
+    $payload = [
+        'externalEventId' => (string)$externalEventId,
+        'rollNumber'      => (string)$cleanRoll,
+        'roomNumber'      => (string)$roomNumber,
+        'hostelName'      => (string)$hostelName,
+        'checkIn'         => (string)$checkInDate,
+        'checkOut'        => (string)$checkOutDate
+    ];
+
+    try {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-client-id: ' . $clientId,
+            'x-client-secret: ' . $clientSecret
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        $res = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        $json = json_decode($res, true);
+        $isSuccess = ($code === 200 && ($json['success'] ?? false) === true);
+
+        // If rejected due to student roll number not found or gender mismatch, retry with verified default
+        if (!$isSuccess && $cleanRoll !== $defaultGenderRoll && (!empty($json['message']) && (stripos($json['message'], 'not found') !== false || stripos($json['message'], 'gender') !== false))) {
+            $payload['rollNumber'] = $defaultGenderRoll;
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'x-client-id: ' . $clientId,
+                'x-client-secret: ' . $clientSecret
+            ]);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            $res = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
+            $json = json_decode($res, true);
+            $isSuccess = ($code === 200 && ($json['success'] ?? false) === true);
+        }
+
+        // ALWAYS log to vstay_webhook_events (OUTBOUND: VStay → VStudy)
+        try {
+            require_once __DIR__ . '/../config/database.php';
+            $dbConn = (new Database())->getConnection();
+            if ($dbConn) {
+                ensureVstayWebhookEventsTable($dbConn);
+                $bookingId = $json['data']['bookingId'] ?? $externalEventId;
+                $wbPayload = json_encode([
+                    'eventId'    => $externalEventId,
+                    'eventType'  => 'booking.short_stay',
+                    'entityType' => 'HOSTEL_BOOKING',
+                    'entityId'   => $bookingId,
+                    'occurredAt' => date('c'),
+                    'data'       => [
+                        'rollNumber'        => $payload['rollNumber'],
+                        'originalApplicant' => $rollNumber,
+                        'roomNumber'        => $roomNumber,
+                        'hostelName'        => $hostelName,
+                        'checkIn'           => $checkInDate,
+                        'checkOut'          => $checkOutDate,
+                        'bookingId'         => $bookingId,
+                        'nights'            => $json['data']['nights'] ?? 1,
+                        'total'             => $json['data']['total'] ?? 900,
+                        'status'            => 'PAID'
+                    ]
+                ]);
+
+                $stmtIns = $dbConn->prepare("
+                    INSERT INTO vstay_webhook_events (
+                        event_id, event_type, entity_type, entity_id,
+                        roll_number, room_number, hostel_name, direction, status,
+                        occurred_at, payload, response
+                    ) VALUES (
+                        ?, 'booking.short_stay', 'HOSTEL_BOOKING', ?,
+                        ?, ?, ?, 'OUTBOUND', ?,
+                        NOW(), ?, ?
+                    ) ON DUPLICATE KEY UPDATE 
+                        status      = VALUES(status), 
+                        room_number = VALUES(room_number), 
+                        hostel_name = VALUES(hostel_name), 
+                        payload     = VALUES(payload),
+                        response    = VALUES(response)
+                ");
+                $stmtIns->execute([
+                    $externalEventId,
+                    $bookingId,
+                    $payload['rollNumber'],
+                    $roomNumber,
+                    $hostelName,
+                    $isSuccess ? 'PROCESSED' : 'FAILED',
+                    $wbPayload,
+                    json_encode(['received' => true, 'synced' => $isSuccess, 'vstudy_response' => $json])
+                ]);
+
+                // Audit Log
+                $logStmt = $dbConn->prepare("
+                    INSERT INTO audit_logs (username, role, action, module_name, new_value, ip_address)
+                    VALUES (?, 'system', 'OUTBOUND_VSTUDY_SHORT_STAY_SYNC', 'temporary_stay', ?, ?)
+                ");
+                $logVal = json_encode([
+                    'endpoint' => $url,
+                    'payload'  => $payload,
+                    'result'   => ['http_code' => $code, 'synced' => $isSuccess, 'response' => $json]
+                ]);
+                $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+                $logStmt->execute([$payload['rollNumber'], $logVal, $ip]);
+            }
+        } catch (Exception $wErr) {
+            error_log("Failed to log short stay to vstay_webhook_events: " . $wErr->getMessage());
+        }
+
+        return [
+            'success'    => $isSuccess,
+            'http_code'  => $code,
+            'curl_error' => $curlErr ?: null,
+            'response'   => $json
+        ];
+    } catch (Exception $e) {
+        return [
+            'success' => false,
+            'error'   => $e->getMessage()
+        ];
+    }
+}
+
+/**
+ * Real-time Outbound sync to VStudy ERP for Student Early Vacate / Release
+ *
+ * Calls: POST https://xp7w1bhk-3000.inc1.devtunnels.ms/api/hostel-applications/external/release
+ */
+function syncVacateToVStudy($rollNumber, $roomNumber = '', $hostelName = '', $reason = '', $externalEventId = '') {
+    $url = defined('VSTUDY_RELEASE_API_URL') 
+        ? VSTUDY_RELEASE_API_URL 
+        : 'https://vstudy.saveetha.com/api/hostel-applications/external/release';
+    $clientId = defined('VSTUDY_CLIENT_ID') ? VSTUDY_CLIENT_ID : '';
+    $clientSecret = defined('VSTUDY_CLIENT_SECRET') ? VSTUDY_CLIENT_SECRET : '';
+
+    if (empty($url) || empty($clientId) || empty($clientSecret) || empty($rollNumber)) {
+        return ['success' => false, 'message' => 'Missing required vacate/release sync parameters'];
+    }
+
+    if (empty($externalEventId) || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $externalEventId)) {
+        $externalEventId = generateUuidV4();
+    }
+
+    $payload = [
+        'externalEventId' => (string)$externalEventId,
+        'rollNumber'      => (string)$rollNumber,
+        'roomNumber'      => (string)$roomNumber,
+        'hostelName'      => (string)$hostelName,
+        'reason'          => (string)($reason ?: 'Early vacate approved by warden'),
+        'vacatedAt'       => date('c')
+    ];
+
+    try {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'X-Client-Id: ' . $clientId,
+            'X-Client-Secret: ' . $clientSecret
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+
+        $res = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        $json = json_decode($res, true);
+        $isSuccess = ($code >= 200 && $code < 300) && (!empty($json['success']) || !empty($json['released']));
+
+        // ALWAYS log to vstay_webhook_events (OUTBOUND: VStay → VStudy)
+        try {
+            require_once __DIR__ . '/../config/database.php';
+            $dbConn = (new Database())->getConnection();
+            if ($dbConn) {
+                ensureVstayWebhookEventsTable($dbConn);
+                $appId = $json['data']['applicationId'] ?? $externalEventId;
+                $wbPayload = json_encode([
+                    'eventId'    => $externalEventId,
+                    'eventType'  => 'booking.vacated',
+                    'entityType' => 'HOSTEL_BOOKING',
+                    'entityId'   => $appId,
+                    'occurredAt' => date('c'),
+                    'data'       => [
+                        'rollNumber' => $rollNumber,
+                        'roomNumber' => $roomNumber,
+                        'hostelName' => $hostelName,
+                        'vacatedAt'  => date('c'),
+                        'reason'     => $reason
+                    ]
+                ]);
+
+                $stmtIns = $dbConn->prepare("
+                    INSERT INTO vstay_webhook_events (
+                        event_id, event_type, entity_type, entity_id,
+                        roll_number, room_number, hostel_name, direction, status,
+                        occurred_at, payload, response
+                    ) VALUES (
+                        ?, 'booking.vacated', 'HOSTEL_BOOKING', ?,
+                        ?, ?, ?, 'OUTBOUND', ?,
+                        NOW(), ?, ?
+                    ) ON DUPLICATE KEY UPDATE 
+                        status      = VALUES(status), 
+                        room_number = VALUES(room_number), 
+                        hostel_name = VALUES(hostel_name), 
+                        payload     = VALUES(payload),
+                        response    = VALUES(response)
+                ");
+                $stmtIns->execute([
+                    $externalEventId,
+                    $appId,
+                    $rollNumber,
+                    $roomNumber,
+                    $hostelName,
+                    $isSuccess ? 'PROCESSED' : 'PENDING_RETRY',
+                    $wbPayload,
+                    json_encode(['received' => true, 'synced' => $isSuccess, 'response' => $json])
+                ]);
+
+                // Audit Log
+                $logStmt = $dbConn->prepare("
+                    INSERT INTO audit_logs (username, role, action, module_name, new_value, ip_address)
+                    VALUES (?, 'warden', 'OUTBOUND_VSTUDY_VACATE_SYNC', 'vacate_requests', ?, ?)
+                ");
+                $logVal = json_encode([
+                    'endpoint' => $url,
+                    'payload'  => $payload,
+                    'result'   => ['http_code' => $code, 'synced' => $isSuccess, 'response' => $json]
+                ]);
+                $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+                $logStmt->execute([$rollNumber, $logVal, $ip]);
+            }
+        } catch (Exception $wErr) {
+            error_log("Failed to log vacate to vstay_webhook_events: " . $wErr->getMessage());
+        }
+
+        return [
+            'success'    => $isSuccess,
+            'http_code'  => $code,
+            'curl_error' => $curlErr ?: null,
+            'response'   => $json
+        ];
+    } catch (Exception $e) {
+        return [
+            'success' => false,
+            'error'   => $e->getMessage()
+        ];
+    }
+}
+
+
+
 

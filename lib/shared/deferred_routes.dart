@@ -17,11 +17,17 @@ import '../warden/screens/warden_chat_interface.dart';
 import 'auth_wrapper.dart';
 import 'main_layout.dart';
 import 'role_guard.dart';
+import '../student/face_attendance/screens/face_attendance_screen.dart';
 import 'screens/privacy_policy_screen.dart';
 import 'user_provider.dart';
 
 Widget buildDeferredRoutePage(BuildContext context, RouteSettings settings) {
   switch (settings.name) {
+    case '/face_attendance':
+      return const RoleGuard(
+        allowedRoles: [UserRole.student],
+        child: FaceAttendanceScreen(),
+      );
     case '/privacy-policy':
     case '/privacy_policy':
       return const PrivacyPolicyScreen();

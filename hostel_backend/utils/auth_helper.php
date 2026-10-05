@@ -2,7 +2,13 @@
 // hostel_backend/utils/auth_helper.php
 
 if (!defined('JWT_SECRET')) {
-    define('JWT_SECRET', 'vstay_super_secret_key_2026_safe');
+    $secrets_file = __DIR__ . '/../config/secrets.php';
+    $secrets = file_exists($secrets_file) ? include($secrets_file) : [];
+    $jwtSec = getenv('JWT_SECRET') ?: ($secrets['JWT_SECRET'] ?? '');
+    if (empty($jwtSec)) {
+        $jwtSec = 'vstay_jwt_sec_8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d';
+    }
+    define('JWT_SECRET', $jwtSec);
 }
 
 if (!function_exists('base64url_encode')) {
@@ -61,6 +67,50 @@ if (!function_exists('validateJWT')) {
         }
         
         return $payload;
+    }
+}
+
+if (!function_exists('getBearerToken')) {
+    function getBearerToken() {
+        $headers = null;
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+        } elseif (function_exists('apache_request_headers')) {
+            $headers = apache_request_headers();
+        }
+        $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (preg_match('/Bearer\s+(\S+)/i', $authHeader, $matches)) {
+            return trim($matches[1]);
+        }
+        return null;
+    }
+}
+
+if (!function_exists('requireAuth')) {
+    function requireAuth($allowedRoles = []) {
+        $token = getBearerToken();
+        if (!$token) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'status' => 'error', 'message' => 'Unauthorized: Missing or invalid token']);
+            exit();
+        }
+        $user = validateJWT($token);
+        if (!$user) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'status' => 'error', 'message' => 'Unauthorized: Invalid or expired session']);
+            exit();
+        }
+        if (!empty($allowedRoles)) {
+            $role = strtolower($user['role'] ?? '');
+            $allowed = array_map('strtolower', (array)$allowedRoles);
+            // Allow admin and super_admin everywhere privileged access is checked
+            if (!in_array($role, $allowed) && !in_array('admin', $allowed) && $role !== 'admin' && $role !== 'super_admin') {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'status' => 'error', 'message' => 'Forbidden: Insufficient privileges']);
+                exit();
+            }
+        }
+        return $user;
     }
 }
 ?>

@@ -56,20 +56,9 @@ try {
         $warden_role = $payload['role'];
         $warden_username = $payload['username'];
     } else {
-        // Fallback to headers passed by Flutter app (e.g. X-User-Username)
-        $x_username = $_SERVER['HTTP_X_USER_USERNAME'] ?? '';
-        $x_role = $_SERVER['HTTP_X_USER_ROLE'] ?? '';
-        $x_id = $_SERVER['HTTP_X_USER_ID'] ?? '0';
-
-        if (!empty($x_username)) {
-            $warden_user_id = (int)$x_id;
-            $warden_role = $x_role;
-            $warden_username = $x_username;
-        } else {
-            http_response_code(401);
-            echo json_encode(["success" => false, "message" => "Unauthorized access. Invalid or expired token."]);
-            return;
-        }
+        http_response_code(401);
+        echo json_encode(["success" => false, "message" => "Unauthorized access. Valid Authorization Bearer token required."]);
+        return;
     }
     
     // Resolve role and full_name from DB for safety
@@ -542,16 +531,17 @@ try {
                 // 6. Update room occupancy for the new room
                 $conn->query("UPDATE hostel_rooms SET occupied_rooms = occupied_rooms + 1, available_rooms = available_rooms - 1 WHERE id = $room_id");
 
-                // 7. Update profile allocation info
+                // 7. Update profile allocation info & assigning warden details
                 $room_code = $room['room_code'];
                 $h_name = $room['hostel_name'];
+                $warden_info_str = !empty($warden_full_name) ? "$warden_full_name ($warden_username)" : $warden_username;
 
                 $up_profile = $conn->prepare("
                     UPDATE profile p 
                     JOIN users u ON p.reg_no = u.username 
-                    SET p.current_room_id = ?, p.room_allocation = ?, p.hostel_name = ?, p.check_in_date = ?, p.renewal_date = ?, p.valid_from = ?, p.valid_to = ?, p.bed_no = ? 
+                    SET p.current_room_id = ?, p.room_allocation = ?, p.hostel_name = ?, p.check_in_date = ?, p.renewal_date = ?, p.valid_from = ?, p.valid_to = ?, p.bed_no = ?, p.warden = ?
                     WHERE u.id = ?");
-                $up_profile->bind_param("isssssssi", $room_id, $room_code, $h_name, $check_in_date, $renewal_date, $check_in_date, $renewal_date, $bed_no, $sid);
+                $up_profile->bind_param("issssssssi", $room_id, $room_code, $h_name, $check_in_date, $renewal_date, $check_in_date, $renewal_date, $bed_no, $warden_info_str, $sid);
                 $up_profile->execute();
 
                 // 8. Sync details to users table (RoomId, RoomType, HostelName, HostelType)
@@ -560,6 +550,17 @@ try {
                 $up_user = $conn->prepare("UPDATE users SET RoomId = ?, RoomType = ?, HostelName = ?, HostelType = ? WHERE id = ?");
                 $up_user->bind_param("ssssi", $room_code, $new_room_type, $h_name, $new_hostel_type, $sid);
                 $up_user->execute();
+
+                // 8B. Update room_not_allocated and vstudy_payments with assigned room and warden info
+                if (!empty($reg_no)) {
+                    $up_rna = $conn->prepare("UPDATE room_not_allocated SET status = 'Allocated', allocated_room = ?, allocated_by_warden = ?, allocated_at = NOW() WHERE roll_number = ?");
+                    $up_rna->bind_param("sss", $room_code, $warden_info_str, $reg_no);
+                    $up_rna->execute();
+
+                    $up_vp = $conn->prepare("UPDATE vstudy_payments SET room_number = ?, hostel_name = ? WHERE roll_number = ?");
+                    $up_vp->bind_param("sss", $room_code, $h_name, $reg_no);
+                    $up_vp->execute();
+                }
 
                 // 6. Create payments record
                 $amount = 68000.00;

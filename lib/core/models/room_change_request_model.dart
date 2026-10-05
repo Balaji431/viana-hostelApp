@@ -15,6 +15,7 @@ class RoomChangeRequest {
   final String? paymentStatus;
   final String? requestedRoomType;
   final double? amountToPay;
+  final String? campus;
 
   RoomChangeRequest({
     required this.requestId,
@@ -33,9 +34,22 @@ class RoomChangeRequest {
     this.paymentStatus,
     this.requestedRoomType,
     this.amountToPay,
+    this.campus,
   });
 
   factory RoomChangeRequest.fromJson(Map<String, dynamic> json) {
+    final reqRoom = (json['requested_room'] ?? '').toString().toUpperCase();
+    final curRoom = (json['current_room'] ?? '').toString().toUpperCase();
+    final reason = (json['reason'] ?? '').toString().toLowerCase();
+    final bool isPoonamallee = reqRoom.startsWith('P-') ||
+        reqRoom.startsWith('P0') ||
+        reqRoom.startsWith('P1') ||
+        curRoom.startsWith('P-') ||
+        curRoom.startsWith('P0') ||
+        curRoom.startsWith('P1') ||
+        reason.contains('radiance') ||
+        reason.contains('stunner');
+
     return RoomChangeRequest(
       requestId: json['request_id'] ?? '',
       studentId: json['student_id'] ?? 0,
@@ -53,6 +67,7 @@ class RoomChangeRequest {
       paymentStatus: json['payment_status'],
       requestedRoomType: json['requested_room_type'],
       amountToPay: json['amount_to_pay'] != null ? double.tryParse(json['amount_to_pay'].toString()) : null,
+      campus: json['campus'] ?? (isPoonamallee ? 'Poonamallee Campus' : 'Thandalam Campus'),
     );
   }
 
@@ -70,6 +85,7 @@ class RoomChangeRequest {
     int? processedBy,
     String? remarks,
     String? requestedRoomType,
+    String? campus,
   }) {
     return RoomChangeRequest(
       requestId: requestId ?? this.requestId,
@@ -88,6 +104,7 @@ class RoomChangeRequest {
       amountToPay: amountToPay,
       paymentStatus: paymentStatus,
       reservedUntil: reservedUntil,
+      campus: campus ?? this.campus,
     );
   }
 

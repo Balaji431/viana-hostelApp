@@ -3,11 +3,13 @@ import '../shared/user_provider.dart';
 import '../student/screens/settings_page.dart';
 import 'screens/warden_home_tab.dart';
 import 'screens/warden_attendance_tab.dart';
+import 'screens/warden_biometric_screen.dart';
 import 'screens/warden_reports_tab.dart';
 import 'screens/warden_management_tab.dart';
 import 'screens/warden_room_change_requests_screen.dart';
 import 'screens/warden_room_search_screen.dart';
 import 'screens/warden_chat_interface.dart';
+import '../admin/screens/temporary_stay_admin_screen.dart';
 
 class WardenTabItem {
   final String label;
@@ -37,29 +39,23 @@ List<WardenTabItem> getWardenTabs(UserProvider user, {String? reportsCategoryFil
       activeIcon: Icons.calendar_month,
       page: WardenAttendanceTab(),
     ),
-    WardenTabItem(
-      label: 'Room Change',
-      icon: Icons.sync_outlined,
-      activeIcon: Icons.sync,
-      page: WardenRoomChangeRequestsScreen(wardenId: user.dbId ?? 1),
+    const WardenTabItem(
+      label: 'Temp Stay',
+      icon: Icons.hotel_outlined,
+      activeIcon: Icons.hotel,
+      page: TemporaryStayAdminScreen(),
+    ),
+    const WardenTabItem(
+      label: 'Biometric',
+      icon: Icons.fingerprint_rounded,
+      activeIcon: Icons.fingerprint,
+      page: WardenBiometricScreen(),
     ),
     WardenTabItem(
       label: 'Reports',
       icon: Icons.bar_chart_outlined,
       activeIcon: Icons.bar_chart,
       page: WardenReportsTab(initialCategory: reportsCategoryFilter),
-    ),
-    const WardenTabItem(
-      label: 'Management',
-      icon: Icons.settings_outlined,
-      activeIcon: Icons.settings,
-      page: WardenManagementTab(),
-    ),
-    const WardenTabItem(
-      label: 'Room Search',
-      icon: Icons.search_outlined,
-      activeIcon: Icons.search,
-      page: WardenRoomSearchScreen(),
     ),
     const WardenTabItem(
       label: 'Settings',
@@ -75,5 +71,8 @@ Widget getWardenReportsPage(String? filter) {
 }
 
 Widget getWardenChatWidget(String channel) {
+  if (channel.toLowerCase() == 'temporary_stay' || channel.toLowerCase() == 'temp_stay') {
+    return const TemporaryStayAdminScreen();
+  }
   return WardenChatInterface(channel: channel);
 }

@@ -31,6 +31,39 @@ class _AuthWrapperState extends State<AuthWrapper> {
       future: _layoutLoader,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done) {
+          if (snapshot.hasError) {
+            return Scaffold(
+              backgroundColor: const Color(0xFF0F1520),
+              body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_off, color: Colors.amber, size: 48),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Failed to load dashboard resources.\nPlease check your internet connection.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 15),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1E3A8A),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _layoutLoader = main_layout.loadLibrary();
+                        });
+                      },
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
           // ─── DASHBOARD-ONLY PROVIDERS ─────────────────────────────────────
           // Scoped here so they are NEVER instantiated during the login screen.
           // They are created exactly once when a logged-in user's dashboard

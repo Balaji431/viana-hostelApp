@@ -15,7 +15,8 @@ if (file_exists($secrets_file)) {
     $secrets = include($secrets_file);
 }
 
-$RAZORPAY_KEY_SECRET = getenv('RAZORPAY_KEY_SECRET') ?: ($secrets['RAZORPAY_KEY_SECRET'] ?? 'd2gnwZ52h6jypg2fzI04jVxj');
+$RAZORPAY_KEY_ID     = getenv('RAZORPAY_KEY_ID')     ?: ($secrets['RAZORPAY_KEY_ID']     ?? '');
+$RAZORPAY_KEY_SECRET = getenv('RAZORPAY_KEY_SECRET') ?: ($secrets['RAZORPAY_KEY_SECRET'] ?? '');
 
 // ─── Grab POST fields ───────────────────────────────────────────────────────
 $paymentId = trim($_POST['razorpay_payment_id'] ?? '');
@@ -31,6 +32,9 @@ function renderPage(bool $success, string $title, string $message, float $amount
     $bgColor = $success ? '#f0fdf4' : '#fef2f2';
     $btnText = 'Return to VStay App';
     $amtStr  = $amount > 0 ? '₹' . number_format($amount, 2) : '';
+    $deepLink = 'vstay://payment-result?status=' . ($success ? 'success' : 'failed')
+              . '&amount=' . urlencode((string)$amount)
+              . '&txn_id=' . urlencode($txnId);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -76,6 +80,16 @@ function renderPage(bool $success, string $title, string $message, float $amount
       font-size: 15px; font-weight: 800;
       cursor: pointer; text-decoration: none;
       box-shadow: 0 6px 20px rgba(212,175,55,0.4);
+      transition: transform 0.15s ease;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .hint {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.4;
     }
   </style>
 </head>
@@ -90,8 +104,39 @@ function renderPage(bool $success, string $title, string $message, float $amount
   <?php if ($txnId): ?>
     <p class="txn">Transaction ID: <?= htmlspecialchars($txnId) ?></p>
   <?php endif; ?>
-  <a class="btn" href="javascript:window.close()"><?= $btnText ?></a>
+  <a class="btn" id="returnBtn" href="<?= htmlspecialchars($deepLink) ?>"><?= $btnText ?></a>
+  <p class="hint">Tap above to return to VStay, or switch back to the VStay app.</p>
 </div>
+
+<script>
+  function openApp() {
+    var deepLink = <?= json_encode($deepLink) ?>;
+    var isAndroid = /android/i.test(navigator.userAgent);
+
+    window.location.href = deepLink;
+
+    if (isAndroid) {
+      setTimeout(function() {
+        var intentUrl = 'intent://payment-result?status=<?= $success ? "success" : "failed" ?>&amount=<?= urlencode((string)$amount) ?>&txn_id=<?= urlencode($txnId) ?>#Intent;scheme=vstay;package=com.vianasoft.stay;end;';
+        window.location.href = intentUrl;
+      }, 500);
+    }
+
+    setTimeout(function() {
+      try { window.close(); } catch(e) {}
+    }, 1000);
+  }
+
+  document.getElementById('returnBtn').addEventListener('click', function(e) {
+    openApp();
+  });
+
+  <?php if ($success): ?>
+  setTimeout(function() {
+    openApp();
+  }, 1800);
+  <?php endif; ?>
+</script>
 </body>
 </html>
 <?php
@@ -112,6 +157,35 @@ $expectedSignature = hash_hmac('sha256', $orderId . '|' . $paymentId, $RAZORPAY_
 
 if (!hash_equals($expectedSignature, $signature)) {
     renderPage(false, 'Signature Mismatch', 'Payment verification failed. If money was deducted, it will be auto-refunded within 5–7 business days. Contact support.');
+}
+
+// ─── Verify actual captured payment amount with Razorpay API ──────────────────
+if (!empty($RAZORPAY_KEY_ID) && !empty($RAZORPAY_KEY_SECRET)) {
+    $ch = curl_init('https://api.razorpay.com/v1/payments/' . urlencode($paymentId));
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_USERPWD        => "$RAZORPAY_KEY_ID:$RAZORPAY_KEY_SECRET",
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    $rzpResRaw = curl_exec($ch);
+    $httpStatus = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $rzpPayment = json_decode($rzpResRaw, true);
+    if ($httpStatus !== 200 || empty($rzpPayment['status']) || !in_array($rzpPayment['status'], ['captured', 'authorized'])) {
+        renderPage(false, 'Payment Pending', 'Payment has not been confirmed by the Razorpay gateway. Please check back later.');
+    }
+
+    if (!empty($rzpPayment['order_id']) && $rzpPayment['order_id'] !== $orderId) {
+        renderPage(false, 'Verification Failed', 'Payment order ID mismatch.');
+    }
+
+    // Authoritative amount in INR from Razorpay (ignoring any client-supplied amount)
+    $authAmount = (float)(($rzpPayment['amount'] ?? 0) / 100);
+    if ($authAmount > 0) {
+        $amount = $authAmount;
+    }
 }
 
 // ─── Verified! Credit the wallet ─────────────────────────────────────────────
@@ -147,7 +221,23 @@ try {
 
     $db->beginTransaction();
 
-    // Get or create wallet
+    // ─── 1. STRICT IDEMPOTENCY CHECK (BEFORE TOUCHING WALLET BALANCE) ───
+    $dupCheck = $db->prepare("SELECT id, wallet_id, balance_after FROM wallet_transactions WHERE reference_id = ? LIMIT 1 FOR UPDATE");
+    $dupCheck->execute([$paymentId]);
+    $existingTxn = $dupCheck->fetch(PDO::FETCH_ASSOC);
+
+    if ($existingTxn) {
+        $db->commit();
+        renderPage(true,
+            'Payment Successful!',
+            'Your wallet has been topped up. Open the VStay app to see your updated balance.',
+            $amount,
+            $paymentId
+        );
+        exit();
+    }
+
+    // ─── 2. NOT PROCESSED YET: Get or create wallet and credit ───
     $stmt = $db->prepare("SELECT id, balance FROM user_wallets WHERE LOWER(email) = LOWER(?) LIMIT 1 FOR UPDATE");
     $stmt->execute([$email]);
     $wallet = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -162,22 +252,18 @@ try {
         $db->prepare("UPDATE user_wallets SET balance = ? WHERE id = ?")->execute([$newBalance, $walletId]);
     }
 
-    // Record transaction (idempotent — skip if payment_id already processed)
-    $dupCheck = $db->prepare("SELECT id FROM wallet_transactions WHERE reference_id = ? LIMIT 1");
-    $dupCheck->execute([$paymentId]);
-    if (!$dupCheck->fetchColumn()) {
-        $db->prepare("
-            INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description)
-            VALUES (?, ?, 'credit', ?, ?, ?, ?)
-        ")->execute([
-            $walletId,
-            $email,
-            $amount,
-            $newBalance,
-            $paymentId,
-            'Wallet Top-up via Razorpay (Order: ' . $orderId . ')',
-        ]);
-    }
+    // Record transaction
+    $db->prepare("
+        INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description)
+        VALUES (?, ?, 'credit', ?, ?, ?, ?)
+    ")->execute([
+        $walletId,
+        $email,
+        $amount,
+        $newBalance,
+        $paymentId,
+        'Wallet Top-up via Razorpay (Order: ' . $orderId . ')',
+    ]);
 
     $db->commit();
 

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'history_helper.dart';
 import '../core/app_logger.dart';
+import '../core/app_update_service.dart';
 import '../core/styles.dart';
 import 'user_provider.dart';
 import 'request_provider.dart';
@@ -21,6 +22,10 @@ import '../warden/warden_routes.dart' deferred as warden_routes;
 import '../admin/admin_routes.dart' deferred as admin_routes;
 import '../maintenance/maintenance_routes.dart' deferred as maintenance_routes;
 import '../security/security_routes.dart' deferred as security_routes;
+import '../it_department/it_routes.dart' deferred as it_routes;
+import '../super_admin/super_admin_routes.dart' deferred as super_admin_routes;
+import '../developer/developer_routes.dart' deferred as developer_routes;
+import 'screens/raise_issue_dialog.dart';
 import 'widgets/glassmorphic_jelly_navbar.dart';
 
 class MainResponsiveLayout extends StatefulWidget {
@@ -48,7 +53,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   int _selectedIndex = 0;
   String? reportsCategoryFilter;
   late final PageController _pageController;
-  final GlobalKey<NavigatorState> _phoneNavigatorKey =
+  GlobalKey<NavigatorState> _phoneNavigatorKey =
       GlobalKey<NavigatorState>();
   late final _NestedNavigatorObserver _navigatorObserver;
 
@@ -147,6 +152,9 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Check for mandatory app update
+      AppUpdateService.checkUpdateAndPrompt(context);
+
       final user = Provider.of<UserProvider>(context, listen: false);
       _applyInitialUiState();
       unawaited(_hydrateAfterFirstPaint(user));
@@ -229,21 +237,30 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
     _countTimer?.cancel();
     final interval = WebSocketService.instance.isConnected ? 60 : 10;
     _countTimer = Timer.periodic(Duration(seconds: interval), (timer) {
-      if (mounted) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      try {
         final currentUser = Provider.of<UserProvider>(context, listen: false);
         final currentCatProvider =
             Provider.of<CategoryProvider>(context, listen: false);
         _fetchUnreadCounts(currentUser, currentCatProvider);
+      } catch (_) {
+        // Safe catch during screen transitions or logout
       }
     });
   }
 
   void _onFCMCountRefresh() {
-    if (mounted) {
+    if (!mounted) return;
+    try {
       final currentUser = Provider.of<UserProvider>(context, listen: false);
       final currentCatProvider =
           Provider.of<CategoryProvider>(context, listen: false);
       _fetchUnreadCounts(currentUser, currentCatProvider, force: true);
+    } catch (_) {
+      // Safe catch during screen transitions
     }
   }
 
@@ -252,6 +269,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         user.role == UserRole.admin ||
         user.role == UserRole.security ||
         user.role == UserRole.maintenance ||
+        user.role == UserRole.it ||
         user.role == UserRole.staff) {
       catProvider.fetchCounts(wardenUsername: user.username, force: force);
     } else if (user.role == UserRole.student) {
@@ -289,14 +307,23 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         await warden_routes.loadLibrary();
         break;
       case UserRole.admin:
-        await admin_routes.loadLibrary();
+        await Future.wait([admin_routes.loadLibrary(), warden_routes.loadLibrary()]);
         break;
       case UserRole.maintenance:
       case UserRole.staff:
-        await maintenance_routes.loadLibrary();
+        await Future.wait([maintenance_routes.loadLibrary(), warden_routes.loadLibrary()]);
         break;
       case UserRole.security:
-        await security_routes.loadLibrary();
+        await Future.wait([security_routes.loadLibrary(), warden_routes.loadLibrary()]);
+        break;
+      case UserRole.it:
+        await Future.wait([it_routes.loadLibrary(), warden_routes.loadLibrary()]);
+        break;
+      case UserRole.superAdmin:
+        await Future.wait([super_admin_routes.loadLibrary(), warden_routes.loadLibrary()]);
+        break;
+      case UserRole.developer:
+        await developer_routes.loadLibrary();
         break;
     }
   }
@@ -310,6 +337,8 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
 
     if (_loadedRole != user.role || _roleLoaderFuture == null) {
       _loadedRole = user.role;
+      _selectedIndex = 0;
+      _phoneNavigatorKey = GlobalKey<NavigatorState>();
       _roleLoaderFuture = _ensureRoleLibraryLoaded(user.role);
     }
 
@@ -421,10 +450,30 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
   Widget _buildRoleSwitchButton(BuildContext context, UserProvider user, {bool isSidebar = false}) {
     if (!user.hasMultipleRoles) return const SizedBox.shrink();
 
-    final isWarden = user.role == UserRole.warden;
-    final roleIcon = isWarden ? Icons.shield_rounded : Icons.build_rounded;
-    final roleLabel = isWarden ? 'Warden' : 'Maintenance';
-    final badgeColor = isWarden ? const Color(0xFFD4AF37) : const Color(0xFF38BDF8);
+    IconData roleIcon;
+    Color badgeColor;
+    switch (user.role) {
+      case UserRole.warden:
+        roleIcon = Icons.shield_rounded;
+        badgeColor = const Color(0xFFD4AF37);
+        break;
+      case UserRole.maintenance:
+        roleIcon = Icons.build_rounded;
+        badgeColor = const Color(0xFF38BDF8);
+        break;
+      case UserRole.security:
+        roleIcon = Icons.security_rounded;
+        badgeColor = const Color(0xFF10B981);
+        break;
+      case UserRole.it:
+        roleIcon = Icons.devices_other_rounded;
+        badgeColor = const Color(0xFF818CF8);
+        break;
+      default:
+        roleIcon = Icons.swap_horiz_rounded;
+        badgeColor = const Color(0xFFD4AF37);
+        break;
+    }
 
     if (isSidebar) {
       return Padding(
@@ -445,7 +494,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    roleLabel.toUpperCase(),
+                    'SWITCH ROLE',
                     style: TextStyle(
                       fontSize: 10,
                       color: badgeColor,
@@ -469,7 +518,7 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         onTap: () => _showRoleSwitchModal(context, user),
         borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
           decoration: BoxDecoration(
             color: const Color(0xFF0F172A).withOpacity(0.85),
             borderRadius: BorderRadius.circular(20),
@@ -485,20 +534,9 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(roleIcon, size: 14, color: badgeColor),
-              const SizedBox(width: 6),
-              Text(
-                roleLabel,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                  fontFamily: 'Lato',
-                  letterSpacing: 0.3,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(Icons.swap_horiz_rounded, size: 14, color: badgeColor),
+              Icon(roleIcon, size: 15, color: badgeColor),
+              const SizedBox(width: 5),
+              Icon(Icons.swap_horiz_rounded, size: 16, color: badgeColor),
             ],
           ),
         ),
@@ -580,19 +618,45 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                 const SizedBox(height: 20),
                 ...user.availableRoles.map((r) {
                   final isSelected = user.role == r;
-                  final isWarden = r == UserRole.warden;
-                  final roleTitle = isWarden
-                      ? 'Hostel Warden'
-                      : (r == UserRole.maintenance ? 'Maintenance Staff' : r.name.toUpperCase());
-                  final roleSubtitle = isWarden
-                      ? (user.hostelName.isNotEmpty
+                  String roleTitle;
+                  String roleSubtitle;
+                  Color roleColor;
+                  IconData roleIcon;
+
+                  switch (r) {
+                    case UserRole.warden:
+                      roleTitle = 'Hostel Warden';
+                      roleSubtitle = user.hostelName.isNotEmpty
                           ? '${user.hostelName} (Attendance & Rooms)'
-                          : 'Attendance, Rooms & Gate Pass')
-                      : 'Work Orders, Tickets & QR Scanner';
-                  final roleColor = isWarden ? const Color(0xFFD4AF37) : const Color(0xFF38BDF8);
-                  final roleIcon = isWarden
-                      ? Icons.shield_rounded
-                      : (r == UserRole.maintenance ? Icons.build_rounded : Icons.person_rounded);
+                          : 'Attendance, Rooms & Gate Pass';
+                      roleColor = const Color(0xFFD4AF37);
+                      roleIcon = Icons.shield_rounded;
+                      break;
+                    case UserRole.maintenance:
+                      roleTitle = 'Maintenance Staff';
+                      roleSubtitle = 'Work Orders, Tickets & QR Scanner';
+                      roleColor = const Color(0xFF38BDF8);
+                      roleIcon = Icons.build_rounded;
+                      break;
+                    case UserRole.security:
+                      roleTitle = 'Security Guard';
+                      roleSubtitle = 'Gate Pass Scanner & Visitor Log';
+                      roleColor = const Color(0xFF10B981);
+                      roleIcon = Icons.security_rounded;
+                      break;
+                    case UserRole.it:
+                      roleTitle = 'IT Department';
+                      roleSubtitle = 'Biometric Sync Audit & Student ID';
+                      roleColor = const Color(0xFF818CF8);
+                      roleIcon = Icons.devices_other_rounded;
+                      break;
+                    default:
+                      roleTitle = r.name.toUpperCase();
+                      roleSubtitle = 'Portal Access';
+                      roleColor = const Color(0xFFD4AF37);
+                      roleIcon = Icons.person_rounded;
+                      break;
+                  }
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -600,10 +664,14 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                       onTap: () {
                         Navigator.pop(ctx);
                         if (!isSelected) {
-                          user.switchActiveRole(r);
                           setState(() {
                             _selectedIndex = 0;
+                            _phoneNavigatorKey = GlobalKey<NavigatorState>();
                           });
+                          user.switchActiveRole(r);
+                          if (_pageController.hasClients) {
+                            _pageController.jumpToPage(0);
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('Switched to $roleTitle Profile'),
@@ -806,17 +874,48 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
           ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: Navigator(
-          onGenerateRoute: (settings) => MaterialPageRoute(
-            builder: (context) => Stack(
-              children: [
-                _getChatWidget(ui.activeChatChannel!, role),
-              ],
-            ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: FutureBuilder<void>(
+            future: _ensureChatLibraryLoaded(role),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+                  ),
+                );
+              }
+              return Navigator(
+                key: ValueKey('chat_side_panel_${ui.activeChatChannel}'),
+                onGenerateRoute: (settings) => MaterialPageRoute(
+                  builder: (context) => Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _getChatWidget(ui.activeChatChannel!, role),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _ensureChatLibraryLoaded(UserRole role) async {
+    if (role == UserRole.warden ||
+        role == UserRole.admin ||
+        role == UserRole.security ||
+        role == UserRole.maintenance ||
+        role == UserRole.it ||
+        role == UserRole.staff ||
+        role == UserRole.superAdmin) {
+      await warden_routes.loadLibrary();
+    } else {
+      await student_routes.loadLibrary();
+    }
   }
 
   Widget _getChatWidget(String channel, UserRole role) {
@@ -824,7 +923,9 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         role == UserRole.admin ||
         role == UserRole.security ||
         role == UserRole.maintenance ||
-        role == UserRole.staff) {
+        role == UserRole.it ||
+        role == UserRole.staff ||
+        role == UserRole.superAdmin) {
       return warden_routes.getWardenChatWidget(channel);
     }
 
@@ -870,9 +971,21 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
         roleIcon = Icons.security_outlined;
         roleLabel = 'Security Portal';
         break;
+      case UserRole.it:
+        roleIcon = Icons.devices_other_outlined;
+        roleLabel = 'IT Department';
+        break;
       case UserRole.staff:
         roleIcon = Icons.engineering_outlined;
         roleLabel = '${user.roleName} Portal';
+        break;
+      case UserRole.superAdmin:
+        roleIcon = Icons.admin_panel_settings_rounded;
+        roleLabel = 'Super Admin';
+        break;
+      case UserRole.developer:
+        roleIcon = Icons.developer_mode_rounded;
+        roleLabel = 'Developer Portal';
         break;
     }
 
@@ -1040,8 +1153,49 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
                 ),
               ),
             ),
+            if (user.role == UserRole.superAdmin)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: InkWell(
+                  onTap: () => RaiseIssueDialog.show(context),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF59E0B).withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        Image.asset(
+                          'assets/images/help_icon.png',
+                          width: 22,
+                          height: 22,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => const Icon(
+                            Icons.help_outline_rounded,
+                            color: Color(0xFFFBBF24),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Help',
+                          style: TextStyle(
+                            color: Color(0xFFFCD34D),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            fontFamily: 'Lato',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: InkWell(
                 onTap: () async {
                   final userProvider =
@@ -1162,6 +1316,27 @@ class MainResponsiveLayoutState extends State<MainResponsiveLayout> {
             )).toList();
       case UserRole.security:
         return security_routes.getSecurityTabs(user, reportsCategoryFilter: reportsCategoryFilter).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
+      case UserRole.it:
+        return it_routes.getItTabs(user, reportsCategoryFilter: reportsCategoryFilter).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
+      case UserRole.superAdmin:
+        return super_admin_routes.getSuperAdminTabs(user).map((t) => _TabItem(
+              label: t.label,
+              icon: t.icon,
+              activeIcon: t.activeIcon,
+              page: t.page,
+            )).toList();
+      case UserRole.developer:
+        return developer_routes.getDeveloperTabs(user).map((t) => _TabItem(
               label: t.label,
               icon: t.icon,
               activeIcon: t.activeIcon,

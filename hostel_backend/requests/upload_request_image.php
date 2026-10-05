@@ -45,9 +45,13 @@ $data = json_decode($raw, true);
 
 if ($data && !empty($data['base64'])) {
     $base64Data = $data['base64'];
+    $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
     if (preg_match('/^data:image\/(\w+);base64,/', $base64Data, $type)) {
         $base64Data = substr($base64Data, strpos($base64Data, ',') + 1);
         $ext = strtolower($type[1]);
+        if (!in_array($ext, $allowed)) {
+            $ext = 'jpg';
+        }
     } else {
         $ext = 'jpg';
     }

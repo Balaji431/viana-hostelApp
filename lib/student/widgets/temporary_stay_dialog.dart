@@ -37,7 +37,6 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
 
   String _gender = 'Male';
   String _docType = 'Aadhaar Card';
-  String _durationType = 'days'; // 'days' or 'months'
   DateTime _fromDate = DateTime.now();
 
   // Document Upload & Verification State
@@ -56,6 +55,7 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
 
   List<Map<String, dynamic>> _rooms = [];
   Map<String, dynamic>? _selectedRoom;
+  final Map<String, int> _roomTypeDailyRates = {};
 
   bool _isLoadingOptions = false;
   bool _isSubmitting = false;
@@ -172,6 +172,7 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
       _selectedRoom = null;
     });
 
+    _fetchRoomTypePricing(_selectedRoomType!);
     try {
       final res = await ApiService.fetchTemporaryStayOptions(
         gender: _gender,
@@ -193,6 +194,21 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
     } catch (e) {
       setState(() => _isLoadingOptions = false);
     }
+  }
+
+  void _fetchRoomTypePricing(String roomType) async {
+    if (_roomTypeDailyRates.containsKey(roomType)) return;
+    try {
+      final res = await ApiService.getRoomPricing(roomType);
+      if (res['success'] == true && res['data']?['shortStay']?['perDay'] != null) {
+        final pd = int.tryParse(res['data']['shortStay']['perDay'].toString());
+        if (pd != null && pd > 0 && mounted) {
+          setState(() {
+            _roomTypeDailyRates[roomType] = pd;
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _pickAndVerifyDocument() async {
@@ -256,14 +272,18 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
     }
   }
 
+  int? get _parsedDuration => int.tryParse(_durationValueController.text.trim());
+
+  bool get _isDurationValid {
+    final d = _parsedDuration;
+    return d != null && d >= 1 && d <= 10;
+  }
+
   DateTime get _calculatedToDate {
-    int val = int.tryParse(_durationValueController.text.trim()) ?? 1;
+    int val = _parsedDuration ?? 1;
     if (val < 1) val = 1;
-    if (_durationType == 'months') {
-      return DateTime(_fromDate.year, _fromDate.month + val, _fromDate.day);
-    } else {
-      return _fromDate.add(Duration(days: val));
-    }
+    if (val > 10) val = 10;
+    return _fromDate.add(Duration(days: val));
   }
 
   int get _dailyRate {
@@ -271,30 +291,33 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
       final p = int.tryParse(_selectedRoom!['price_per_night'].toString());
       if (p != null && p > 0) return p;
     }
-    final rt = (_selectedRoomType ?? '').toLowerCase();
-    double annual = 75000;
-    if (rt.contains('single') && rt.contains('ac')) {
-      annual = 150000;
-    } else if (rt.contains('single')) {
-      annual = 55000;
-    } else if (rt.contains('2 in 1') || rt.contains('double')) {
-      annual = rt.contains('ac') ? 100000 : 55000;
-    } else if (rt.contains('3 in 1') || rt.contains('triple')) {
-      annual = rt.contains('ac') ? 80000 : 55000;
-    } else if (rt.contains('4 in 1')) {
-      annual = rt.contains('ac') ? 70000 : 50000;
-    } else if (rt.contains('dorm')) {
-      annual = 36500;
+    if (_selectedRoomType != null && _roomTypeDailyRates.containsKey(_selectedRoomType!)) {
+      return _roomTypeDailyRates[_selectedRoomType!]!;
     }
-    double raw = annual / 365.0;
-    int rounded = (raw / 50.0).round() * 50;
-    return rounded < 50 ? 50 : rounded;
+    final rt = (_selectedRoomType ?? '').toLowerCase();
+    double annual = 70000;
+    if (rt.contains('single') || rt.contains('1 in 1')) {
+      annual = 120000;
+    } else if (rt.contains('super deluxe') && (rt.contains('4 in 1') || rt.contains('4-in-1'))) {
+      annual = 95000;
+    } else if (rt.contains('super deluxe') && (rt.contains('3 in 1') || rt.contains('3-in-1'))) {
+      annual = 110000;
+    } else if (rt.contains('2 in 1') || rt.contains('double')) {
+      annual = 90000;
+    } else if (rt.contains('3 in 1') || rt.contains('triple')) {
+      annual = 75000;
+    } else if (rt.contains('4 in 1')) {
+      annual = 70000;
+    }
+    int perDay = (annual / 365.0 / 50.0).ceil() * 50 * 3;
+    return perDay;
   }
 
   int get _totalStayDays {
     int val = int.tryParse(_durationValueController.text.trim()) ?? 1;
     if (val < 1) val = 1;
-    return _durationType == 'months' ? (val * 30) : val;
+    if (val > 10) val = 10;
+    return val;
   }
 
   int get _totalPayableAmount {
@@ -313,6 +336,12 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
     }
     if (_selectedHostel == null || _selectedRoomType == null || _selectedRoom == null) {
       setState(() => _errorMessage = 'Please select a hostel, room type, and room code.');
+      return;
+    }
+
+    final durationVal = int.tryParse(_durationValueController.text.trim()) ?? 1;
+    if (durationVal < 1 || durationVal > 10) {
+      setState(() => _errorMessage = 'Temporary stay is strictly restricted to a maximum of 10 days.');
       return;
     }
 
@@ -338,8 +367,8 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
       'room_code': _selectedRoom!['room_code'] ?? _selectedRoom!['room_no'],
       'room_id': _selectedRoom!['id'],
       'from_date': DateFormat('yyyy-MM-dd').format(_fromDate),
-      'duration_type': _durationType,
-      'duration_value': int.tryParse(_durationValueController.text.trim()) ?? 1,
+      'duration_type': 'days',
+      'duration_value': durationVal,
       'fcm_token': fcmToken,
     };
 
@@ -476,6 +505,8 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (_errorMessage != null) _buildErrorBanner(_errorMessage!),
+                            if (!_isDurationValid && (_parsedDuration != null && _parsedDuration! > 10))
+                              _buildErrorBanner('Temporary stay is strictly restricted to a maximum of 10 days only.'),
 
                             _buildSectionHeader('1. Personal & Contact Details'),
                             const SizedBox(height: 10),
@@ -795,29 +826,45 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              TextFormField(
-                                controller: _durationValueController,
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                decoration: _inputDecoration('Number of Stay Units (e.g. 1, 2, 5)', Icons.timer),
-                                onChanged: (_) => setState(() {}),
-                                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                              ),
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                initialValue: _durationType,
-                                dropdownColor: Colors.white,
-                                iconEnabledColor: const Color(0xFF1B2B48),
-                                style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
-                                decoration: _inputDecoration('Duration Unit', Icons.schedule),
-                                items: const [
-                                  DropdownMenuItem(value: 'days', child: Text('Days', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
-                                  DropdownMenuItem(value: 'months', child: Text('Months', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      controller: _durationValueController,
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.digitsOnly,
+                                        LengthLimitingTextInputFormatter(2),
+                                      ],
+                                      decoration: _inputDecoration('Days (1–10)', Icons.timer),
+                                      onChanged: (_) => setState(() {}),
+                                      validator: (v) {
+                                        if (v == null || v.trim().isEmpty) return 'Required';
+                                        final val = int.tryParse(v.trim());
+                                        if (val == null || val < 1) return 'Min 1 day';
+                                        if (val > 10) return 'Max 10 days';
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: const Color(0xFFCBD5E1)),
+                                    ),
+                                    child: const Text(
+                                      'Days (Max 10)',
+                                      style: TextStyle(
+                                        color: Color(0xFF1B2B48),
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
                                 ],
-                                onChanged: (val) {
-                                  if (val != null) setState(() => _durationType = val);
-                                },
                               ),
                             ] else ...[
                               Row(
@@ -852,30 +899,70 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                           child: TextFormField(
                                             controller: _durationValueController,
                                             keyboardType: TextInputType.number,
-                                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                            decoration: _inputDecoration('Duration Number', Icons.timer),
+                                            inputFormatters: [
+                                              FilteringTextInputFormatter.digitsOnly,
+                                              LengthLimitingTextInputFormatter(2),
+                                            ],
+                                            decoration: _inputDecoration('Days (1–10)', Icons.timer),
                                             onChanged: (_) => setState(() {}),
-                                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Req' : null,
+                                            validator: (v) {
+                                              if (v == null || v.trim().isEmpty) return 'Req';
+                                              final val = int.tryParse(v.trim());
+                                              if (val == null || val < 1) return 'Min 1';
+                                              if (val > 10) return 'Max 10';
+                                              return null;
+                                            },
                                           ),
                                         ),
                                         const SizedBox(width: 8),
-                                        DropdownButton<String>(
-                                          value: _durationType,
-                                          dropdownColor: Colors.white,
-                                          iconEnabledColor: const Color(0xFF1B2B48),
-                                          style: const TextStyle(color: Color(0xFF1B2B48), fontSize: 13, fontWeight: FontWeight.w600),
-                                          items: const [
-                                            DropdownMenuItem(value: 'days', child: Text('Days', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
-                                            DropdownMenuItem(value: 'months', child: Text('Months', style: TextStyle(color: Color(0xFF1B2B48), fontSize: 13))),
-                                          ],
-                                          onChanged: (val) {
-                                            if (val != null) setState(() => _durationType = val);
-                                          },
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF1F5F9),
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                                          ),
+                                          child: const Text(
+                                            'Days (Max 10)',
+                                            style: TextStyle(
+                                              color: Color(0xFF1B2B48),
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
                                         ),
                                       ],
                                     ),
                                   ),
                                 ],
+                              ),
+                            ],
+                            if (!_isDurationValid) ...[
+                              const SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEE2E2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFEF4444)),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Temporary stay is strictly restricted to a maximum of 10 days only.',
+                                        style: TextStyle(
+                                          color: Color(0xFFDC2626),
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                             const SizedBox(height: 8),
@@ -892,7 +979,7 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'Valid Stay Until: ${DateFormat('dd MMM yyyy').format(_calculatedToDate)} ($_totalStayDays Days)',
+                                      'Valid Stay Until: ${DateFormat('dd MMM yyyy').format(_calculatedToDate)} ($_totalStayDays Days — Max 10 Days)',
                                       style: TextStyle(color: Colors.amber.shade900, fontSize: 12, fontWeight: FontWeight.bold),
                                     ),
                                   ),
@@ -1072,30 +1159,57 @@ class _TemporaryStayDialogState extends State<TemporaryStayDialog> {
                                 ),
                             ],
                             const SizedBox(height: 24),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _isDocVerified ? const Color(0xFFD4AF37) : Colors.grey.shade400,
-                                  foregroundColor: const Color(0xFF1B2B48),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  elevation: 3,
-                                ),
-                                onPressed: (_isSubmitting || !_isDocVerified) ? null : _handleSubmit,
-                                child: _isSubmitting
-                                    ? const SizedBox(
-                                        width: 22,
-                                        height: 22,
-                                        child: CircularProgressIndicator(color: Color(0xFF1B2B48), strokeWidth: 2.5),
-                                      )
-                                    : Text(
-                                        _isDocVerified 
-                                            ? 'Verify & Submit Application (₹${NumberFormat('#,##,###').format(_totalPayableAmount)})' 
-                                            : 'Attach Document to Submit',
-                                        style: GoogleFonts.outfit(fontSize: 13.5, fontWeight: FontWeight.bold),
-                                      ),
-                              ),
+                            Builder(
+                              builder: (context) {
+                                final bool hasValidDuration = _isDurationValid;
+                                final bool canSubmit = !_isSubmitting &&
+                                    _isDocVerified &&
+                                    hasValidDuration &&
+                                    _selectedHostel != null &&
+                                    _selectedRoomType != null &&
+                                    _selectedRoom != null;
+
+                                String buttonLabel;
+                                if (!hasValidDuration) {
+                                  buttonLabel = 'Max 10 Days Allowed (Enter 1–10 Days)';
+                                } else if (!_isDocVerified) {
+                                  buttonLabel = 'Attach Document to Submit';
+                                } else if (_selectedRoom == null) {
+                                  buttonLabel = 'Select Room to Submit';
+                                } else {
+                                  buttonLabel = 'Verify & Submit Application (₹${NumberFormat('#,##,###').format(_totalPayableAmount)})';
+                                }
+
+                                return SizedBox(
+                                  width: double.infinity,
+                                  height: 48,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: canSubmit ? const Color(0xFFD4AF37) : Colors.grey.shade400,
+                                      foregroundColor: canSubmit ? const Color(0xFF1B2B48) : Colors.white,
+                                      disabledBackgroundColor: Colors.grey.shade300,
+                                      disabledForegroundColor: Colors.grey.shade600,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      elevation: canSubmit ? 3 : 0,
+                                    ),
+                                    onPressed: canSubmit ? _handleSubmit : null,
+                                    child: _isSubmitting
+                                        ? const SizedBox(
+                                            width: 22,
+                                            height: 22,
+                                            child: CircularProgressIndicator(color: Color(0xFF1B2B48), strokeWidth: 2.5),
+                                          )
+                                        : Text(
+                                            buttonLabel,
+                                            style: GoogleFonts.outfit(
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.bold,
+                                              color: canSubmit ? const Color(0xFF1B2B48) : Colors.grey.shade700,
+                                            ),
+                                          ),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),

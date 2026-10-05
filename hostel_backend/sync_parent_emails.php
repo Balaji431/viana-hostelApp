@@ -15,6 +15,11 @@ ini_set('memory_limit', '512M');
 
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/config/api_config.php';
+require_once __DIR__ . '/utils/auth_helper.php';
+
+if (PHP_SAPI !== 'cli') {
+    requireAuth(['super_admin', 'admin']);
+}
 
 $database = new Database();
 $db = $database->getConnection();

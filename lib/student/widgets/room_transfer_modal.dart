@@ -397,7 +397,7 @@ class _StudentRoomTransferModalState extends State<StudentRoomTransferModal> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '$currentHostel · Thandalam Campus',
+                          '$currentHostel · ${UserProvider.getCampusForHostel(currentHostel, currentRoomNo)}',
                           style: TextStyle(
                             fontSize: 13,
                             color: isDark ? Colors.white70 : Colors.grey.shade600,

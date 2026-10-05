@@ -11,7 +11,8 @@ import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../warden/widgets/warden_widgets.dart';
 
 class TemporaryStayAdminScreen extends StatefulWidget {
-  const TemporaryStayAdminScreen({super.key});
+  final bool showBackButton;
+  const TemporaryStayAdminScreen({super.key, this.showBackButton = false});
 
   @override
   State<TemporaryStayAdminScreen> createState() => _TemporaryStayAdminScreenState();
@@ -41,6 +42,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
     });
     try {
       final res = await ApiService.fetchAdminTemporaryStayRequests(status: _selectedStatus);
+      if (!mounted) return;
       if (res['success'] == true) {
         final List<dynamic> list = res['requests'] ?? [];
         setState(() {
@@ -54,6 +56,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Error loading requests: $e';
         _isLoading = false;
@@ -153,6 +156,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
         status: status,
         adminNotes: notesController.text.trim(),
       );
+      if (!mounted) return;
       if (res['success'] == true) {
         final rootContext = navigatorKey.currentContext;
         if (rootContext != null && rootContext.mounted) {
@@ -177,6 +181,7 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Connection error: $e';
         _isLoading = false;
@@ -700,14 +705,16 @@ class _TemporaryStayAdminScreenState extends State<TemporaryStayAdminScreen>
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
         title: 'Temporary Stay Requests',
-        onBack: () {
-          final ui = Provider.of<UIProvider>(context, listen: false);
-          if (isDesktop && ui.activeChatChannel != null) {
-            ui.setActiveChatChannel(null);
-          } else if (canPop) {
-            Navigator.of(context).pop();
-          }
-        },
+        onBack: widget.showBackButton
+            ? () {
+                final ui = Provider.of<UIProvider>(context, listen: false);
+                if (isDesktop && ui.activeChatChannel != null) {
+                  ui.setActiveChatChannel(null);
+                } else if (canPop) {
+                  Navigator.of(context).pop();
+                }
+              }
+            : null,
         rightAction: IconButton(
           icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
           onPressed: _fetchRequests,

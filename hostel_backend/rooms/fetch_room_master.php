@@ -28,7 +28,7 @@ try {
     $database = new Database();
     $db = $database->getConnection();
 
-    $locationFilter = isset($_GET['location_name']) ? trim($_GET['location_name']) : '';
+    $locationFilter = isset($_GET['location_name']) ? trim($_GET['location_name']) : (isset($_GET['hostel_name']) ? trim($_GET['hostel_name']) : '');
     $buildingFilter = isset($_GET['building_code'])  ? trim($_GET['building_code'])  : '';
     $floorFilter    = isset($_GET['floor_no'])        ? trim($_GET['floor_no'])        : '';
     $roomTypeFilter = isset($_GET['room_type'])       ? trim($_GET['room_type'])       : '';
@@ -40,7 +40,7 @@ try {
     $per_page = isset($_GET['limit']) ? max(1, (int)$_GET['limit']) : 100;
 
     // ── Build WHERE clause ──────────────────────────────────────────────────
-    $whereParts = [];
+    $whereParts = ['active = 1'];   // always exclude inactive / stale import rows
     $params     = [];
 
     if ($locationFilter !== '') {
@@ -122,22 +122,45 @@ try {
     };
 
     // ── Student map: use session cache (60s) to avoid repeating queries ─────
-    $cacheKey        = 'student_map_v4';
-    $cacheExpireKey  = 'student_map_expire_v4';
+    $cacheKey        = 'student_map_v6';
+    $cacheExpireKey  = 'student_map_expire_v6';
     $cacheValid      = isset($_SESSION[$cacheKey]) &&
                        isset($_SESSION[$cacheExpireKey]) &&
                        time() < $_SESSION[$cacheExpireKey];
 
     if ($cacheValid) {
-        $roomIdMap  = $_SESSION['room_id_map_v4'] ?? [];
+        $roomIdMap  = $_SESSION['room_id_map_v6'] ?? [];
         $studentMap = $_SESSION[$cacheKey];
     } else {
         $studentMap = [];
         $roomIdMap  = [];
 
-        $addRoll = function(&$sMap, &$rMap, $roll, $code, $rid = null) use ($normKey) {
+        // Collect all vacated / checked-out students to exclude from bed allocation
+        $vacatedStudents = [];
+        try {
+            $coStmt = $db->query("SELECT DISTINCT reg_no FROM checkout_students WHERE reg_no IS NOT NULL AND reg_no != ''");
+            if ($coStmt) {
+                while ($coRow = $coStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $vacatedStudents[trim($coRow['reg_no'])] = true;
+                }
+            }
+            $vpVacStmt = $db->query("SELECT DISTINCT roll_number FROM vstudy_payments WHERE (application_status = 'VACATED' OR payment_status = 'EXPIRED') AND roll_number IS NOT NULL");
+            if ($vpVacStmt) {
+                while ($vRow = $vpVacStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $vacatedStudents[trim($vRow['roll_number'])] = true;
+                }
+            }
+            $vrVacStmt = $db->query("SELECT DISTINCT student_reg_no FROM vacate_requests WHERE status = 'approved' AND student_reg_no IS NOT NULL");
+            if ($vrVacStmt) {
+                while ($vrRow = $vrVacStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $vacatedStudents[trim($vrRow['student_reg_no'])] = true;
+                }
+            }
+        } catch (Exception $e) {}
+
+        $addRoll = function(&$sMap, &$rMap, $roll, $code, $rid = null) use ($normKey, $vacatedStudents) {
             $r = trim($roll ?? '');
-            if (empty($r)) return;
+            if (empty($r) || isset($vacatedStudents[$r])) return;
             if (!empty($rid) && (int)$rid > 0) {
                 $rMap[(int)$rid][$r] = true;
             }
@@ -151,7 +174,7 @@ try {
 
         // 0. Query users table directly (RoomId)
         try {
-            $stmt0 = $db->query("SELECT username as roll_no, RoomId as room_code FROM users WHERE role = 'student' AND RoomId IS NOT NULL AND RoomId != '' AND RoomId != '0'");
+            $stmt0 = $db->query("SELECT username as roll_no, RoomId as room_code FROM users WHERE role = 'student' AND RoomId IS NOT NULL AND RoomId != '' AND RoomId != '0' AND RoomId != 'vacated' AND Status = '1'");
             if ($stmt0) {
                 while ($row = $stmt0->fetch(PDO::FETCH_ASSOC)) {
                     $addRoll($studentMap, $roomIdMap, $row['roll_no'], $row['room_code']);
@@ -159,9 +182,20 @@ try {
             }
         } catch (Exception $e) {}
 
-        // 1. Query profile table
+        // 1. Query profile table (filter out inactive/unpaid/expired TEMP- guest profiles and vacated profiles)
         try {
-            $stmt1 = $db->query("SELECT COALESCE(NULLIF(u.username,''), p.reg_no) as roll_no, p.room_allocation, p.current_room_id FROM profile p LEFT JOIN users u ON p.user_id = u.id WHERE (p.room_allocation IS NOT NULL AND p.room_allocation != '') OR (p.current_room_id IS NOT NULL AND p.current_room_id > 0)");
+            $stmt1 = $db->query("
+                SELECT COALESCE(NULLIF(u.username,''), p.reg_no) as roll_no, p.room_allocation, p.current_room_id 
+                FROM profile p 
+                LEFT JOIN users u ON p.user_id = u.id 
+                LEFT JOIN temporary_stay_requests ts ON (ts.request_id = p.reg_no)
+                WHERE ((p.room_allocation IS NOT NULL AND p.room_allocation != '' AND p.room_allocation != 'vacated') 
+                    OR (p.current_room_id IS NOT NULL AND p.current_room_id > 0 AND (p.room_allocation IS NULL OR p.room_allocation != 'vacated')))
+                  AND (
+                      (p.reg_no NOT LIKE 'TEMP-%' AND p.reg_no NOT LIKE 'TEMP_%')
+                      OR (ts.status = 'allocated' AND ts.payment_status = 'paid' AND ts.hold_status = 'confirmed')
+                  )
+            ");
             if ($stmt1) {
                 while ($row = $stmt1->fetch(PDO::FETCH_ASSOC)) {
                     $addRoll($studentMap, $roomIdMap, $row['roll_no'], $row['room_allocation'], $row['current_room_id']);
@@ -189,9 +223,17 @@ try {
             }
         } catch (Exception $e) {}
 
-        // 4. Query vstudy_payments table (contains all booked rooms)
+        // 4. Query vstudy_payments table (contains all booked rooms, excluding vacated)
         try {
-            $stmt4 = $db->query("SELECT roll_number as roll_no, room_number FROM vstudy_payments WHERE room_number IS NOT NULL AND room_number != ''");
+            $stmt4 = $db->query("
+                SELECT roll_number as roll_no, room_number 
+                FROM vstudy_payments 
+                WHERE room_number IS NOT NULL 
+                  AND room_number != '' 
+                  AND room_number != 'vacated'
+                  AND (application_status IS NULL OR application_status != 'VACATED') 
+                  AND (payment_status IS NULL OR payment_status != 'EXPIRED')
+            ");
             if ($stmt4) {
                 while ($row = $stmt4->fetch(PDO::FETCH_ASSOC)) {
                     $addRoll($studentMap, $roomIdMap, $row['roll_no'], $row['room_number']);
@@ -203,9 +245,9 @@ try {
         foreach ($roomIdMap  as $k => $v) $roomIdMap[$k]  = array_keys($v);
         foreach ($studentMap as $k => $v) $studentMap[$k] = array_keys($v);
 
-        // Cache in session for 60 seconds (v4)
+        // Cache in session for 60 seconds (v6)
         $_SESSION[$cacheKey]        = $studentMap;
-        $_SESSION['room_id_map_v4'] = $roomIdMap;
+        $_SESSION['room_id_map_v6'] = $roomIdMap;
         $_SESSION[$cacheExpireKey]  = time() + 60;
     }
 

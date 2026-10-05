@@ -2,12 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'warden_home_tab.dart';
 import 'warden_attendance_tab.dart';
+import 'warden_biometric_screen.dart';
 import 'warden_reports_tab.dart';
 import 'warden_management_tab.dart';
 import '../../shared/widgets/glassmorphic_jelly_navbar.dart';
 
 class WardenMainScreen extends StatefulWidget {
-  const WardenMainScreen({super.key});
+  final int initialTabIndex;
+  final String? initialReportsCategory;
+  const WardenMainScreen({
+    super.key,
+    this.initialTabIndex = 0,
+    this.initialReportsCategory,
+  });
 
   static _WardenMainScreenState? of(BuildContext context) =>
       context.findAncestorStateOfType<_WardenMainScreenState>();
@@ -17,13 +24,15 @@ class WardenMainScreen extends StatefulWidget {
 }
 
 class _WardenMainScreenState extends State<WardenMainScreen> {
-  int _selectedIndex = 0;
+  late int _selectedIndex;
+  late PageController _pageController;
   String? _reportsCategoryFilter;
-  late final PageController _pageController;
 
   @override
   void initState() {
     super.initState();
+    _selectedIndex = widget.initialTabIndex;
+    _reportsCategoryFilter = widget.initialReportsCategory;
     _pageController = PageController(initialPage: _selectedIndex);
   }
 
@@ -54,6 +63,7 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
     final List<Widget> tabs = [
       const WardenHomeTab(),
       const WardenAttendanceTab(),
+      const WardenBiometricScreen(),
       WardenReportsTab(initialCategory: _reportsCategoryFilter),
       const WardenManagementTab(),
     ];
@@ -70,7 +80,7 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
                 if (_selectedIndex != index) {
                   setState(() {
                     _selectedIndex = index;
-                    if (index != 2) _reportsCategoryFilter = null;
+                    if (index != 3) _reportsCategoryFilter = null;
                   });
                 }
               },
@@ -82,7 +92,7 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
             ),
       bottomNavigationBar: GlassmorphicJellyNavbar(
         currentIndex: _selectedIndex,
-        totalTabs: 4,
+        totalTabs: 5,
         tabs: const [
           GlassmorphicTabItem(
             label: 'Home',
@@ -93,6 +103,11 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
             label: 'Attendance',
             icon: Icons.calendar_month_outlined,
             activeIcon: Icons.calendar_month,
+          ),
+          GlassmorphicTabItem(
+            label: 'Biometric',
+            icon: Icons.fingerprint_rounded,
+            activeIcon: Icons.fingerprint,
           ),
           GlassmorphicTabItem(
             label: 'Reports',
@@ -107,7 +122,7 @@ class _WardenMainScreenState extends State<WardenMainScreen> {
         ],
         onTap: (index) {
           setTabIndex(index);
-          if (index != 2) _reportsCategoryFilter = null;
+          if (index != 3) _reportsCategoryFilter = null;
         },
       ),
     );

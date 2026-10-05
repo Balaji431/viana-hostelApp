@@ -134,6 +134,29 @@ if (Test-Path $bootstrapPath) {
     Write-Warning "  flutter_bootstrap.js not found - skipping canvasKitVariant injection."
 }
 
+# -- Step 3d: Cache-bust main.dart.js by versioning its URL in flutter_bootstrap.js --
+# main.dart.js has a fixed filename with no content hash, so browsers using
+# max-age=604800 would serve stale JS for up to 7 days after a deploy.
+# Fix: patch mainJsPath in flutter_bootstrap.js from "main.dart.js" to
+# "main.dart.js?v=<BUILD_VER>", giving every build a unique URL.
+# flutter_bootstrap.js itself is served no-cache, so browsers always pick up
+# the new mainJsPath immediately → cache miss on new build → fresh JS fetch.
+# Repeat visits within the same build hit the 7-day cache (fast, no round trip).
+Write-Host "`n=== Step 3d: Versioning main.dart.js URL in flutter_bootstrap.js ===" -ForegroundColor Cyan
+if (Test-Path $bootstrapPath) {
+    $bootstrap2 = Get-Content $bootstrapPath -Raw
+    # Match both "mainJsPath":"main.dart.js" and "mainJsPath":"main.dart.js?v=OLD"
+    $bs2patched = $bootstrap2 -replace '"mainJsPath"\s*:\s*"main\.dart\.js(\?v=[^"]*)?"\s*', ('"mainJsPath":"main.dart.js?v=' + $BUILD_VER + '"')
+    if ($bs2patched -ne $bootstrap2) {
+        Set-Content -Path $bootstrapPath -Value $bs2patched -Encoding UTF8 -NoNewline
+        Write-Host "  flutter_bootstrap.js patched: mainJsPath=main.dart.js?v=$BUILD_VER" -ForegroundColor Green
+    } else {
+        Write-Warning "  flutter_bootstrap.js: mainJsPath pattern not matched - verify buildConfig structure."
+    }
+} else {
+    Write-Warning "  flutter_bootstrap.js not found - skipping mainJsPath versioning."
+}
+
 Write-Host "`n=== Step 4: Starting Docker Compose Build ===" -ForegroundColor Cyan
 docker compose up -d --build backend frontend websocket redis
 

@@ -9,8 +9,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit();
 }
 
-require_once '../config/database.php';
-require_once '../utils/activity_logger.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/activity_logger.php';
+require_once __DIR__ . '/../utils/auth_helper.php';
+
+// Manual student registration strictly requires authorized admin or warden token
+$authUser = requireAuth(['admin', 'super_admin', 'warden']);
 
 $database = new Database();
 $db = $database->getConnection();
@@ -57,6 +61,7 @@ if($data && !empty($data->full_name) && !empty($data->register_no) && !empty($da
                 'Authentication',
                 null,
                 [
+                    'registered_by' => $authUser['username'] ?? 'admin',
                     'full_name' => $data->full_name,
                     'email' => $email,
                     'phone_number' => $phone

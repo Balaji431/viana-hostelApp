@@ -10,6 +10,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/api_config.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -106,6 +107,35 @@ try {
 
     $available_rooms = [];
     if (!empty($hostel_name) && !empty($room_type)) {
+        // Fetch short stay pricing from VStudy ERP Pricing API
+        $apiPerDay = 0;
+        try {
+            $pricingApiUrl = defined('VSTUDY_PRICING_API_URL') ? VSTUDY_PRICING_API_URL : 'https://xp7w1bhk-3000.inc1.devtunnels.ms/api/hostel-applications/external/pricing';
+            $clientId = defined('VSTUDY_CLIENT_ID') ? VSTUDY_CLIENT_ID : '';
+            $clientSecret = defined('VSTUDY_CLIENT_SECRET') ? VSTUDY_CLIENT_SECRET : '';
+            $ch = curl_init($pricingApiUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['roomType' => trim($room_type)]));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'x-client-id: ' . $clientId,
+                'x-client-secret: ' . $clientSecret
+            ]);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            $pRes = curl_exec($ch);
+            $pCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($pCode === 200 && !empty($pRes)) {
+                $pJson = json_decode($pRes, true);
+                if (!empty($pJson['data']['shortStay']['perDay']) && (int)$pJson['data']['shortStay']['perDay'] > 0) {
+                    $apiPerDay = (int)$pJson['data']['shortStay']['perDay'];
+                }
+            }
+        } catch (Exception $eP) {}
+
         $stmtRooms = $db->prepare("
             SELECT s_no as id, room_number as room_no, room_number as room_code, group_name as floor, room_type, available_beds, total_beds, amount, warden_name, warden_user_id, warden_bio_id
             FROM rooms_groups_details 
@@ -151,43 +181,51 @@ try {
                 } catch (Exception $eW) {}
             }
 
-            // Calculate Per-Night Pricing (rounded to nearest 50)
-            $annual = (float)($row['amount'] ?? 0);
-            if ($annual <= 0) {
-                try {
-                    $stmtF = $db->prepare("SELECT total_fee, hostel_fee FROM hostel_renew_fee WHERE LOWER(room_type) = LOWER(?) LIMIT 1");
-                    $stmtF->execute([trim($room_type)]);
-                    $fRow = $stmtF->fetch(PDO::FETCH_ASSOC);
-                    if ($fRow && !empty($fRow['total_fee']) && (float)$fRow['total_fee'] > 0) {
-                        $annual = (float)$fRow['total_fee'];
-                    } else if ($fRow && !empty($fRow['hostel_fee']) && (float)$fRow['hostel_fee'] > 0) {
-                        $annual = (float)$fRow['hostel_fee'];
-                    }
-                } catch (Exception $eF) {}
-            }
-            if ($annual <= 0) {
-                $rtLower = strtolower($room_type);
-                if (strpos($rtLower, 'single') !== false && strpos($rtLower, 'ac') !== false) {
-                    $annual = 150000;
-                } else if (strpos($rtLower, 'single') !== false) {
-                    $annual = 55000;
-                } else if (strpos($rtLower, '2 in 1') !== false || strpos($rtLower, 'double') !== false) {
-                    $annual = (strpos($rtLower, 'ac') !== false) ? 100000 : 55000;
-                } else if (strpos($rtLower, '3 in 1') !== false || strpos($rtLower, 'triple') !== false) {
-                    $annual = (strpos($rtLower, 'ac') !== false) ? 80000 : 55000;
-                } else if (strpos($rtLower, '4 in 1') !== false) {
-                    $annual = (strpos($rtLower, 'ac') !== false) ? 70000 : 50000;
-                } else if (strpos($rtLower, 'dorm') !== false) {
-                    $annual = 36500;
-                } else {
-                    $annual = 75000;
+            // Calculate Per-Night Pricing matching VStudy formula:
+            // 1-day / nightly rate = (annual room rent ÷ 365, rounded up to the next ₹50) × 3
+            if ($apiPerDay > 0) {
+                $roundedPerNight = (float)$apiPerDay;
+                $annual = (float)($row['amount'] ?? 0);
+            } else {
+                $annual = (float)($row['amount'] ?? 0);
+                if ($annual <= 0) {
+                    try {
+                        $stmtF = $db->prepare("SELECT total_fee, hostel_fee FROM hostel_renew_fee WHERE LOWER(room_type) = LOWER(?) LIMIT 1");
+                        $stmtF->execute([trim($room_type)]);
+                        $fRow = $stmtF->fetch(PDO::FETCH_ASSOC);
+                        if ($fRow && !empty($fRow['total_fee']) && (float)$fRow['total_fee'] > 0) {
+                            $annual = (float)$fRow['total_fee'];
+                        } else if ($fRow && !empty($fRow['hostel_fee']) && (float)$fRow['hostel_fee'] > 0) {
+                            $annual = (float)$fRow['hostel_fee'];
+                        }
+                    } catch (Exception $eF) {}
                 }
-            }
+                if ($annual <= 0) {
+                    $rtLower = strtolower($room_type);
+                    if (strpos($rtLower, 'single') !== false && strpos($rtLower, 'ac') !== false) {
+                        $annual = 150000;
+                    } else if (strpos($rtLower, 'single') !== false) {
+                        $annual = 55000;
+                    } else if (strpos($rtLower, 'super deluxe') !== false && (strpos($rtLower, '4 in 1') !== false || strpos($rtLower, '4-in-1') !== false)) {
+                        $annual = 95000;
+                    } else if (strpos($rtLower, 'super deluxe') !== false && (strpos($rtLower, '3 in 1') !== false || strpos($rtLower, '3-in-1') !== false)) {
+                        $annual = 110000;
+                    } else if (strpos($rtLower, '2 in 1') !== false || strpos($rtLower, 'double') !== false) {
+                        $annual = (strpos($rtLower, 'ac') !== false) ? 100000 : 55000;
+                    } else if (strpos($rtLower, '3 in 1') !== false || strpos($rtLower, 'triple') !== false) {
+                        $annual = (strpos($rtLower, 'ac') !== false) ? 80000 : 55000;
+                    } else if (strpos($rtLower, '4 in 1') !== false) {
+                        $annual = (strpos($rtLower, 'ac') !== false) ? 70000 : 50000;
+                    } else if (strpos($rtLower, 'dorm') !== false) {
+                        $annual = 36500;
+                    } else {
+                        $annual = 75000;
+                    }
+                }
 
-            $rawPerNight = $annual / 365.0;
-            // Round to nearest 50 (e.g. 150.68 -> 150, 410.95 -> 400 or 450)
-            $roundedPerNight = round($rawPerNight / 50.0) * 50.0;
-            if ($roundedPerNight < 50) $roundedPerNight = 50.0;
+                $roundedPerNight = (float)(ceil(($annual / 365.0) / 50.0) * 50.0 * 3);
+                if ($roundedPerNight < 50) $roundedPerNight = 50.0;
+            }
 
             $available_rooms[] = [
                 "id" => (int)$row['id'],

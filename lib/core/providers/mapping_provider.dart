@@ -46,7 +46,6 @@ class MappingProvider extends ChangeNotifier {
           if (parsed != null) data[key] = parsed;
         }
       }
-      ensureInt('hostel_id');
       ensureInt('zone_id');
       ensureInt('sub_zone_id');
 

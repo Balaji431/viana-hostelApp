@@ -42,6 +42,14 @@
                 <action android:name="FLUTTER_NOTIFICATION_CLICK" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+
+            <!-- Deep link scheme for returning to VStay app (payments, auth, etc.) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="vstay" />
+            </intent-filter>
         </activity>
 
         <!-- Firebase Messaging Meta-data -->

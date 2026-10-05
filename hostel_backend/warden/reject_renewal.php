@@ -10,14 +10,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin']);
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
 
 $data = json_decode(file_get_contents("php://input"), true);
 
-$renewalId = $data['renewal_id'];
-$wardenId = $data['warden_id'] ?? null;
+$renewalId = $data['renewal_id'] ?? null;
+$wardenId = $authUser['id'] ?? ($data['warden_id'] ?? null);
 
 try {
     // Get warden name

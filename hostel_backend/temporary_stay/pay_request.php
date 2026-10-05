@@ -11,6 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../send_notification.php';
+require_once __DIR__ . '/../utils/auth_helper.php';
+
+$authUser = requireAuth();
 
 $database = new Database();
 $db = $database->getConnection();
@@ -38,6 +41,19 @@ try {
     if (!$req) {
         echo json_encode(["success" => false, "message" => "Request not found"]);
         exit();
+    }
+
+    $userRole = strtolower($authUser['role'] ?? '');
+    if ($userRole === 'student') {
+        $callerEmail = strtolower($authUser['email'] ?? '');
+        $callerUser = strtolower($authUser['username'] ?? '');
+        $reqEmail = strtolower($req['email'] ?? '');
+        $reqDoc = strtolower($req['doc_number'] ?? '');
+        if ($callerEmail !== $reqEmail && $callerUser !== $reqDoc && (empty($callerUser) || strpos($reqEmail, $callerUser) === false)) {
+            http_response_code(403);
+            echo json_encode(["success" => false, "message" => "Forbidden: You are not authorized to pay for this temporary stay request."]);
+            exit();
+        }
     }
 
     if ($req['status'] === 'rejected') {
@@ -93,6 +109,34 @@ try {
             sendFCM($user['fcm_token'], $notifTitle, $notifBody, $request_id, 'system', 'VSTAY Payment', $notifBody, 'temporary_stay', 'student');
         }
     } catch (Exception $eNotif) {}
+
+    // Outbound real-time sync to VStudy Short Stay ERP API
+    $vstudySync = null;
+    try {
+        require_once __DIR__ . '/../utils/vstudy_sync_helper.php';
+        $rollNumber = explode('@', $req['email'])[0];
+        if (!is_numeric($rollNumber) || empty($rollNumber)) {
+            $uStmt = $db->prepare("SELECT username FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1");
+            $uStmt->execute([$req['email']]);
+            $uRow = $uStmt->fetch(PDO::FETCH_ASSOC);
+            if (!empty($uRow['username'])) {
+                $rollNumber = $uRow['username'];
+            } else {
+                $rollNumber = !empty($req['doc_number']) ? $req['doc_number'] : $req['request_id'];
+            }
+        }
+        $rCode = !empty($req['room_code']) ? $req['room_code'] : $req['room_no'];
+        $vstudySync = syncShortStayToVStudy(
+            $rollNumber,
+            $rCode,
+            $req['hostel_name'] ?? '',
+            $req['from_date'] ?? date('Y-m-d'),
+            $req['to_date'] ?? date('Y-m-d', strtotime('+1 day')),
+            generateUuidV4()
+        );
+    } catch (Exception $eSync) {
+        error_log("VStudy short stay sync error: " . $eSync->getMessage());
+    }
 
     echo json_encode([
         "success" => true,

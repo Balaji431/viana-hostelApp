@@ -11,6 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once '../config/database.php';
 require_once '../utils/activity_logger.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin']);
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -21,7 +24,7 @@ try {
     
     if (!$data) throw new Exception('Invalid JSON data');
     
-    $required_fields = ['request_id', 'status', 'warden_id'];
+    $required_fields = ['request_id', 'status'];
     foreach ($required_fields as $field) {
         if (!isset($data[$field]) || empty(trim($data[$field]))) {
             throw new Exception("Missing required field: $field");
@@ -30,7 +33,7 @@ try {
     
     $request_id = $data['request_id'];
     $status = strtolower(trim($data['status']));
-    $warden_id = (int)$data['warden_id'];
+    $warden_id = !empty($data['warden_id']) ? (int)$data['warden_id'] : (int)$authUser['id'];
     $remarks = isset($data['remarks']) ? trim($data['remarks']) : null;
     
     // Get warden details
@@ -79,7 +82,8 @@ try {
             $final_status = 'approved';
             $approved_remarks = ($remarks ? $remarks . " | " : "") . "Approved by Warden. Payment pending: ₹" . number_format($amount_to_pay);
 
-            $up_stmt = $conn->prepare("UPDATE room_change_requests SET status = ?, payment_status = 'unpaid', remarks = ?, processed_by = ?, processed_by_name = ?, updated_at = CURRENT_TIMESTAMP WHERE request_id = ?");
+            // Reserve room for 3 days (72 hours) for payment
+            $up_stmt = $conn->prepare("UPDATE room_change_requests SET status = ?, payment_status = 'unpaid', reserved_until = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 3 DAY), remarks = ?, processed_by = ?, processed_by_name = ?, updated_at = CURRENT_TIMESTAMP WHERE request_id = ?");
             $up_stmt->bind_param("ssiss", $final_status, $approved_remarks, $warden_id, $warden_name, $request_id);
             if (!$up_stmt->execute()) {
                 throw new Exception("Failed to approve room change request");
@@ -119,8 +123,42 @@ try {
 
             // Update student room in users table
             $conn->query("UPDATE users SET RoomId = '$requested_room', RoomType = '$requested_room_type' WHERE username = '$reg_no' OR id = '$student_id'");
+
+            // Fetch destination room master ID if available
+            $rm_stmt = $conn->prepare("SELECT id, location_name FROM room_master WHERE REPLACE(REPLACE(TRIM(room_code), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(?), ' ', ''), '-', '') LIMIT 1");
+            $rm_stmt->bind_param("s", $requested_room);
+            $rm_stmt->execute();
+            $rm_row = $rm_stmt->get_result()->fetch_assoc();
+            $new_rm_id = $rm_row ? (int)$rm_row['id'] : 0;
+            $new_hostel_name = $rm_row['location_name'] ?? '';
+
             // Update profile table
-            $conn->query("UPDATE profile SET room_allocation = '$requested_room' WHERE reg_no = '$reg_no'");
+            if ($new_rm_id > 0) {
+                $conn->query("UPDATE profile SET room_allocation = '$requested_room', current_room_id = $new_rm_id" . (!empty($new_hostel_name) ? ", hostel_name = '$new_hostel_name'" : "") . " WHERE reg_no = '$reg_no'");
+            } else {
+                $conn->query("UPDATE profile SET room_allocation = '$requested_room' WHERE reg_no = '$reg_no'");
+            }
+
+            // Sync vstudy_payments table
+            $conn->query("UPDATE vstudy_payments SET room_number = '$requested_room'" . (!empty($new_hostel_name) ? ", hostel_name = '$new_hostel_name'" : "") . " WHERE roll_number = '$reg_no'");
+
+            // Atomic Inventory Rebalance for BOTH old room and new room in room_master and rooms_groups_details
+            $roomsToRebalance = array_filter(array_unique([$current_room, $requested_room]));
+            foreach ($roomsToRebalance as $rNo) {
+                if (empty($rNo) || $rNo === 'N/A') continue;
+                $occRes = $conn->query("SELECT COUNT(*) as occ FROM profile WHERE room_allocation = '$rNo'");
+                $occCount = $occRes ? (int)($occRes->fetch_assoc()['occ'] ?? 0) : 0;
+                $conn->query("UPDATE room_master SET occupied_beds = $occCount, available_beds = GREATEST(0, total_beds - $occCount) WHERE room_no = '$rNo' OR room_code = '$rNo'");
+                $conn->query("UPDATE rooms_groups_details SET occupied_beds = $occCount, available_beds = GREATEST(0, total_beds - $occCount) WHERE room_number = '$rNo'");
+            }
+
+            // Outbound Real-time Sync to VStudy ERP for Transfer
+            try {
+                require_once __DIR__ . '/../utils/vstudy_sync_helper.php';
+                syncTransferToVStudy($reg_no, $requested_room, $new_hostel_name, $current_room);
+            } catch (Exception $e) {
+                error_log("VStudy transfer sync error: " . $e->getMessage());
+            }
 
             logAudit(
                 $warden_id,
@@ -167,6 +205,46 @@ try {
                 'rejection_reason' => $rej_remarks
             ]
         );
+
+        // Store rejected transfer in vstudy_webhook_events without sending to external VStudy ERP
+        try {
+            require_once __DIR__ . '/../utils/vstudy_sync_helper.php';
+            $eventUuid = generateUuidV4();
+            $rejPayload = json_encode([
+                'eventId'         => $eventUuid,
+                'externalEventId' => $eventUuid,
+                'eventType'       => 'booking.transfer_rejected',
+                'entityType'      => 'HOSTEL_BOOKING',
+                'entityId'        => $request_id,
+                'occurredAt'      => date('c'),
+                'data'            => [
+                    'requestId'       => $request_id,
+                    'rollNumber'      => $reg_no,
+                    'currentRoom'     => $current_room,
+                    'requestedRoom'   => $requested_room,
+                    'rejectionReason' => $rej_remarks,
+                    'wardenName'      => $warden_name,
+                    'status'          => 'REJECTED'
+                ]
+            ]);
+
+            $insWb = $conn->prepare("
+                INSERT INTO vstudy_webhook_events (
+                    event_id, event_type, entity_type, entity_id,
+                    roll_number, room_number, hostel_name, status,
+                    occurred_at, payload, response, created_at, updated_at
+                ) VALUES (
+                    ?, 'booking.transfer_rejected', 'HOSTEL_BOOKING', ?,
+                    ?, ?, '', 'REJECTED',
+                    NOW(), ?, ?, NOW(), NOW()
+                )
+            ");
+            $respStr = json_encode(['received' => true, 'status' => 'REJECTED_INTERNAL']);
+            $insWb->bind_param("ssssss", $eventUuid, $request_id, $reg_no, $requested_room, $rejPayload, $respStr);
+            $insWb->execute();
+        } catch (Exception $eWb) {
+            error_log("Failed to log rejected transfer to vstudy_webhook_events: " . $eWb->getMessage());
+        }
 
         echo json_encode([
             'success' => true,

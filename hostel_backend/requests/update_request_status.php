@@ -11,11 +11,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once '../config/database.php';
 require_once '../utils/activity_logger.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin', 'maintenance', 'security', 'it']);
 
 $database = new Database();
 $db = $database->getConnection();
 
 $data = json_decode(file_get_contents("php://input"));
+if (!empty($data) && empty($data->warden_id)) {
+    $data->warden_id = $authUser['id'] ?? $authUser['username'];
+}
 
 if(!empty($data->request_id) && !empty($data->status) && !empty($data->warden_id)){
     try {

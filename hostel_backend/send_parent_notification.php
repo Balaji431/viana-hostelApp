@@ -30,19 +30,13 @@ function sendAttendanceNotificationToParents($studentId, $studentName, $status, 
         $p_map_stmt = $db->prepare("SELECT parent_id FROM parent_student_map WHERE student_id = ? OR student_id = ? LIMIT 1");
         $p_map_stmt->execute([$student_reg_no, $student_id_int]);
         $p_map = $p_map_stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$p_map) {
-            return ["success" => false, "message" => "No parent mapped to student registration number: $student_reg_no"];
-        }
-        $parent_id = $p_map['parent_id'];
+        $parent_id = ($p_map && !empty($p_map['parent_id'])) ? $p_map['parent_id'] : ("P_" . $student_reg_no);
 
         // 3. Find parent user info & FCM token
         $p_stmt = $db->prepare("SELECT id, fcm_token FROM parent_users WHERE parent_id = ? LIMIT 1");
         $p_stmt->execute([$parent_id]);
         $parent = $p_stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$parent) {
-            return ["success" => false, "message" => "Parent user account not found for parent_id: $parent_id"];
-        }
-        $parent_fcm_token = $parent['fcm_token'];
+        $parent_fcm_token = $parent['fcm_token'] ?? null;
 
         // 4. Resolve child floor warden
         $loc_query = "SELECT hr.hostel_name, hr.floor, hr.wing_code, p.room_allocation

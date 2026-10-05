@@ -208,26 +208,6 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            SizedBox(
-              width: 30,
-              height: 30,
-              child: IconButton(
-                icon: Icon(Icons.edit, size: 14, color: isDark ? const Color(0xFF60A5FA) : Colors.blue),
-                onPressed: () => _editWing(subZone, parentZone),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ),
-            SizedBox(
-              width: 30,
-              height: 30,
-              child: IconButton(
-                icon: Icon(Icons.delete, size: 14, color: isDark ? const Color(0xFFF87171) : Colors.red),
-                onPressed: () => _deleteWing(subZone, parentZone),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ),
           ],
         ),
         subtitle: Text(
@@ -382,26 +362,6 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
-            ),
-          ),
-          SizedBox(
-            width: 32,
-            height: 32,
-            child: IconButton(
-              icon: Icon(Icons.edit, size: 16, color: isDark ? const Color(0xFF60A5FA) : Colors.blue),
-              onPressed: () => _editRoom(room),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-          ),
-          SizedBox(
-            width: 32,
-            height: 32,
-            child: IconButton(
-              icon: Icon(Icons.delete, size: 16, color: isDark ? const Color(0xFFF87171) : Colors.red),
-              onPressed: () => _deleteRoom(room),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
             ),
           ),
         ],
@@ -1057,6 +1017,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
     }
   }
 
+  // ignore: unused_element
   void _editWing(SubZone subZone, Zone parentZone) async {
     final controller = TextEditingController(text: subZone.name);
     final updated = await showDialog<bool>(
@@ -1131,7 +1092,8 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
       }
     }
   }
-   void _deleteWing(SubZone subZone, Zone parentFloor) async {
+  // ignore: unused_element
+  void _deleteWing(SubZone subZone, Zone parentFloor) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1163,6 +1125,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
     }
   }
 
+  // ignore: unused_element
   void _deleteRoom(Room room) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1195,6 +1158,7 @@ class HostelDetailScreenState extends State<HostelDetailScreen> {
     }
   }
 
+  // ignore: unused_element
   void _editRoom(Room room) async {
     final noController = TextEditingController(text: room.roomCode.isNotEmpty ? room.roomCode : room.roomNumber);
     final capController = TextEditingController(text: room.capacity.toString());
@@ -1713,48 +1677,6 @@ class _FloorCardWidgetState extends State<_FloorCardWidget> {
                             ),
                           ),
                         ],
-                      ),
-                    ),
-                    // Stylish Edit Button Badge
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: widget.onEdit,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white.withOpacity(0.35)),
-                          ),
-                          child: Text(
-                            'Edit',
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Delete Action Button
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: widget.onDelete,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
-                          ),
-                          child: const Icon(Icons.delete_outline, size: 16, color: Color(0xFFFF8A80)),
-                        ),
                       ),
                     ),
                     const SizedBox(width: 8),

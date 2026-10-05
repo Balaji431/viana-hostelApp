@@ -4,3 +4,22 @@ android/.gradle
 android/build
 ios/build
 *.log
+# ── Never ship seed / debug / temp scripts to production ──
+hostel_backend/seed_*.php
+hostel_backend/**/seed_*.php
+hostel_backend/temp_*.php
+hostel_backend/**/temp_*.php
+hostel_backend/scratch_*.php
+hostel_backend/**/scratch_*.php
+hostel_backend/test_*.php
+hostel_backend/**/test_*.php
+hostel_backend/action_debug.txt
+hostel_backend/**/action_debug.txt
+
+# ── Unready features kept in local only (excluded from production docker build) ──
+hostel_backend/student/upload_profile_picture.php
+hostel_backend/**/upload_profile_picture.php
+hostel_backend/warden/enroll_student_face.php
+hostel_backend/**/enroll_student_face.php
+hostel_backend/warden/verify_student_for_enrollment.php
+hostel_backend/**/verify_student_for_enrollment.php

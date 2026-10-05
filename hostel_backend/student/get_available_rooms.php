@@ -169,7 +169,7 @@ function getRoomsByType($conn, $roomType) {
                        rgd.group_name as floor, rgd.group_name as floor_code, 'General' as wing_code,
                        rgd.total_beds as total_capacity, rgd.occupied_beds as occupied_rooms,
                        rgd.available_beds as available_rooms, rgd.room_type, rgd.amount,
-                       rgd.hostel_name as hostel, 'Thandalam Campus' as campus
+                       rgd.hostel_name as hostel, COALESCE(NULLIF(rgd.campus, ''), 'Thandalam Campus') as campus
                 FROM rooms_groups_details rgd
                 WHERE rgd.room_type LIKE ?
                 ORDER BY rgd.amount ASC";

@@ -10,14 +10,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin', 'security', 'it']);
 
 $database = new Database();
 $pdo = $database->getConnection();
 
-$warden_username = isset($_GET['warden_username']) ? trim($_GET['warden_username']) : (isset($_GET['username']) ? trim($_GET['username']) : '');
+$isAdmin = in_array(strtolower($authUser['role'] ?? ''), ['admin', 'super_admin']);
+$warden_username = $authUser['username'] ?? '';
+
+if ($isAdmin && !empty($_GET['warden_username']) && strtolower(trim($_GET['warden_username'])) !== 'admin') {
+    $warden_username = trim($_GET['warden_username']);
+}
 
 try {
-    if (!empty($warden_username) && strtolower($warden_username) !== 'admin') {
+    if (!$isAdmin && !empty($warden_username)) {
         // Filter stats by warden's assigned mapped locations in mapping_staff / rooms_groups_details
         $query = "
             SELECT 

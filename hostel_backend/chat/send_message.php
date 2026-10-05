@@ -11,6 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once '../config/database.php';
 require_once "../send_notification.php";
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth();
 
 $database = new Database();
 $db = $database->getConnection();
@@ -18,17 +21,14 @@ $db = $database->getConnection();
 $data = json_decode(file_get_contents("php://input"));
 
 try {
-    // Debug log incoming data
-    file_put_contents('debug_chat.log', date('[Y-m-d H:i:s] ') . "Incoming: " . file_get_contents("php://input") . PHP_EOL, FILE_APPEND);
-
     $request_id = $data->request_id ?? null;
-    $sender_input = $data->sender_id ?? null;
+    $sender_input = $authUser['username'] ?? ($data->sender_id ?? null);
     $message = $data->message ?? null;
     $message_type = $data->message_type ?? 'text';
     $target_dept = strtolower($data->department ?? 'warden'); 
 
     if (empty($sender_input) || empty($message)) {
-        echo json_encode(["success" => false, "message" => "Missing sender_id or message", "debug" => $data]);
+        echo json_encode(["success" => false, "message" => "Missing sender_id or message"]);
         exit;
     }
 
@@ -240,6 +240,31 @@ try {
         $info_stmt = $db->prepare("SELECT department, student_id FROM request1 WHERE (CONVERT(request_id USING utf8mb4) = CONVERT(? USING utf8mb4))");
         $info_stmt->execute([$request_id]);
         $info = $info_stmt->fetch(PDO::FETCH_ASSOC);
+
+        // On-demand creation: If request1 record doesn't exist yet (e.g. staff sending first message to student)
+        if (!$info && preg_match('/^([A-Z]{3})-(\d+)$/', $request_id, $matches)) {
+            $prefix = $matches[1];
+            $target_student_id = (int)$matches[2];
+            $dept_map = [
+                'WAR' => 'warden',
+                'PAR' => 'parent_warden',
+                'MAI' => 'maintenance',
+                'SEC' => 'security',
+                'TEM' => 'temporary_stay'
+            ];
+            $derived_dept = $dept_map[$prefix] ?? $target_dept;
+
+            try {
+                $create = $db->prepare("INSERT INTO request1 (request_id, student_id, request_type, department, status, purpose) VALUES (?, ?, 'General Inquiry', ?, 'chat', ?)");
+                $create->execute([$request_id, $target_student_id, $derived_dept, 'Chat started by ' . ($sender_role ?? 'staff')]);
+                $info = ['department' => $derived_dept, 'student_id' => $target_student_id];
+            } catch (Exception $e) {
+                // If parallel insert occurred, re-fetch
+                $info_stmt->execute([$request_id]);
+                $info = $info_stmt->fetch(PDO::FETCH_ASSOC);
+            }
+        }
+
         if ($info) {
             if ($info['department'] === 'parent_warden') {
                 $stmt = $db->prepare("SELECT psm.parent_id as username FROM parent_student_map psm JOIN users s ON (CONVERT(psm.student_id USING utf8mb4) = CONVERT(s.username USING utf8mb4) OR CONVERT(psm.student_id USING utf8mb4) = CONVERT(s.id USING utf8mb4)) WHERE s.id = ? OR s.username = ? LIMIT 1");

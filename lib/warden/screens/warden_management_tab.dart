@@ -9,6 +9,7 @@ import '../widgets/warden_widgets.dart';
 import '../widgets/warden_modals.dart';
 import '../../admin/hostel_fee_selector_screen.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
+import '../../shared/widgets/user_avatar_header.dart';
 
 class WardenManagementTab extends StatefulWidget {
   const WardenManagementTab({super.key});
@@ -143,33 +144,7 @@ class _WardenManagementTabState extends State<WardenManagementTab> with Automati
       ),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: SkeuomorphicColors.goldGlossyGradient,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-              border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
-            ),
-            child: Center(
-              child: Text(
-                initials,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1B2B48),
-                  fontFamily: 'Lato',
-                ),
-              ),
-            ),
-          ),
+          UserHeaderAvatar(user: user, size: 44),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

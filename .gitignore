@@ -18,10 +18,8 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code config
+.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -33,104 +31,64 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# Symbolication related
+# Symbolication / Obfuscation related
 app.*.symbols
-
-# Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# Android Studio build artifacts
 /android/app/debug
 /android/app/profile
 /android/app/release
 
-# VS Code config
-.vscode/
-
 # Composer dependencies
-/hostel_backend/vendor/
+**/vendor/
 
-# Application secrets (PHP & Firebase)
-/hostel_backend/config/secrets.php
-/hostel_backend/config/service-account.json
+# Application secrets & Service Accounts (PHP & Firebase & Google) — NEVER commit these
+**/secrets.php
+**/service-account*.json
+**/*-service-account*.json
+**/fcm_token_cache.json
+google-services.json
+GoogleService-Info.plist
 
-# MySQL Database backups and dumps
-*.sql
-
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
-
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-# VS Code config
-.vscode/
-
-# Composer dependencies
-/hostel_backend/vendor/
-
-# Application secrets (PHP & Firebase)
-/hostel_backend/config/secrets.php
-/hostel_backend/config/service-account.json
-
-# MySQL Database backups and dumps
-*.sql
-
-# Logs and Debug files
-*.log
-hostel_backend/fcm_debug.txt
-hostel_backend/fcm_response.txt
-hostel_backend/token_debug.log
-
-# Uploads and temporary runtime cache
-/hostel_backend/uploads/
+# Environment variables & keys
 .env
-
-# SSH keys and credentials — NEVER commit these
+.env.*
 *.pem
 *.key
 *.p12
 *.pfx
 *-key.json
-google-services.json
-GoogleService-Info.plist
+*-key.pem
+.build_push_ok
+
+# Database backups, dumps, and migrations
+*.sql
+
+# Logs and Debug files
+*.log
+**/fcm_debug.txt
+**/fcm_response.txt
+**/token_debug.log
+**/user_insert_error.txt
+**/temp_input.json
+
+# Uploads and temporary runtime cache
+**/uploads/
+**/uploads/*
+
+# Scratch, temporary test scripts, audits, and plans
+scratch/
+scratch_*
+brain/
+implementation_plan_*
+get_nisha.php
+*.pdf
+Untitled-*
+**/Untitled-*
+hostel_backend/scratch_*
+hostel_backend/deep_wallet_audit.php
+hostel_backend/wallet_audit_v2.php
+hostel_backend/check_audit_logs.php
+hostel_backend/student_detail_3users.php
+hostel_backend/renewals_temp_stay_report.php

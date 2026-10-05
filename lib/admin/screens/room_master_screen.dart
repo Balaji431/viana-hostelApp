@@ -367,6 +367,8 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
   }
 
   Future<bool> _updateRoomTypeDirect(Map<String, dynamic> room, String newType) async {
+    // Capture messenger before async gap
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final res = await ApiService.postRequest('rooms/save_room_master.php', {
         'id':             room['id'],
@@ -381,7 +383,7 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       });
       if (res['success'] == true || res['status'] == 'success') {
         if (room['id'] == null && res['id'] != null) room['id'] = res['id'];
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        messenger.showSnackBar(SnackBar(
           content: Text('Updated ${room['room_no']} to $newType'),
           duration: const Duration(seconds: 1),
         ));
@@ -390,10 +392,199 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
     } catch (e) {
       debugPrint('Error updating room type: $e');
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       const SnackBar(content: Text('Failed to update room type')),
     );
     return false;
+  }
+
+  // ── Student detail popup (click on bed cell reg number) ────────────────────
+  Future<void> _showStudentDetailModal(BuildContext context, String regNo) async {
+    // Capture navigator/messenger before any async gap (lint: use_build_context_synchronously)
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
+    // Show loading spinner immediately (before await — context is still valid)
+    navigator.push(PageRouteBuilder(
+      opaque: false,
+      barrierDismissible: false,
+      barrierColor: Colors.black26,
+      pageBuilder: (_, __, ___) =>
+          const Center(child: CircularProgressIndicator()),
+    ));
+
+    try {
+      final res = await ApiService.getRequest(
+        'rooms/get_student_by_regno.php?reg_no=${Uri.encodeComponent(regNo)}',
+      );
+      if (!mounted) return;
+      navigator.pop(); // close loader
+
+      if (res['success'] != true || res['student'] == null) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(res['message'] ?? 'Student not found'), backgroundColor: Colors.red),
+        );
+        return;
+      }
+
+      final Map<String, dynamic> s = Map<String, dynamic>.from(res['student']);
+      final String name        = s['student_name'] ?? 'Student';
+      final String sRegNo      = s['reg_no'] ?? regNo;
+      final String roomNo      = s['room_allocation'] ?? 'N/A';
+      final String phone       = (s['phone'] ?? '').toString();
+      final String renewal     = (s['renewal_date'] ?? 'N/A').toString();
+      final String hostel      = (s['hostel_name'] ?? 'N/A').toString();
+      final String institution = (s['institution'] ?? '').toString();
+      final String warden      = (s['warden'] ?? '').toString();
+      final String gender      = (s['gender'] ?? '').toString();
+      final String roomType    = (s['room_type'] ?? '').toString();
+      final String checkIn     = (s['check_in_date'] ?? 'N/A').toString();
+
+      if (!mounted) return;
+      final overlayContext = navigator.overlay?.context;
+      if (overlayContext == null) return;
+      // ignore: use_build_context_synchronously
+      showDialog(
+        context: overlayContext, // ignore: use_build_context_synchronously
+        builder: (ctx) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Container(
+            width: 440,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Header ──────────────────────────────────────────────────
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: const Color(0xFF1A2744),
+                      child: const Icon(Icons.person, color: Color(0xFFD4AF37), size: 26),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 17,
+                                  color: Color(0xFF1A2744))),
+                          Text('Reg No: $sRegNo',
+                              style: TextStyle(
+                                  color: Colors.grey.shade600, fontSize: 13)),
+                          if (institution.isNotEmpty)
+                            Text(institution,
+                                style: TextStyle(
+                                    color: Colors.grey.shade500, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+
+                const Text('Student Details & Renewal Status',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Color(0xFF1A2744))),
+                const SizedBox(height: 14),
+
+                _buildStudentTile(Icons.door_sliding_outlined, 'Assigned Room', roomNo),
+                const SizedBox(height: 10),
+                _buildStudentTile(Icons.home_outlined, 'Hostel', hostel),
+                const SizedBox(height: 10),
+                _buildStudentTile(Icons.phone_outlined, 'Contact Number',
+                    phone.isNotEmpty ? phone : 'N/A'),
+                const SizedBox(height: 10),
+                if (gender.isNotEmpty) ...[
+                  _buildStudentTile(Icons.wc_outlined, 'Gender', gender),
+                  const SizedBox(height: 10),
+                ],
+                if (roomType.isNotEmpty) ...[
+                  _buildStudentTile(Icons.bed_outlined, 'Room Type', roomType),
+                  const SizedBox(height: 10),
+                ],
+                _buildStudentTile(Icons.login_outlined, 'Check-in Date', checkIn),
+                const SizedBox(height: 10),
+                _buildStudentTile(Icons.event_repeat_outlined, 'Renewal Date', renewal,
+                    isHighlight: true),
+                const SizedBox(height: 10),
+                if (warden.isNotEmpty)
+                  _buildStudentTile(Icons.supervised_user_circle_outlined, 'Warden', warden),
+
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1A2744),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Close',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        navigator.pop(); // close loader if error
+        messenger.showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Widget _buildStudentTile(IconData icon, String label, String value,
+      {bool isHighlight = false}) {
+    return Row(
+      children: [
+        Icon(icon,
+            size: 18,
+            color: isHighlight
+                ? const Color(0xFFD4AF37)
+                : const Color(0xFF1A2744)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w500)),
+        ),
+        Flexible(
+          child: Text(value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: isHighlight
+                      ? const Color(0xFFD4AF37)
+                      : const Color(0xFF1A2744))),
+        ),
+      ],
+    );
   }
 
   void _showAddRoomDialog([Map<String, dynamic>? room]) {
@@ -1005,10 +1196,39 @@ class _RoomMasterScreenState extends State<RoomMasterScreen> {
       }
       if (colIdx < roomCapacity) {
         if (colIdx < occupiedBeds && colIdx < students.length && students[colIdx].trim().isNotEmpty) {
-          return DataCell(Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(color: Colors.blue.withValues(alpha: isDark ? 0.25 : 0.1), borderRadius: BorderRadius.circular(6)),
-            child: Text(students[colIdx].trim(), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.lightBlueAccent : const Color(0xFF1565C0))),
+          final String regNo = students[colIdx].trim();
+          return DataCell(GestureDetector(
+            onTap: () => _showStudentDetailModal(context, regNo),
+            child: Tooltip(
+              message: 'Tap to view student details',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: isDark ? 0.25 : 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: Colors.blue.withValues(alpha: isDark ? 0.4 : 0.3),
+                    width: 0.8,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(regNo,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.lightBlueAccent : const Color(0xFF1565C0))),
+                    const SizedBox(width: 4),
+                    Icon(Icons.info_outline,
+                        size: 11,
+                        color: isDark
+                            ? Colors.lightBlueAccent.withOpacity(0.7)
+                            : const Color(0xFF1565C0).withOpacity(0.6)),
+                  ],
+                ),
+              ),
+            ),
           ));
         }
         return DataCell(Text('-', style: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.grey)));

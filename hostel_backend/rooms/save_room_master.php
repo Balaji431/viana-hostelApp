@@ -10,6 +10,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once '../config/database.php';
 require_once '../utils/activity_logger.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['admin', 'super_admin']);
 
 function extractCapacity($roomType) {
     $type = strtoupper($roomType);
@@ -68,10 +71,16 @@ try {
                 continue; // Skip invalid rows
             }
 
-            // Check for duplicate room
-            $checkSql = "SELECT id FROM room_master WHERE location_name = ? AND building_code = ? AND floor_no = ? AND block_no = ? AND room_no = ?";
-            $checkStmt = $db->prepare($checkSql);
-            $checkStmt->execute([$locationName, $buildingCode, $floorNo, $blockNo, $roomNo]);
+            // Check for duplicate room primarily by room_code, then location/block
+            if (!empty($roomCode)) {
+                $checkSql = "SELECT id FROM room_master WHERE room_code = ? OR (building_code = ? AND floor_no = ? AND block_no = ? AND room_no = ?)";
+                $checkStmt = $db->prepare($checkSql);
+                $checkStmt->execute([$roomCode, $buildingCode, $floorNo, $blockNo, $roomNo]);
+            } else {
+                $checkSql = "SELECT id FROM room_master WHERE building_code = ? AND floor_no = ? AND block_no = ? AND room_no = ?";
+                $checkStmt = $db->prepare($checkSql);
+                $checkStmt->execute([$buildingCode, $floorNo, $blockNo, $roomNo]);
+            }
             
             if ($existing = $checkStmt->fetch()) {
                 $existingId = intval($existing['id']);

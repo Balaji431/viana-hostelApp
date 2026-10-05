@@ -134,6 +134,7 @@ try {
     $query = "
         SELECT 
             r.hostel_name,
+            h.id as hostel_type_id,
             COUNT(DISTINCT r.group_name) as floor_count,
             COUNT(DISTINCT r.room_type) as room_type_count,
             COUNT(r.s_no) as room_count,
@@ -145,7 +146,7 @@ try {
         FROM rooms_groups_details r
         LEFT JOIN hostel_type h ON TRIM(h.hostel_name) = TRIM(r.hostel_name)
         WHERE $whereSql
-        GROUP BY r.hostel_name, h.campus, h.hostel_type, h.building_code
+        GROUP BY r.hostel_name, h.id, h.campus, h.hostel_type, h.building_code
         HAVING available_rooms > 0
         ORDER BY r.hostel_name ASC
     ";
@@ -172,7 +173,7 @@ try {
 
     while ($row = $result->fetch_assoc()) {
         $hostel = [
-            'id'              => $row['hostel_name'],
+            'id'              => $row['hostel_type_id'] ?? $row['hostel_name'], // integer ID from hostel_type
             'campus'          => $row['campus'],
             'hostel_name'     => $row['hostel_name'],
             'hostel_type'     => $row['hostel_type'],

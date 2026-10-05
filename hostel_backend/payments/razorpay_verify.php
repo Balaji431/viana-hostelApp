@@ -31,7 +31,8 @@ if (file_exists($secrets_file)) {
     $secrets = include($secrets_file);
 }
 
-$RAZORPAY_KEY_SECRET = getenv('RAZORPAY_KEY_SECRET') ?: ($secrets['RAZORPAY_KEY_SECRET'] ?? 'd2gnwZ52h6jypg2fzI04jVxj');
+$RAZORPAY_KEY_ID     = getenv('RAZORPAY_KEY_ID')     ?: ($secrets['RAZORPAY_KEY_ID']     ?? '');
+$RAZORPAY_KEY_SECRET = getenv('RAZORPAY_KEY_SECRET') ?: ($secrets['RAZORPAY_KEY_SECRET'] ?? '');
 
 $body = json_decode(file_get_contents('php://input'), true) ?? [];
 
@@ -39,17 +40,16 @@ $paymentId = trim($body['razorpay_payment_id'] ?? '');
 $orderId   = trim($body['razorpay_order_id']   ?? '');
 $signature = trim($body['razorpay_signature']  ?? '');
 $email     = trim($body['email']               ?? '');
-$amount    = (float)($body['amount']           ?? 0);
 
-if (empty($paymentId) || empty($orderId) || empty($signature) || empty($email) || $amount <= 0) {
+if (empty($paymentId) || empty($orderId) || empty($signature) || empty($email)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Missing required payment verification details.']);
     exit();
 }
 
-if (empty($RAZORPAY_KEY_SECRET)) {
+if (empty($RAZORPAY_KEY_ID) || empty($RAZORPAY_KEY_SECRET)) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Payment gateway secret not configured on server.']);
+    echo json_encode(['success' => false, 'message' => 'Payment gateway credentials not configured on server.']);
     exit();
 }
 
@@ -59,6 +59,40 @@ $expectedSignature = hash_hmac('sha256', $orderId . '|' . $paymentId, $RAZORPAY_
 if (!hash_equals($expectedSignature, $signature)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Payment signature verification failed.']);
+    exit();
+}
+
+// ─── Verify actual captured payment amount with Razorpay API ──────────────────
+$ch = curl_init('https://api.razorpay.com/v1/payments/' . urlencode($paymentId));
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_USERPWD        => "$RAZORPAY_KEY_ID:$RAZORPAY_KEY_SECRET",
+    CURLOPT_TIMEOUT        => 15,
+    CURLOPT_SSL_VERIFYPEER => true,
+]);
+$rzpResRaw = curl_exec($ch);
+$httpStatus = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+
+$rzpPayment = json_decode($rzpResRaw, true);
+if ($httpStatus !== 200 || empty($rzpPayment['status']) || !in_array($rzpPayment['status'], ['captured', 'authorized'])) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Payment has not been confirmed by Razorpay gateway.']);
+    exit();
+}
+
+// Ensure the payment belongs to the order
+if (!empty($rzpPayment['order_id']) && $rzpPayment['order_id'] !== $orderId) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Payment order ID mismatch.']);
+    exit();
+}
+
+// Authoritative amount in INR from Razorpay (ignoring any client-supplied amount)
+$amount = (float)($rzpPayment['amount'] / 100);
+if ($amount <= 0) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Invalid captured payment amount.']);
     exit();
 }
 
@@ -95,6 +129,31 @@ try {
 
     $db->beginTransaction();
 
+    // ─── 1. STRICT IDEMPOTENCY CHECK (BEFORE TOUCHING WALLET BALANCE) ───
+    $dupCheck = $db->prepare("SELECT id, wallet_id, balance_after FROM wallet_transactions WHERE reference_id = ? LIMIT 1 FOR UPDATE");
+    $dupCheck->execute([$paymentId]);
+    $existingTxn = $dupCheck->fetch(PDO::FETCH_ASSOC);
+
+    if ($existingTxn) {
+        // Payment was ALREADY processed and credited (e.g. by Webhook or prior call)
+        $wStmt = $db->prepare("SELECT balance FROM user_wallets WHERE id = ?");
+        $wStmt->execute([$existingTxn['wallet_id']]);
+        $currentBalance = (float)$wStmt->fetchColumn();
+
+        $db->commit();
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Payment already verified and credited to wallet.',
+            'payment_id' => $paymentId,
+            'order_id' => $orderId,
+            'amount' => $amount,
+            'balance' => $currentBalance,
+        ]);
+        exit();
+    }
+
+    // ─── 2. NOT PROCESSED YET: Get or create wallet and credit ───
     // Get or create wallet (supporting roll number & email variants)
     $variants = [$email, strtolower($email)];
     if (strpos($email, '@') === false) {
@@ -125,22 +184,18 @@ try {
         $db->prepare("UPDATE user_wallets SET balance = ? WHERE id = ?")->execute([$newBalance, $walletId]);
     }
 
-    // Record transaction (idempotent)
-    $dupCheck = $db->prepare("SELECT id FROM wallet_transactions WHERE reference_id = ? LIMIT 1");
-    $dupCheck->execute([$paymentId]);
-    if (!$dupCheck->fetchColumn()) {
-        $db->prepare("
-            INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description)
-            VALUES (?, ?, 'credit', ?, ?, ?, ?)
-        ")->execute([
-            $walletId,
-            $email,
-            $amount,
-            $newBalance,
-            $paymentId,
-            'Wallet Top-up via Razorpay (Order: ' . $orderId . ')',
-        ]);
-    }
+    // Record transaction
+    $db->prepare("
+        INSERT INTO wallet_transactions (wallet_id, email, txn_type, amount, balance_after, reference_id, description)
+        VALUES (?, ?, 'credit', ?, ?, ?, ?)
+    ")->execute([
+        $walletId,
+        $email,
+        $amount,
+        $newBalance,
+        $paymentId,
+        'Wallet Top-up via Razorpay (Order: ' . $orderId . ')',
+    ]);
 
     $db->commit();
 

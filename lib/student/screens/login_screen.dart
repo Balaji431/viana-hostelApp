@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../shared/user_provider.dart';
 import '../../shared/screens/privacy_policy_screen.dart' deferred as privacy_screen;
 import '../../core/api_service.dart';
+import '../../core/app_update_service.dart';
 import '../widgets/temporary_stay_dialog.dart' deferred as temp_dialog;
 
 class LeatherFramePainter extends CustomPainter {
@@ -157,6 +158,16 @@ class _LoginScreenState extends State<LoginScreen> {
     serverClientId: '907286443175-1uqe7brjctqhvoprujjv1ilf85ahongj.apps.googleusercontent.com',
     scopes: ['email', 'profile'],
   );
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        AppUpdateService.checkUpdateAndPrompt(context);
+      }
+    });
+  }
 
   Future<void> _openTemporaryStayDialog([String? email, String? name]) async {
     final targetEmail = (email != null && email.isNotEmpty) ? email : (_lastGoogleEmail ?? '');
@@ -390,6 +401,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         'assets/images/google_logo.png',
                         width: 20,
                         height: 20,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.account_circle, size: 20, color: Color(0xFF4285F4)),
                       ),
                       const SizedBox(width: 12),
                       const Text(

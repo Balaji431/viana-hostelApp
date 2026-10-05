@@ -28,8 +28,30 @@ try {
     $pdo->beginTransaction();
     
     $mappingId = $data['id'] ?? null;
-    $hostelId = $data['hostel_id'];
-    $zoneId = !empty($data['zone_id']) ? $data['zone_id'] : null;
+    $hostelId  = $data['hostel_id'] ?? null;
+
+    // If hostel_id is not a valid integer, resolve it from hostel_name
+    if (!is_int($hostelId) && !ctype_digit((string)$hostelId)) {
+        $hostelName = trim($data['hostel_name'] ?? '');
+        if (!empty($hostelName)) {
+            $hLookup = $pdo->prepare("SELECT id FROM hostel_type WHERE hostel_name = ? LIMIT 1");
+            $hLookup->execute([$hostelName]);
+            $hostelId = $hLookup->fetchColumn() ?: null;
+            // Fuzzy fallback: LIKE match
+            if (!$hostelId) {
+                $hLookup2 = $pdo->prepare("SELECT id FROM hostel_type WHERE hostel_name LIKE ? LIMIT 1");
+                $hLookup2->execute(["%$hostelName%"]);
+                $hostelId = $hLookup2->fetchColumn() ?: null;
+            }
+        }
+        if (!$hostelId) {
+            echo json_encode(["success" => false, "message" => "Could not resolve hostel_id. Please re-select the hostel."]);
+            return;
+        }
+    }
+    $hostelId  = (int)$hostelId;
+
+    $zoneId    = !empty($data['zone_id'])    ? $data['zone_id']    : null;
     $subZoneId = !empty($data['sub_zone_id']) ? $data['sub_zone_id'] : null;
     
     if ($mappingId) {

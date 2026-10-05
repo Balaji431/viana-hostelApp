@@ -25,6 +25,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/auth_helper.php';
+
+$authUser = requireAuth(['admin', 'super_admin']);
 
 try {
     $db = (new Database())->getConnection();

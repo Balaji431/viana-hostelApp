@@ -13,6 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['admin', 'super_admin']);
 
 if (!$pdo) {
     echo json_encode(["success" => false, "message" => "Database connection failed"]);
@@ -124,6 +127,13 @@ try {
             $wing = $room['wing'] ?? 'Default Wing';
             $floor = $room['floor'] ?? 'Default Floor';
 
+            // Build room_code for this room in the correct scope
+            $inner_building_code = $data['building_code'] ?? '';
+            $inner_floor_code    = $room['floor_code'] ?? $floor;
+            $inner_wing_code     = $room['wing_code'] ?? $wing;
+            $inner_room_no       = $room['room_number'];
+            $inner_room_code     = $room['room_code'] ?? ($inner_building_code . '-' . $inner_floor_code . '-' . $inner_wing_code . '-R' . $inner_room_no);
+
             // 1. Ensure zone (wing) exists
             if (!isset($zoneMap[$wing])) {
                 $zoneStmt->execute([$new_hostel_id, $wing]);
@@ -142,22 +152,24 @@ try {
             // 3. Insert room using correct column 'floor_label'
             $newRoomStmt->execute([
                 $sub_zone_id,
-                $room['room_number'],
+                $inner_room_no,
                 $room['capacity'] ?? 4,
                 $floor
             ]);
 
-            // 4. Insert into rooms_groups_details for global room vacancy and hierarchy sync
+            // 4. Insert into rooms_groups_details (single source of truth for room counts).
+            //    room_master is populated exclusively by sync_room_master.php (cron/manual)
+            //    to maintain strict 1:1 parity. DO NOT insert directly into room_master here.
             $rgdStmt = $pdo->prepare("INSERT INTO rooms_groups_details 
                 (id, hostel_name, group_name, room_number, room_type, total_beds, occupied_beds, available_beds, assigned_pending, gender, amount, reserved_for) 
                 VALUES (UUID(), ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, '[]')");
             $group_name = $data['hostel_name'] . ' ' . $floor;
-            $capacity = $room['capacity'] ?? 4;
-            $facility = $room['facility'] ?? $room['room_type'] ?? '';
+            $capacity   = $room['capacity'] ?? 4;
+            $facility   = $room['facility'] ?? $room['room_type'] ?? '';
             $rgdStmt->execute([
                 $data['hostel_name'],
                 $group_name,
-                $room_code,
+                $inner_room_code,   // ← correctly scoped room_code
                 $facility,
                 $capacity,
                 $capacity,
@@ -165,27 +177,10 @@ try {
                 $room['amount'] ?? 0.00
             ]);
 
-            // 5. Insert into room_master for instant display in Room Master screen
-            $rmCheck = $pdo->prepare("SELECT id FROM room_master WHERE location_name = ? AND building_code = ? AND floor_no = ? AND block_no = ? AND room_no = ?");
-            $rmCheck->execute([$data['hostel_name'], $building_code, $floor_name, $wing_name, $room_no]);
-            if (!$rmCheck->fetch()) {
-                $rmStmt = $pdo->prepare("INSERT INTO room_master 
-                    (location_name, building_code, floor_no, block_no, room_no, room_code, room_type, occupancy, room_capacity, total_beds, occupied_beds, assigned_pending, available_beds, gender, amount, food, caution_deposit, active) 
-                    VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, 0, 0, ?, ?, 0.00, 0.00, 0.00, 1)");
-                $rmStmt->execute([
-                    $data['hostel_name'],
-                    $building_code,
-                    $floor_name,
-                    $wing_name,
-                    $room_no,
-                    $room_code,
-                    $capacity,
-                    $capacity,
-                    $capacity,
-                    $capacity,
-                    $data['type'] ?? 'Girls'
-                ]);
-            }
+            // NOTE: room_master is intentionally NOT inserted here.
+            // sync_room_master.php (runs daily via cron or on-demand) reads rooms_groups_details
+            // and keeps room_master in strict 1:1 parity. Manual inserts here were the root
+            // cause of the room_master count growing beyond rooms_groups_details.
         }
     }
 

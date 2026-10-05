@@ -19,6 +19,9 @@ import 'warden_room_search_screen.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/main_layout.dart';
 import '../../admin/screens/temporary_stay_admin_screen.dart';
+import '../../shared/widgets/raise_issue_header_button.dart';
+import 'warden_face_enrollment_screen.dart';
+import '../../shared/widgets/user_avatar_header.dart';
 
 
 
@@ -125,15 +128,15 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
     final user = context.watch<UserProvider>();
     final wallpaper = context.watch<WallpaperProvider>();
     final isDark = wallpaper.isDarkTheme;
+    final isDualRoleWarden = user.hasMultipleRoles;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
         title: 'Warden Dashboard',
         onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
-        rightAction: ProfileButton(
-          onTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(4),
-        ),
+        leftAction: isDualRoleWarden ? const RaiseIssueHeaderButton() : null,
+        rightAction: isDualRoleWarden ? null : const RaiseIssueHeaderButton(),
       ),
       body: LinenBackground(
         child: RefreshIndicator(
@@ -187,33 +190,7 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
       ),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: SkeuomorphicColors.goldGlossyGradient,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-              border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
-            ),
-            child: Center(
-              child: Text(
-                initials,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1B2B48),
-                  fontFamily: 'Lato',
-                ),
-              ),
-            ),
-          ),
+          UserHeaderAvatar(user: user, size: 44),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -302,13 +279,15 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
       });
     }
 
-    actions.add({
-      'title': 'Temp Stay',
-      'icon': Icons.hotel_rounded,
-      'color': const Color(0xFF0288D1),
-      'channel': 'temporary_stay',
-      'type': 'temporary_stay',
-    });
+    if (ApiService.enableFaceBiometric) {
+      actions.add({
+        'title': 'Enroll Face',
+        'icon': Icons.how_to_reg_rounded,
+        'color': const Color(0xFFD4AF37),
+        'channel': 'face_enroll',
+        'type': 'face_enroll',
+      });
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -407,6 +386,16 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
           child: GestureDetector(
             onTap: () {
               final isDesktop = MediaQuery.of(context).size.width >= 768;
+
+              if (type == 'face_enroll') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const WardenFaceEnrollmentScreen(),
+                  ),
+                );
+                return;
+              }
 
               if (type == 'temporary_stay') {
                 if (isDesktop) {
@@ -579,12 +568,14 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
                   ),
                 ],
               ),
-              if (user.username.toLowerCase() == 'warden1' ||
-                  user.userName.toLowerCase().contains('venkatesh') ||
-                  user.role == UserRole.admin)
+              if (user.role == UserRole.warden ||
+                  user.role == UserRole.admin ||
+                  user.role == UserRole.superAdmin ||
+                  user.username.toLowerCase().startsWith('warden') ||
+                  user.roleName.toLowerCase().contains('warden'))
                 IconButton(
                   icon: const Icon(Icons.add_circle, color: Color(0xFFD4AF37), size: 24),
-                  tooltip: 'Add Announcement (Main Warden / Venkatesh)',
+                  tooltip: 'Add Announcement',
                   onPressed: () => showDialog(
                     context: context,
                     builder: (context) => NewAnnouncementModal(
@@ -669,7 +660,9 @@ class _WardenHomeTabState extends State<WardenHomeTab> with AutomaticKeepAliveCl
               ),
               const SizedBox(width: 10),
               Text(
-                DateFormat('dd MMM yyyy').format(date),
+                (announcement['warden_name'] != null && announcement['warden_name'].toString().trim().isNotEmpty)
+                    ? '${announcement['warden_name']} · ${DateFormat('dd MMM yyyy').format(date)}'
+                    : DateFormat('dd MMM yyyy').format(date),
                 style: TextStyle(fontSize: 10, color: isDark ? Colors.white60 : Colors.grey),
               ),
             ],

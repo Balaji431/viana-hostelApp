@@ -10,6 +10,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin']);
 
 try {
     $database = new DatabaseMysqli();
@@ -19,13 +22,18 @@ try {
         throw new Exception("Database connection failed");
     }
 
-    $warden_username = isset($_GET['warden_username']) ? $_GET['warden_username'] : null;
+    $isAdmin = in_array(strtolower($authUser['role'] ?? ''), ['admin', 'super_admin']);
+    $warden_username = $authUser['username'] ?? '';
+
+    if ($isAdmin && !empty($_GET['warden_username']) && strtolower(trim($_GET['warden_username'])) !== 'admin') {
+        $warden_username = trim($_GET['warden_username']);
+    }
     
     $warden_filter = "";
     $params = [];
     $param_types = "";
 
-    if ($warden_username && $warden_username !== 'admin' && $warden_username !== 'warden1') {
+    if (!$isAdmin && $warden_username !== 'warden1') {
         $warden_filter = " AND rr.student_reg_no IN (
             SELECT DISTINCT p.reg_no 
             FROM profile p

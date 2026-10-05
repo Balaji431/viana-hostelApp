@@ -531,6 +531,13 @@ try {
             occupied_beds, assigned_pending, available_beds, gender, amount,
             food, caution_deposit, active
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            total_beds       = VALUES(total_beds),
+            occupied_beds    = VALUES(occupied_beds),
+            assigned_pending = VALUES(assigned_pending),
+            available_beds   = VALUES(available_beds),
+            active           = 1,
+            updated_at       = NOW()
     ");
 
     $insertRgStmt = $db->prepare("
@@ -540,6 +547,20 @@ try {
             gender, active, amount, food, caution_deposit, group_id, group_name,
             warden_user_id, warden_name
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            total_beds       = VALUES(total_beds),
+            occupied_beds    = VALUES(occupied_beds),
+            assigned_pending = VALUES(assigned_pending),
+            available_beds   = VALUES(available_beds),
+            active           = 1
+    ");
+
+    // Existing check statement to prevent duplicate rows even without DB unique constraint
+    $checkExistingRm = $db->prepare("
+        SELECT id FROM room_master 
+        WHERE room_code = ? 
+           OR REPLACE(REPLACE(TRIM(room_code), '-', ''), ' ', '') = REPLACE(REPLACE(TRIM(?), '-', ''), ' ', '')
+        LIMIT 1
     ");
 
     $insertedCount = 0;
@@ -549,6 +570,9 @@ try {
         $kNum        = normKey($roomNum);
 
         if (!empty($roomNum) && empty($matchedApiKeys[$kNum])) {
+            $checkExistingRm->execute([$roomNum, $roomNum]);
+            $existingId = $checkExistingRm->fetchColumn();
+
             $rType     = trim($pr['roomType'] ?? '');
             $capacity  = (int)($pr['totalBeds'] ?? $pr['total_beds'] ?? extractCapacity($rType));
             if ($capacity <= 0) $capacity = 1;
@@ -557,7 +581,18 @@ try {
             $avail     = max(0, $capacity - $occ - $pending);
             $parts     = parseRoomCodeParts($roomNum);
 
-            // Insert into room_master
+            if ($existingId) {
+                // Room already exists in room_master — update instead of inserting duplicate
+                $db->prepare("
+                    UPDATE room_master 
+                    SET total_beds = ?, occupied_beds = ?, assigned_pending = ?, available_beds = ?, active = 1 
+                    WHERE id = ?
+                ")->execute([$capacity, $occ, $pending, $avail, $existingId]);
+                $matchedApiKeys[$kNum] = true;
+                continue;
+            }
+
+            // Insert into room_master (only when genuinely new)
             $insertRmStmt->execute([
                 trim($pr['hostelName'] ?? 'Saveetha Hostel'),
                 $parts['building_code'],
@@ -612,6 +647,46 @@ try {
     }
 
     log_sync("  Auto-inserted $insertedCount missing rooms into both tables.");
+
+    // -----------------------------------------------------------------------
+    // STEP 6: Enforce strict 1:1 parity between room_master and rooms_groups_details.
+    // room_master must ONLY contain rooms that exist in rooms_groups_details.
+    // The correct join key is: room_master.room_code = rooms_groups_details.room_number
+    // -----------------------------------------------------------------------
+    log_sync("Step 6: Enforcing 1:1 parity with rooms_groups_details...");
+
+    // 6A: Purge inactive rows
+    $purgedInactive = $db->exec("DELETE FROM room_master WHERE active = 0");
+    if ($purgedInactive > 0) {
+        log_sync("  Purged $purgedInactive inactive room(s) from room_master.");
+    }
+
+    // 6B: Purge orphaned rows — any room_master row whose room_code does NOT exist
+    //     in rooms_groups_details.room_number. This is the primary guard against
+    //     external code (e.g. add_hostel_full.php, save_room_master.php, manual SQL)
+    //     inserting rows into room_master that bypass rooms_groups_details.
+    //
+    //     NOTE: We use NOT IN with a subquery alias instead of a JOIN-based DELETE
+    //     to avoid MySQL's "can't modify table you're selecting from" restriction.
+    $purgedOrphans = $db->exec("
+        DELETE FROM room_master
+        WHERE room_code NOT IN (
+            SELECT room_number FROM (
+                SELECT room_number FROM rooms_groups_details
+            ) AS rgd_rooms
+        )
+    ");
+    if ($purgedOrphans > 0) {
+        log_sync("  Purged $purgedOrphans orphaned room(s) from room_master (room_code not in rooms_groups_details).");
+    }
+
+    $finalRmCount  = (int)$db->query("SELECT COUNT(*) FROM room_master")->fetchColumn();
+    $finalRgdCount = (int)$db->query("SELECT COUNT(*) FROM rooms_groups_details")->fetchColumn();
+    log_sync("  Parity Check: room_master count = $finalRmCount, rooms_groups_details count = $finalRgdCount");
+    if ($finalRmCount !== $finalRgdCount) {
+        log_sync("  WARNING: Parity mismatch after Step 6! RM=$finalRmCount vs RGD=$finalRgdCount. Investigate manually.");
+    }
+
     log_sync("=== sync_room_master.php completed successfully ===");
 
     $result = [
@@ -620,6 +695,10 @@ try {
         'room_master_matched'    => $matchedCount,
         'rooms_groups_matched'   => $rgMatchedCount,
         'rooms_inserted'         => $insertedCount,
+        'purged_inactive'        => $purgedInactive,
+        'purged_orphans'         => $purgedOrphans,
+        'final_room_master'      => $finalRmCount,
+        'final_rooms_groups'     => $finalRgdCount,
         'local_pending'          => count($pendingByRoomId),
         'expired'                => $expiredCount,
         'ran_at'                 => date('Y-m-d H:i:s'),

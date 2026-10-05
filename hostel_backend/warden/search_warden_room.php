@@ -10,12 +10,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin', 'security', 'it']);
 
 try {
     $db = (new Database())->getConnection();
 
-    $warden_param = trim($_GET['warden_username'] ?? $_POST['warden_username'] ?? '');
-    $room_param   = trim($_GET['room_number'] ?? $_POST['room_number'] ?? '');
+    $is_admin = in_array(strtolower($authUser['role'] ?? ''), ['admin', 'super_admin', 'superadmin']);
+    $warden_param = $authUser['username'] ?? '';
+
+    if ($is_admin && !empty($_GET['warden_username']) && strtolower(trim($_GET['warden_username'])) !== 'admin') {
+        $warden_param = trim($_GET['warden_username']);
+    }
+    $room_param = trim($_GET['room_number'] ?? $_POST['room_number'] ?? '');
 
     if (empty($warden_param)) {
         echo json_encode(["success" => false, "message" => "Warden username or ID is required."]);
@@ -35,7 +43,10 @@ try {
 
     $w_name = $warden_user ? $warden_user['full_name'] : $warden_param;
     $w_bio  = $warden_user ? $warden_user['username']  : $warden_param;
-    $is_admin = ($warden_user && in_array(strtolower($warden_user['role']), ['admin', 'superadmin'])) || strtolower($warden_param) === 'admin';
+
+    if ($is_admin && (!isset($_GET['warden_username']) || strtolower(trim($_GET['warden_username'])) === 'admin')) {
+        $is_admin = true;
+    }
 
     // 2. Fetch list of ALL rooms assigned to this warden (from rooms_groups_details AND profile table)
     $myRoomsQuery = "

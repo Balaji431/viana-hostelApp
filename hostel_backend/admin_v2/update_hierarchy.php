@@ -32,9 +32,6 @@ if (!$action) {
     exit();
 }
 
-// DEBUG: Log action to check for hidden characters
-file_put_contents('action_debug.txt', "Action: [$action], Hex: " . bin2hex($action) . "\n", FILE_APPEND);
-
 try {
     switch ($action) {
         case 'update_hostel':

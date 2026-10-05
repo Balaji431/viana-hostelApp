@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/api_service.dart';
+import '../../core/app_update_service.dart';
 import '../../core/styles.dart';
 import '../../shared/wallpaper_provider.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
@@ -24,11 +25,16 @@ import 'security_chat_screen.dart';
 import '../../shared/main_layout.dart';
 import '../widgets/temporary_stay_dialog.dart';
 import '../widgets/room_transfer_modal.dart';
+import '../widgets/student_vacate_modal.dart';
 import 'student_wallet_screen.dart';
 import 'no_due_page.dart';
 import '../../core/top_notification.dart';
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../face_attendance/screens/face_attendance_screen.dart';
+import '../face_attendance/models/face_attendance_models.dart';
+import '../face_attendance/services/attendance_punch_service.dart';
+import '../../shared/widgets/raise_issue_header_button.dart';
+import '../../shared/widgets/user_avatar_header.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({super.key});
@@ -51,9 +57,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   bool _isCheckingWarden = false; // Stack-level overlay — avoids Navigator.pop issues
   String _roomChangeStatus = 'none';
   Map<String, dynamic>? _latestRoomRequest;
+  String _vacateStatus = 'none';
+  Map<String, dynamic>? _latestVacateRequest;
   bool _showRoomHistory = false;
   bool _showRenewTransferNotice = false;
   bool _hasShownRoomChangeApprovalToast = false;
+  bool _isFaceEnrolled = false;
 
   void _updateOverlayState({
     bool? showRoomOptionsModal,
@@ -71,22 +80,59 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     context.read<UIProvider>().setShowBottomNavBar(showBar);
   }
 
+  UserProvider? _userProvider;
+  Timer? _tempStayPollingTimer;
+  int _lastRefreshTick = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final up = Provider.of<UserProvider>(context, listen: false);
+    if (_userProvider != up) {
+      _userProvider?.removeListener(_handleGlobalRefreshListener);
+      _userProvider = up;
+      _lastRefreshTick = _userProvider!.dashboardRefreshTick;
+      _userProvider!.addListener(_handleGlobalRefreshListener);
+      _checkFaceEnrollment();
+    }
+  }
+
+  Future<void> _checkFaceEnrollment() async {
+    final user = _userProvider ?? (mounted ? context.read<UserProvider>() : null);
+    if (user != null && user.username.isNotEmpty) {
+      final enrolled = await AttendancePunchService.isFaceEnrolled(user.username);
+      if (mounted && enrolled != _isFaceEnrolled) {
+        setState(() {
+          _isFaceEnrolled = enrolled;
+        });
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _fetchAnnouncements();
     _fetchPayments();
+    _checkFaceEnrollment();
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final user = context.read<UserProvider>();
+      if (!mounted) return;
+      // Check for mandatory app update
+      AppUpdateService.checkUpdateAndPrompt(context);
+
+      final user = _userProvider ?? context.read<UserProvider>();
+      _checkFaceEnrollment();
       user.refreshUserData().then((_) {
         if (mounted) {
+          _checkFaceEnrollment();
           context.read<CategoryProvider>().fetchCounts(
             studentUsername: user.isParent ? user.linkedStudentUsername : user.username,
           );
         }
       });
       _fetchRoomChangeStatus();
+      _fetchVacateStatus();
       
       final int? fetchId = user.isParent ? user.linkedStudentId : user.dbId;
       if (fetchId != null) {
@@ -104,13 +150,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       }
     });
 
-    _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
-    context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
-
     // Periodic auto-refresh for guest/temporary stay status updates
     _tempStayPollingTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      if (mounted) {
-        final u = context.read<UserProvider>();
+      if (mounted && _userProvider != null) {
+        final u = _userProvider!;
         if (u.isGuest || u.temporaryStayRequest != null || u.username.startsWith('TEMP_')) {
           u.refreshUserData();
         }
@@ -118,12 +161,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     });
   }
 
-  Timer? _tempStayPollingTimer;
-  int _lastRefreshTick = 0;
-
   void _handleGlobalRefreshListener() {
-    if (!mounted) return;
-    final user = context.read<UserProvider>();
+    if (!mounted || _userProvider == null) return;
+    final user = _userProvider!;
     if (user.dashboardRefreshTick > _lastRefreshTick) {
       _lastRefreshTick = user.dashboardRefreshTick;
       _handleGlobalRefresh();
@@ -131,34 +171,40 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
   }
 
   void _handleGlobalRefresh() {
+    if (!mounted) return;
     _fetchAnnouncements();
     _fetchPayments();
     _fetchRoomChangeStatus();
-    if (!mounted) return;
-    final user = context.read<UserProvider>();
-    context.read<CategoryProvider>().fetchCounts(
-      studentUsername: user.isParent ? user.linkedStudentUsername : user.username,
-    );
-    final int? fetchId = user.isParent ? user.linkedStudentId : user.dbId;
-    if (fetchId != null) {
-      context.read<CategoryProvider>().fetchAssignedStaff(fetchId);
-      if (!user.isParent && user.role == UserRole.student) {
-        final allocProvider = context.read<AllocationProvider>();
-        allocProvider.loadAllocation(fetchId).then((_) {
-          if (mounted) {
-            if (!user.isRoomAllocated || (allocProvider.allocationStatus != 'approved' && allocProvider.allocationStatus != 'confirmed')) {
-              allocProvider.fetchPaidHostelType(user.username);
+    _fetchVacateStatus();
+    _checkFaceEnrollment();
+    if (!mounted || _userProvider == null) return;
+    final user = _userProvider!;
+    try {
+      context.read<CategoryProvider>().fetchCounts(
+        studentUsername: user.isParent ? user.linkedStudentUsername : user.username,
+      );
+      final int? fetchId = user.isParent ? user.linkedStudentId : user.dbId;
+      if (fetchId != null) {
+        context.read<CategoryProvider>().fetchAssignedStaff(fetchId);
+        if (!user.isParent && user.role == UserRole.student) {
+          final allocProvider = context.read<AllocationProvider>();
+          allocProvider.loadAllocation(fetchId).then((_) {
+            if (mounted) {
+              if (!user.isRoomAllocated || (allocProvider.allocationStatus != 'approved' && allocProvider.allocationStatus != 'confirmed')) {
+                allocProvider.fetchPaidHostelType(user.username);
+              }
             }
-          }
-        });
+          });
+        }
       }
-    }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _tempStayPollingTimer?.cancel();
-    context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
+    _userProvider?.removeListener(_handleGlobalRefreshListener);
+    _userProvider = null;
     _nameScrollController.dispose();
     super.dispose();
   }
@@ -292,6 +338,28 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     }
   }
 
+  Future<void> _fetchVacateStatus() async {
+    final user = context.read<UserProvider>();
+    if (user.username.isEmpty) return;
+    try {
+      final res = await ApiService.getStudentVacateStatus(regNo: user.username);
+      if (res['success'] == true && res['has_request'] == true && mounted) {
+        final data = res['data'];
+        setState(() {
+          _latestVacateRequest = data;
+          _vacateStatus = (data['status'] ?? 'none').toString().toLowerCase();
+        });
+      } else if (mounted) {
+        setState(() {
+          _latestVacateRequest = null;
+          _vacateStatus = 'none';
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching vacate status: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -305,9 +373,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       appBar: SkeuomorphicNavBar(
         title: 'Viana Stay',
         onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
-        rightAction: ProfileButton(onTap: () {
-          context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(2);
-        }),
+        rightAction: const RaiseIssueHeaderButton(),
       ),
       body: Stack(
         children: [
@@ -352,8 +418,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                       // Student has NO room — show ONLY the fee paid card with Contact Hostel Warden
                       _buildNewStudentAllocationCard(context, user),
                     ],
-                    const SizedBox(height: 10), 
-                    const SizedBox.shrink(),
+
+                    if (ApiService.enableFaceBiometric) ...[
+                      const SizedBox(height: 10), 
+                      _buildFaceAttendanceCard(context, user),
+                    ],
+                    const SizedBox(height: 10),
                     _buildProceedPaymentButton(),
                     _buildQuickActionsHeader(),
                     _buildQuickActions(context),
@@ -452,7 +522,20 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     final roomType = user.roomType.isNotEmpty ? user.roomType : (user.roomTypeDisplay.isNotEmpty ? user.roomTypeDisplay : "Standard Room");
     final hostel = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
     final roomNo = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
-    final renewalDateStr = DateFormat('dd MMM yyyy').format(user.renewalDate);
+    final renewalDateStr = user.renewalDate != null
+        ? DateFormat('dd MMM yyyy').format(user.renewalDate!)
+        : 'N/A';
+    final DateTime? renewDeadline = user.renewalDate != null
+        ? DateTime(
+            user.renewalDate!.year,
+            user.renewalDate!.month,
+            user.renewalDate!.day,
+            23, 59, 59,
+          )
+        : null;
+    final bool isRenewalExpired = renewDeadline != null && DateTime.now().isAfter(renewDeadline);
+    final assignedWarden = (_latestRoomRequest?['assigned_warden_name'] ?? _latestRoomRequest?['warden_name'] ?? '').toString().trim();
+    final wardenDisplay = assignedWarden.isNotEmpty ? 'Warden $assignedWarden' : 'the Hostel Warden';
 
     return Container(
       color: Colors.black.withOpacity(0.5),
@@ -563,6 +646,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                   ),
                                 ),
                                 const SizedBox(width: 8),
+                                if (_isFaceEnrolled) ...[
+                                  _buildEnrolledBadge(),
+                                  const SizedBox(width: 6),
+                                ],
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                                   decoration: BoxDecoration(
@@ -589,7 +676,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
-                                    '$hostel · Thandalam Campus',
+                                    '$hostel · ${user.campus}',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: isDark ? Colors.white70 : Colors.grey.shade600,
@@ -729,6 +816,79 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                             ),
                           ),
                         ],
+                        if (_vacateStatus == 'pending') ...[
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF450A0A).withOpacity(0.3) : const Color(0xFFFEF2F2),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.4)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.exit_to_app_rounded, color: Color(0xFFDC2626), size: 20),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'VACATE REQUEST PENDING APPROVAL',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Requested date: ${_latestVacateRequest?['expected_vacate_date'] ?? ''}. Review by ${_latestVacateRequest?['assigned_warden_name'] ?? 'Warden'}. Room will be freed upon approval.',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w500,
+                                              color: isDark ? const Color(0xFFFECACA) : const Color(0xFF991B1B),
+                                              height: 1.3,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: InkWell(
+                                    onTap: () async {
+                                      final reqId = _latestVacateRequest?['request_id'];
+                                      if (reqId != null) {
+                                        await ApiService.cancelVacateRequest(requestId: reqId);
+                                        _fetchVacateStatus();
+                                      }
+                                    },
+                                    child: const Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      child: Text(
+                                        'Cancel Request',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFDC2626),
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         if (statusLower == 'pending') ...[
                           Container(
                             width: double.infinity,
@@ -738,10 +898,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: const Color(0xFFD97706).withOpacity(0.4)),
                             ),
-                            child: const Row(
+                            child: Row(
                               children: [
-                                Icon(Icons.hourglass_top_rounded, color: Color(0xFFD97706), size: 22),
-                                SizedBox(width: 12),
+                                const Icon(Icons.hourglass_top_rounded, color: Color(0xFFD97706), size: 22),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -751,15 +911,16 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
-                                          color: Color(0xFFF59E0B),
+                                          color: isDark ? const Color(0xFFF59E0B) : const Color(0xFFB45309),
                                         ),
                                       ),
-                                      SizedBox(height: 2),
+                                      const SizedBox(height: 2),
                                       Text(
-                                        'Your transfer request is under review by Warden Manoj A. Only 1 request allowed at a time.',
+                                        'Your transfer request is under review by $wardenDisplay. Only 1 request allowed at a time.',
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: Color(0xFFFDE68A),
+                                          fontWeight: FontWeight.w500,
+                                          color: isDark ? const Color(0xFFFED7AA) : const Color(0xFFEA580C),
                                           height: 1.3,
                                         ),
                                       ),
@@ -808,10 +969,36 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                 child: ElevatedButton(
                                   onPressed: () {
                                     _updateOverlayState(showRoomOptionsModal: false);
+                                    if (isRenewalExpired) {
+                                      showDialog(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                          title: const Row(
+                                            children: [
+                                              Icon(Icons.timer_off_outlined, color: Colors.red),
+                                              SizedBox(width: 8),
+                                              Text('Renewal Window Closed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                            ],
+                                          ),
+                                          content: Text(
+                                            'The renewal deadline for your room expired on ${user.renewalDate != null ? DateFormat('dd MMM yyyy').format(user.renewalDate!) : 'N/A'} at 11:59 PM.\n\nSince the renewal date has passed, room renewal is closed and the bed is released for new bookings.\n\nIf you need accommodation, please apply freshly via the VStudy portal.',
+                                            style: const TextStyle(fontSize: 14, height: 1.4),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(ctx),
+                                              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      return;
+                                    }
                                     _showRenewBookingModal(context, user);
                                   },
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2563EB),
+                                    backgroundColor: isRenewalExpired ? const Color(0xFF64748B) : const Color(0xFF2563EB),
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(vertical: 14),
                                     elevation: 2,
@@ -822,11 +1009,13 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      const Icon(Icons.sync, size: 18, color: Colors.white),
+                                      Icon(isRenewalExpired ? Icons.timer_off_outlined : Icons.sync, size: 18, color: Colors.white),
                                       const SizedBox(width: 6),
                                       Flexible(
                                         child: Text(
-                                          'Renew ₹${NumberFormat('#,##,###').format(user.renewAmount > 0 ? user.renewAmount.toInt() : 120000)}',
+                                          isRenewalExpired
+                                              ? 'Renewal Expired'
+                                              : 'Renew ₹${NumberFormat('#,##,###').format(user.renewAmount > 0 ? user.renewAmount.toInt() : 120000)}',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: GoogleFonts.lato(
@@ -884,6 +1073,49 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton(
+                              onPressed: () {
+                                _updateOverlayState(showRoomOptionsModal: false);
+                                StudentVacateModal.show(
+                                  context,
+                                  user,
+                                  onSubmitted: () {
+                                    _fetchVacateStatus();
+                                  },
+                                );
+                              },
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: isDark ? const Color(0xFF450A0A).withOpacity(0.2) : const Color(0xFFFEF2F2),
+                                foregroundColor: const Color(0xFFDC2626),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                side: BorderSide(
+                                  color: const Color(0xFFEF4444).withOpacity(0.4),
+                                  width: 1.2,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.exit_to_app_rounded, size: 18, color: Color(0xFFDC2626)),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Request to Vacate Room',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: Color(0xFFDC2626),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
                       ] else ...[
@@ -946,270 +1178,522 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
 
   void _showRenewBookingModal(BuildContext context, UserProvider user) {
     final hostelName = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
-    final campus = user.institution.isNotEmpty ? "Thandalam Campus" : "Thandalam Campus";
+    final campus = user.campus.isNotEmpty ? user.campus : "Thandalam Campus";
     final roomType = user.roomTypeDisplay.isNotEmpty ? user.roomTypeDisplay : "4 IN 1 AC";
     final roomNumber = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
 
-    final double roomRent = user.roomAmount > 0 ? user.roomAmount : 70000.0;
-    final double food = user.roomFood > 0 ? user.roomFood : 50000.0;
-    final double renewalTotal = user.renewAmount > 0 ? user.renewAmount : (roomRent + food);
+    final bool is3In1 = roomType.contains('3 IN 1') || roomType.toLowerCase().contains('triple');
+    final double baseRent = is3In1 ? 75000.0 : (user.roomAmount > 0 ? user.roomAmount : 70000.0);
+    final double baseFood = 50000.0;
 
-    final rentFormatted = NumberFormat('#,##,###').format(roomRent.toInt());
-    final foodFormatted = NumberFormat('#,##,###').format(food.toInt());
-    final totalFormatted = NumberFormat('#,##,###').format(renewalTotal.toInt());
-    final walletFormatted = NumberFormat('#,##,###.##').format(user.walletBalance);
-    final bool hasEnoughBalance = user.walletBalance >= renewalTotal;
-    final double shortage = renewalTotal - user.walletBalance;
-    final shortageFormatted = NumberFormat('#,##,###.##').format(shortage > 0 ? shortage : 0);
+    List<Map<String, dynamic>> durationOptions = [
+      {
+        'months': 12,
+        'multiplier': '',
+        'premiumMultiplier': 1.0,
+        'roomRent': baseRent,
+        'food': baseFood,
+        'total': baseRent + baseFood,
+      },
+      {
+        'months': 9,
+        'multiplier': '1.32x',
+        'premiumMultiplier': 1.32,
+        'roomRent': (baseRent * 0.99).roundToDouble(),
+        'food': (baseFood * 0.75).roundToDouble(),
+        'total': (baseRent * 0.99 + baseFood * 0.75).roundToDouble(),
+      },
+      {
+        'months': 6,
+        'multiplier': '1.56x',
+        'premiumMultiplier': 1.56,
+        'roomRent': (baseRent * 0.78).roundToDouble(),
+        'food': (baseFood * 0.50).roundToDouble(),
+        'total': (baseRent * 0.78 + baseFood * 0.50).roundToDouble(),
+      },
+      {
+        'months': 3,
+        'multiplier': '1.8x',
+        'premiumMultiplier': 1.8,
+        'roomRent': (baseRent * 0.45).roundToDouble(),
+        'food': (baseFood * 0.25).roundToDouble(),
+        'total': (baseRent * 0.45 + baseFood * 0.25).roundToDouble(),
+      },
+    ];
+
+    int selectedMonths = 12;
+    bool hasFetchedRemote = false;
 
     showDialog(
       context: context,
       builder: (BuildContext ctx) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          elevation: 6,
-          backgroundColor: const Color(0xFFF1F3F5),
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header: Icon + Title + Close Button
-                Row(
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            if (!hasFetchedRemote) {
+              hasFetchedRemote = true;
+              ApiService.getRoomPricing(roomType).then((res) {
+                if (res['success'] == true && res['data']?['renewals'] is List) {
+                  final List<dynamic> renList = res['data']['renewals'];
+                  if (renList.isNotEmpty) {
+                    final updated = renList.map((item) {
+                      final m = int.tryParse(item['months'].toString()) ?? 12;
+                      final pm = double.tryParse(item['premiumMultiplier'].toString()) ?? 1.0;
+                      final rr = double.tryParse(item['roomRent'].toString()) ?? 0.0;
+                      final fd = double.tryParse(item['food'].toString()) ?? 0.0;
+                      final tot = double.tryParse(item['total'].toString()) ?? (rr + fd);
+                      return {
+                        'months': m,
+                        'multiplier': m == 12 ? '' : '${pm}x',
+                        'premiumMultiplier': pm,
+                        'roomRent': rr,
+                        'food': fd,
+                        'total': tot,
+                      };
+                    }).toList();
+                    if (ctx.mounted) {
+                      setModalState(() {
+                        durationOptions = updated;
+                      });
+                    }
+                  }
+                }
+              }).catchError((_) {});
+            }
+
+            final selectedOpt = durationOptions.firstWhere(
+              (o) => o['months'] == selectedMonths,
+              orElse: () => durationOptions.first,
+            );
+
+            final double selectedRent = (selectedOpt['roomRent'] as num).toDouble();
+            final double selectedFood = (selectedOpt['food'] as num).toDouble();
+            final double selectedTotal = (selectedOpt['total'] as num).toDouble();
+            final double selectedMultiplier = (selectedOpt['premiumMultiplier'] as num).toDouble();
+            final int perMonth = (selectedTotal / selectedMonths).round();
+
+            final rentFormatted = NumberFormat('#,##,###').format(selectedRent.toInt());
+            final foodFormatted = NumberFormat('#,##,###').format(selectedFood.toInt());
+            final totalFormatted = NumberFormat('#,##,###').format(selectedTotal.toInt());
+            final perMonthFormatted = NumberFormat('#,##,###').format(perMonth);
+            final bool hasEnoughBalance = user.walletBalance >= selectedTotal;
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              elevation: 6,
+              backgroundColor: const Color(0xFFF1F3F5),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.sync_rounded, size: 20, color: Color(0xFF1E293B)),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Renew Hostel Booking',
-                      style: GoogleFonts.lato(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1E293B),
-                      ),
-                    ),
-                    const Spacer(),
-                    InkWell(
-                      onTap: () => Navigator.pop(ctx),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE2E8F0),
+                    // Header: Icon + Title + Close Button
+                    Row(
+                      children: [
+                        const Icon(Icons.sync_rounded, size: 22, color: Color(0xFF1E293B)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Renew Hostel Booking',
+                          style: GoogleFonts.lato(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF1E293B),
+                          ),
+                        ),
+                        const Spacer(),
+                        InkWell(
+                          onTap: () => Navigator.pop(ctx),
                           borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.close, size: 18, color: Color(0xFF64748B)),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-
-                // Card 1: Existing Room Details
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE9ECEF),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFDEE2E6)),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Hostel', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                          Text('$hostelName · $campus', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Room Type', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                          Text(roomType, style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Room Number', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                          Text(roomNumber, style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Card 2: Fee Breakdown
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE9ECEF),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFDEE2E6)),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Room Rent', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                          Text('₹$rentFormatted', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Food', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                          Text('₹$foodFormatted', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Caution Deposit', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                          Text('Not re-charged', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Divider(color: Color(0xFFCED4DA), height: 1),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Renewal Total', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                          Text('₹$totalFormatted', style: GoogleFonts.lato(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Card 3: Wallet Balance Status
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: hasEnoughBalance ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: hasEnoughBalance ? const Color(0xFFA7F3D0) : const Color(0xFFFECACA),
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        hasEnoughBalance ? Icons.account_balance_wallet_rounded : Icons.warning_amber_rounded,
-                        size: 20,
-                        color: hasEnoughBalance ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Wallet Balance: ₹$walletFormatted',
-                              style: GoogleFonts.outfit(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: hasEnoughBalance ? const Color(0xFF065F46) : const Color(0xFF991B1B),
-                              ),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE2E8F0),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFCBD5E1)),
                             ),
-                            Text(
-                              hasEnoughBalance
-                                  ? 'Sufficient funds available for auto-debit.'
-                                  : 'Shortage: ₹$shortageFormatted. Top up via Razorpay.',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: hasEnoughBalance ? const Color(0xFF047857) : const Color(0xFFB91C1C),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // Buttons: Cancel & Confirm & Pay
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: SizedBox(
-                        height: 44,
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: const Color(0xFFDEE2E6),
-                            foregroundColor: const Color(0xFF1E293B),
-                            side: const BorderSide(color: Color(0xFFCED4DA)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            child: const Icon(Icons.close, size: 18, color: Color(0xFF475569)),
                           ),
-                          child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         ),
-                      ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 4,
-                      child: SizedBox(
-                        height: 44,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            // Check wallet balance first before proceeding
-                            if (!hasEnoughBalance) {
-                              Navigator.pop(ctx);
-                              TopNotification.showInsufficientBalance(
-                                context,
-                                currentBalance: user.walletBalance,
-                                requiredAmount: renewalTotal,
-                                onTopUp: () => _navigateToStudentWallet(context, user),
-                              );
-                              return;
-                            }
-                            _handleHostelRenewal(ctx, renewalTotal, user);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563EB),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                    const SizedBox(height: 14),
+
+                    // Card 1: Existing Room Details
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE9ECEF),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFDEE2E6)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Icon(Icons.sync, size: 16, color: Colors.white),
-                              const SizedBox(width: 6),
+                              const Text('Hostel', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
                               Flexible(
                                 child: Text(
-                                  'Confirm & Pay ₹$totalFormatted',
-                                  maxLines: 1,
+                                  '$hostelName · $campus',
                                   overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 13),
+                                  style: GoogleFonts.lato(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF1E293B),
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                        ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Room Type', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                              Text(
+                                roomType,
+                                style: GoogleFonts.lato(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF1E293B),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Room Number', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                              Text(
+                                roomNumber,
+                                style: GoogleFonts.lato(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF1E293B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Card 2: Renewal Duration (2x2 Grid)
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE9ECEF),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFDEE2E6)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Renewal Duration',
+                            style: GoogleFonts.lato(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF1E293B),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          // Row 1: 12 months & 9 months
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildDurationCard(
+                                  option: durationOptions.isNotEmpty ? durationOptions[0] : {'months': 12, 'total': 120000},
+                                  isSelected: selectedMonths == (durationOptions.isNotEmpty ? durationOptions[0]['months'] : 12),
+                                  onTap: () {
+                                    setModalState(() {
+                                      selectedMonths = durationOptions[0]['months'];
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildDurationCard(
+                                  option: durationOptions.length > 1 ? durationOptions[1] : {'months': 9, 'total': 106800, 'multiplier': '1.32x'},
+                                  isSelected: selectedMonths == (durationOptions.length > 1 ? durationOptions[1]['months'] : 9),
+                                  onTap: () {
+                                    setModalState(() {
+                                      selectedMonths = durationOptions[1]['months'];
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          // Row 2: 6 months & 3 months
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildDurationCard(
+                                  option: durationOptions.length > 2 ? durationOptions[2] : {'months': 6, 'total': 79600, 'multiplier': '1.56x'},
+                                  isSelected: selectedMonths == (durationOptions.length > 2 ? durationOptions[2]['months'] : 6),
+                                  onTap: () {
+                                    setModalState(() {
+                                      selectedMonths = durationOptions[2]['months'];
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildDurationCard(
+                                  option: durationOptions.length > 3 ? durationOptions[3] : {'months': 3, 'total': 44000, 'multiplier': '1.8x'},
+                                  isSelected: selectedMonths == (durationOptions.length > 3 ? durationOptions[3]['months'] : 3),
+                                  onTap: () {
+                                    setModalState(() {
+                                      selectedMonths = durationOptions[3]['months'];
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Card 3: Fee Breakdown
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE9ECEF),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFDEE2E6)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Room Rent ($selectedMonths months)', style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                              Text('₹$rentFormatted', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Food ($selectedMonths months)', style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                              Text('₹$foodFormatted', style: GoogleFonts.lato(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Caution Deposit', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                              Text('Not re-charged', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Divider(color: Color(0xFFCED4DA), height: 1),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Renewal Total', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                              Text('₹$totalFormatted', style: GoogleFonts.lato(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Per month', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                              Text('₹$perMonthFormatted/mo', style: GoogleFonts.lato(fontSize: 13.5, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Disclaimer text
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        'This extends your stay by $selectedMonths months and debits ₹$totalFormatted from your wallet.',
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Buttons: Cancel & Confirm & Pay
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: SizedBox(
+                            height: 44,
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: const Color(0xFFDEE2E6),
+                                foregroundColor: const Color(0xFF1E293B),
+                                side: const BorderSide(color: Color(0xFFCED4DA)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 4,
+                          child: SizedBox(
+                            height: 44,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                if (!hasEnoughBalance) {
+                                  Navigator.pop(ctx);
+                                  TopNotification.showInsufficientBalance(
+                                    context,
+                                    currentBalance: user.walletBalance,
+                                    requiredAmount: selectedTotal,
+                                    onTopUp: () => _navigateToStudentWallet(context, user),
+                                  );
+                                  return;
+                                }
+                                _handleHostelRenewal(
+                                  ctx,
+                                  totalAmount: selectedTotal,
+                                  months: selectedMonths,
+                                  roomRent: selectedRent,
+                                  food: selectedFood,
+                                  premiumMultiplier: selectedMultiplier,
+                                  user: user,
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.sync, size: 16, color: Colors.white),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      'Confirm & Pay ₹$totalFormatted',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.lato(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
+          );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildDurationCard({
+    required Map<String, dynamic> option,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final int months = option['months'] ?? 12;
+    final String multiplier = option['multiplier'] ?? '';
+    final num total = option['total'] ?? 0;
+    final String formattedTotal = NumberFormat('#,##,###').format(total.toInt());
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF2563EB) : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF1D4ED8) : const Color(0xFFCBD5E1),
+              width: isSelected ? 1.5 : 1.0,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withOpacity(0.25),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    )
+                  ]
+                : [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.02),
+                      blurRadius: 3,
+                      offset: const Offset(0, 1),
+                    )
+                  ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '$months months',
+                    style: GoogleFonts.lato(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? Colors.white : const Color(0xFF1E293B),
+                    ),
+                  ),
+                  if (multiplier.isNotEmpty)
+                    Text(
+                      multiplier,
+                      style: GoogleFonts.lato(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? Colors.white70 : const Color(0xFF64748B),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '₹$formattedTotal',
+                style: GoogleFonts.lato(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.white : const Color(0xFF1E293B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1225,7 +1709,15 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     }
   }
 
-  Future<void> _handleHostelRenewal(BuildContext ctx, double totalAmount, UserProvider user) async {
+  Future<void> _handleHostelRenewal(
+    BuildContext ctx, {
+    required double totalAmount,
+    required int months,
+    required double roomRent,
+    required double food,
+    required double premiumMultiplier,
+    required UserProvider user,
+  }) async {
     Navigator.pop(ctx);
     final regNo = user.username.isNotEmpty ? user.username : user.studentId;
     final email = user.email.isNotEmpty ? user.email : (regNo.contains('@') ? regNo : '$regNo.simats@saveetha.com');
@@ -1237,6 +1729,10 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         email: email,
         studentId: studentId,
         amount: totalAmount,
+        months: months,
+        roomRent: roomRent,
+        food: food,
+        premiumMultiplier: premiumMultiplier,
       );
 
       if (!mounted) return;
@@ -1246,9 +1742,15 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         TopNotification.showSuccess(
           context,
           title: 'Stay Extended! 🎉',
-          message: res['message'] ?? 'Renewal successful! Stay extended by 1 year.',
+          message: res['message'] ?? 'Renewal successful! Stay extended by $months months.',
         );
-      } else {
+      } else if (res['renewal_expired'] == true) {
+        TopNotification.showError(
+          context,
+          title: 'Renewal Window Closed',
+          message: res['message'] ?? 'Renewal deadline has expired. Please apply freshly via VStudy.',
+        );
+      } else if (res['insufficient_balance'] == true) {
         final double curBal = (res['current_balance'] != null)
             ? (double.tryParse(res['current_balance'].toString()) ?? user.walletBalance)
             : user.walletBalance;
@@ -1262,14 +1764,19 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
           requiredAmount: reqAmt,
           onTopUp: () => _navigateToStudentWallet(context, user),
         );
+      } else {
+        TopNotification.showError(
+          context,
+          title: 'Renewal Failed',
+          message: res['message'] ?? 'Unable to process renewal. Please try again.',
+        );
       }
     } catch (e) {
       if (mounted) {
-        TopNotification.showInsufficientBalance(
+        TopNotification.showError(
           context,
-          currentBalance: user.walletBalance,
-          requiredAmount: totalAmount,
-          onTopUp: () => _navigateToStudentWallet(context, user),
+          title: 'Renewal Error',
+          message: 'An error occurred while processing renewal: ${e.toString()}',
         );
       }
     }
@@ -1306,12 +1813,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     } catch (_) {}
     final isDark = wallpaper?.isDarkTheme ?? false;
 
-    String initials = "AK";
-    if (user.userName.isNotEmpty) {
-      final parts = user.userName.trim().split(' ');
-      if (parts.length >= 2) {
+    String initials = "VS";
+    if (user.userName.trim().isNotEmpty) {
+      final parts = user.userName.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+      if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
         initials = (parts[0][0] + parts[1][0]).toUpperCase();
-      } else {
+      } else if (parts.isNotEmpty && parts[0].isNotEmpty) {
         initials = parts[0][0].toUpperCase();
       }
     }
@@ -1326,33 +1833,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
       ),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: SkeuomorphicColors.goldGlossyGradient,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-              border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
-            ),
-            child: Center(
-              child: Text(
-                initials,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1B2B48),
-                  fontFamily: 'Lato',
-                ),
-              ),
-            ),
-          ),
+          UserHeaderAvatar(user: user, size: 44),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1406,6 +1887,40 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         const SnackBar(content: Text('Renewal is not available for temporary stay.')),
       );
       return;
+    }
+    if (user.renewalDate != null) {
+      final DateTime renewDeadline = DateTime(
+        user.renewalDate!.year,
+        user.renewalDate!.month,
+        user.renewalDate!.day,
+        23, 59, 59,
+      );
+      if (DateTime.now().isAfter(renewDeadline)) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.timer_off_outlined, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Renewal Window Closed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: Text(
+              'The renewal deadline for your room expired on ${DateFormat('dd MMM yyyy').format(user.renewalDate!)} at 11:59 PM.\n\nSince the renewal date has passed, late renewal is not permitted and the room is released for new bookings.\n\nIf you need accommodation, please apply freshly via the VStudy portal.',
+              style: const TextStyle(fontSize: 14, height: 1.4),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
     }
     if (user.hasBadConduct) {
       showDialog(
@@ -1679,6 +2194,41 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     );
   }
 
+  Widget _buildEnrolledBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFD4AF37), Color(0xFFA67C1E)],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFD4AF37).withOpacity(0.35),
+            blurRadius: 5,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.verified_rounded, size: 13, color: Colors.white),
+          SizedBox(width: 4),
+          Text(
+            "Enrolled",
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAllocationEntryCard(BuildContext context, UserProvider user) {
     final alloc = context.watch<AllocationProvider>();
     final status = alloc.allocationStatus;
@@ -1789,15 +2339,138 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     );
   }
 
+  Widget _buildFaceAttendanceCard(BuildContext context, UserProvider user) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                settings: const RouteSettings(name: '/face_attendance'),
+                builder: (_) => const FaceAttendanceScreen(initialMode: FaceScanMode.punch),
+              ),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF1A2744),
+                  Color(0xFF2A3A5C),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFFD4AF37).withOpacity(0.35),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0F1A2E).withOpacity(0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Gold square scan-face icon on the left
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0xFFE8D48A),
+                        Color(0xFFD4AF37),
+                        Color(0xFFB8962E),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF8B7025),
+                      width: 1.0,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.25),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.face_retouching_natural,
+                    color: Color(0xFF3D2E0A),
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // Center texts: "Face Biometric" & "Touch to Check-In / Check-Out"
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Face Biometric',
+                        style: GoogleFonts.lato(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Touch to Check-In / Check-Out',
+                        style: GoogleFonts.lato(
+                          fontSize: 12.5,
+                          color: const Color(0xFFC8D2E0),
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Right arrow indicator
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFFD4AF37),
+                  size: 24,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAllocationCard(BuildContext context, UserProvider user) {
     final wallpaper = context.watch<WallpaperProvider>();
     final isDark = wallpaper.isDarkTheme;
     final isTemp = user.temporaryStayRequest != null;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final renewDay = DateTime(user.renewalDate.year, user.renewalDate.month, user.renewalDate.day);
-    final int rawDays = renewDay.difference(today).inDays;
-    final int daysRemaining = rawDays > 0 ? rawDays : (user.renewalDate.isAfter(now) ? 1 : 0);
+    final renewDay = user.renewalDate != null
+        ? DateTime(user.renewalDate!.year, user.renewalDate!.month, user.renewalDate!.day)
+        : null;
+    final int rawDays = renewDay != null ? renewDay.difference(today).inDays : 0;
+    final int daysRemaining = user.renewalDate != null
+        ? (rawDays > 0 ? rawDays : (user.renewalDate!.isAfter(now) ? 1 : 0))
+        : 0;
     final String displayRoom = user.isParent
         ? user.linkedStudentRoom
         : (user.roomAllocation.isNotEmpty
@@ -1894,9 +2567,18 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
                   ),
                   Transform.translate(
                     offset: const Offset(0, -10),
-                    child: _buildStatusPill(
-                      daysRemaining,
-                      isTemporary: isTemp,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_isFaceEnrolled) ...[
+                          _buildEnrolledBadge(),
+                          const SizedBox(width: 6),
+                        ],
+                        _buildStatusPill(
+                          daysRemaining,
+                          isTemporary: isTemp,
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -1993,7 +2675,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
     );
   }
 
-  Widget _buildDateBox(String label, DateTime date, IconData icon, {bool isDark = false}) {
+  Widget _buildDateBox(String label, DateTime? date, IconData icon, {bool isDark = false}) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -2024,7 +2706,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
             ),
             const SizedBox(height: 8),
             Text(
-              DateFormat('d MMM yyyy').format(date),
+              date != null ? DateFormat('d MMM yyyy').format(date) : 'N/A',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -2355,11 +3037,17 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
         title: a['title'] ?? '',
         date: a['date'] ?? '',
         description: a['content'] ?? '',
+        wardenName: a['warden_name'],
       )).toList(),
     );
   }
 
-  Widget _buildAnnouncementCard({required String title, required String date, required String description}) {
+  Widget _buildAnnouncementCard({
+    required String title,
+    required String date,
+    required String description,
+    String? wardenName,
+  }) {
     final wallpaper = context.watch<WallpaperProvider>();
     final isDark = wallpaper.isDarkTheme;
 
@@ -2399,7 +3087,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> with SingleTicker
               ),
               const SizedBox(width: 8),
               Text(
-                date, 
+                (wardenName != null && wardenName.trim().isNotEmpty) ? '$wardenName · $date' : date, 
                 style: TextStyle(
                   fontSize: 11, 
                   color: isDark ? const Color(0xFF94A3B8) : Colors.grey,

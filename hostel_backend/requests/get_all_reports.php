@@ -10,12 +10,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin', 'maintenance', 'security', 'it']);
 
 $database = new Database();
 $db = $database->getConnection();
 
 try {
-    $warden_username = isset($_GET['warden_username']) ? $_GET['warden_username'] : null;
+    $warden_username = in_array(strtolower($authUser['role'] ?? ''), ['admin', 'super_admin'])
+        ? ($_GET['warden_username'] ?? $authUser['username'])
+        : $authUser['username'];
     
     $warden_filter = "";
     $params = [];

@@ -10,11 +10,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth();
 
 $database = new Database();
 $db = $database->getConnection();
 
 $student_id = isset($_GET['student_id']) ? $_GET['student_id'] : null;
+if (strtolower($authUser['role'] ?? '') === 'student') {
+    $student_id = $authUser['id'];
+}
 
 if (!$student_id) {
     echo json_encode([

@@ -115,26 +115,50 @@ if(
             );
 
             // Determine Receiver (Floorwise warden, hostel warden, or default main warden)
-            $receiver_username = 'warden1'; // Default fallback
-            
-            // 1. Check if the student has a room allocation
-            $loc_query = "SELECT rgd.hostel_name, rgd.group_name as floor
-                          FROM users u
-                          JOIN profile p ON (CONVERT(u.username USING utf8mb4) = CONVERT(p.reg_no USING utf8mb4))
-                          JOIN rooms_groups_details rgd ON (CONVERT(p.room_allocation USING utf8mb4) = CONVERT(rgd.room_number USING utf8mb4))
-                          WHERE u.id = ? LIMIT 1";
-            $loc_stmt = $db->prepare($loc_query);
-            $loc_stmt->execute([$data['student_id']]);
-            $loc = $loc_stmt->fetch(PDO::FETCH_ASSOC);
+            $receiver_username = null;
+            $student_db_id = $data['student_id'] ?? null;
+            $provided_room = trim($data['room_number'] ?? '');
 
-            $resolved_hostel = null;
-            $resolved_floor = null;
+            // 1. Direct lookup via student's allocated room or provided room in rooms_groups_details
+            $direct_warden_query = "
+                SELECT COALESCE(NULLIF(TRIM(rgd.warden_bio_id),''), NULLIF(TRIM(ms.staff_bio_id),''), NULLIF(TRIM(ms.username),''), NULLIF(TRIM(u.username),''), NULLIF(TRIM(p.warden),'')) as resolved_username,
+                       rgd.hostel_name, rgd.group_name as floor
+                FROM users stu
+                LEFT JOIN profile p ON CONVERT(TRIM(stu.username) USING utf8mb4) = CONVERT(TRIM(p.reg_no) USING utf8mb4)
+                LEFT JOIN rooms_groups_details rgd ON (
+                    REPLACE(REPLACE(TRIM(rgd.room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(:provided_room, ''), NULLIF(p.room_allocation, ''), NULLIF(stu.RoomId, ''))), ' ', ''), '-', '')
+                )
+                LEFT JOIN mapping_staff ms ON (
+                    LOWER(TRIM(ms.role)) LIKE '%warden%'
+                    AND (
+                        (NULLIF(rgd.warden_bio_id, '') IS NOT NULL AND (CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4) OR CONVERT(ms.username USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4)))
+                        OR (LOWER(TRIM(ms.hostel_name)) = LOWER(TRIM(rgd.hostel_name)) AND LOWER(TRIM(ms.floor_name)) = LOWER(TRIM(rgd.group_name)))
+                    )
+                )
+                LEFT JOIN users u ON (
+                    CONVERT(u.username USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4)
+                    OR LOWER(TRIM(u.full_name)) = LOWER(TRIM(COALESCE(rgd.warden_name, p.warden, '')))
+                )
+                WHERE stu.id = :student_id OR stu.username = :student_id_str
+                LIMIT 1
+            ";
+            $direct_stmt = $db->prepare($direct_warden_query);
+            $direct_stmt->execute([
+                ':provided_room'   => $provided_room,
+                ':student_id'      => $student_db_id,
+                ':student_id_str'  => $stu_username,
+            ]);
+            $direct_row = $direct_stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($loc && !empty($loc['hostel_name'])) {
-                $resolved_hostel = $loc['hostel_name'];
-                $resolved_floor = $loc['floor'];
-            } else {
-                // 2. Check if student is a new paid student in vstudy_payments
+            if ($direct_row && !empty($direct_row['resolved_username'])) {
+                $receiver_username = $direct_row['resolved_username'];
+            }
+
+            $resolved_hostel = $direct_row['hostel_name'] ?? null;
+            $resolved_floor  = $direct_row['floor'] ?? null;
+
+            // 2. Fallback: check vstudy_payments if hostel is not yet known
+            if (!$resolved_hostel) {
                 $pay_query = "SELECT hostel_name FROM vstudy_payments WHERE TRIM(roll_number) = TRIM(?) LIMIT 1";
                 $pay_stmt = $db->prepare($pay_query);
                 $pay_stmt->execute([$stu_username]);
@@ -144,42 +168,10 @@ if(
                 }
             }
 
-            // Direct priority for Warden / Parent-Warden: resolve directly from student's profile & rooms_groups_details
-            if (strpos(strtolower($dept), 'warden') !== false) {
-                $direct_warden_query = "
-                    SELECT COALESCE(u.username, rgd.warden_bio_id, ms.username, ms.staff_bio_id, p.warden) as resolved_username
-                    FROM users stu
-                    LEFT JOIN profile p ON TRIM(stu.username) = TRIM(p.reg_no)
-                    LEFT JOIN rooms_groups_details rgd ON (
-                        TRIM(p.room_allocation) = TRIM(rgd.room_number)
-                        OR REPLACE(REPLACE(TRIM(rgd.room_number), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(p.room_allocation, '')), ' ', ''), '-', '')
-                    )
-                    LEFT JOIN users u ON (
-                        CONVERT(u.username USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4)
-                        OR LOWER(TRIM(u.full_name)) = LOWER(TRIM(COALESCE(rgd.warden_name, p.warden, '')))
-                    )
-                    LEFT JOIN mapping_staff ms ON (
-                        (CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4) OR CONVERT(ms.username USING utf8mb4) = CONVERT(rgd.warden_bio_id USING utf8mb4) OR LOWER(TRIM(ms.name)) = LOWER(TRIM(COALESCE(rgd.warden_name, p.warden, ''))))
-                        AND LOWER(ms.role) LIKE '%warden%'
-                    )
-                    WHERE stu.id = ? AND (rgd.warden_bio_id IS NOT NULL OR p.warden IS NOT NULL)
-                    LIMIT 1
-                ";
-                $direct_stmt = $db->prepare($direct_warden_query);
-                $direct_stmt->execute([$student_id]);
-                $direct_row = $direct_stmt->fetch(PDO::FETCH_ASSOC);
-                if ($direct_row && !empty($direct_row['resolved_username'])) {
-                    $receiver_username = $direct_row['resolved_username'];
-                }
-            }
-
-            if (!$receiver_username && ($resolved_hostel || $resolved_floor)) {
+            // 3. Fallback: match mapping_staff by hostel + floor
+            if (empty($receiver_username) && ($resolved_hostel || $resolved_floor)) {
                 $role_pat = '%warden%';
-                if (strpos(strtolower($dept), 'security') !== false) $role_pat = '%security%';
-                if (strpos(strtolower($dept), 'maint') !== false) $role_pat = '%maint%';
-
-                // Find matching staff in mapping_staff, preferring users.username
-                $warden_query = "SELECT COALESCE(u.username, ms.staff_bio_id, ms.username) as username 
+                $warden_query = "SELECT COALESCE(NULLIF(TRIM(ms.staff_bio_id),''), NULLIF(TRIM(ms.username),''), NULLIF(TRIM(u.username),'')) as username 
                                  FROM mapping_staff ms
                                  LEFT JOIN users u ON (
                                      CONVERT(ms.staff_bio_id USING utf8mb4) = CONVERT(u.username USING utf8mb4)
@@ -200,15 +192,20 @@ if(
                 $warden_stmt = $db->prepare($warden_query);
                 $warden_stmt->execute([
                     ':role_pat' => $role_pat,
-                    ':hostel' => $resolved_hostel ?? '',
-                    ':floor' => $resolved_floor ?? '',
-                    ':floor2' => $resolved_floor ?? '',
-                    ':hostel2' => $resolved_hostel ?? ''
+                    ':hostel'   => $resolved_hostel ?? '',
+                    ':floor'    => $resolved_floor ?? '',
+                    ':floor2'   => $resolved_floor ?? '',
+                    ':hostel2'  => $resolved_hostel ?? ''
                 ]);
                 $warden_row = $warden_stmt->fetch(PDO::FETCH_ASSOC);
-                if ($warden_row) {
+                if ($warden_row && !empty($warden_row['username'])) {
                     $receiver_username = $warden_row['username'];
                 }
+            }
+
+            // 4. Default fallback if absolutely no warden could be found
+            if (empty($receiver_username)) {
+                $receiver_username = 'warden1';
             }
 
             $skip_message = isset($data['skip_message']) && ($data['skip_message'] == 1 || $data['skip_message'] == true || $data['skip_message'] === '1');

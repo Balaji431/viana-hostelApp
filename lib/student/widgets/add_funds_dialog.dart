@@ -81,49 +81,57 @@ class _AddFundsDialogState extends State<AddFundsDialog> {
   }
 
   String _numberToWords(double amount) {
-    final int val = amount.toInt();
-    if (val <= 0) return 'zero';
+    try {
+      final int val = amount.toInt();
+      if (val <= 0) return 'zero';
 
-    final units = [
-      '', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
-      'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen',
-      'sixteen', 'seventeen', 'eighteen', 'nineteen'
-    ];
-    final tens = [
-      '', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy',
-      'eighty', 'ninety'
-    ];
+      final units = [
+        '', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+        'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen',
+        'sixteen', 'seventeen', 'eighteen', 'nineteen'
+      ];
+      final tens = [
+        '', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy',
+        'eighty', 'ninety'
+      ];
 
-    String convertChunk(int n) {
-      if (n == 0) return '';
-      if (n < 20) return units[n];
-      if (n < 100) {
-        return tens[n ~/ 10] + (n % 10 != 0 ? ' ' + units[n % 10] : '');
+      String convertChunk(int n) {
+        if (n <= 0) return '';
+        if (n < 20) return units[n];
+        if (n < 100) {
+          final tenIdx = n ~/ 10;
+          final unitIdx = n % 10;
+          return tens[tenIdx] + (unitIdx != 0 ? ' ' + units[unitIdx] : '');
+        }
+        final hundredIdx = (n ~/ 100);
+        final hundredPrefix = (hundredIdx < units.length) ? units[hundredIdx] : convertChunk(hundredIdx);
+        return hundredPrefix +
+            ' hundred' +
+            (n % 100 != 0 ? ' and ' + convertChunk(n % 100) : '');
       }
-      return units[n ~/ 100] +
-          ' hundred' +
-          (n % 100 != 0 ? ' and ' + convertChunk(n % 100) : '');
-    }
 
-    String res = '';
-    int rem = val;
+      String res = '';
+      int rem = val;
 
-    if (rem >= 10000000) {
-      res += convertChunk(rem ~/ 10000000) + ' crore ';
-      rem %= 10000000;
+      if (rem >= 10000000) {
+        res += convertChunk(rem ~/ 10000000) + ' crore ';
+        rem %= 10000000;
+      }
+      if (rem >= 100000) {
+        res += convertChunk(rem ~/ 100000) + ' lakh ';
+        rem %= 100000;
+      }
+      if (rem >= 1000) {
+        res += convertChunk(rem ~/ 1000) + ' thousand ';
+        rem %= 1000;
+      }
+      if (rem > 0) {
+        res += convertChunk(rem);
+      }
+      return res.trim();
+    } catch (_) {
+      return '';
     }
-    if (rem >= 100000) {
-      res += convertChunk(rem ~/ 100000) + ' lakh ';
-      rem %= 100000;
-    }
-    if (rem >= 1000) {
-      res += convertChunk(rem ~/ 1000) + ' thousand ';
-      rem %= 1000;
-    }
-    if (rem > 0) {
-      res += convertChunk(rem);
-    }
-    return res.trim();
   }
 
   Future<void> _showTermsAndConditions() async {
@@ -196,7 +204,15 @@ class _AddFundsDialogState extends State<AddFundsDialog> {
       if (!mounted) return;
       setState(() => _isProcessing = false);
 
-      if (payRes['success'] == true) {
+      if (payRes['launched'] == true) {
+        Navigator.pop(context); // Close dialog
+        TopNotification.show(
+          context,
+          type: TopNotificationType.info,
+          title: 'Opening Payment Gateway...',
+          message: 'Complete the payment in browser and tap Return to VStay.',
+        );
+      } else if (payRes['success'] == true) {
         Navigator.pop(context); // Close dialog
         TopNotification.show(
           context,

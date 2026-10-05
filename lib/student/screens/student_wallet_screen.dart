@@ -20,7 +20,8 @@ class StudentWalletScreen extends StatefulWidget {
   State<StudentWalletScreen> createState() => _StudentWalletScreenState();
 }
 
-class _StudentWalletScreenState extends State<StudentWalletScreen> {
+class _StudentWalletScreenState extends State<StudentWalletScreen>
+    with WidgetsBindingObserver {
   double _walletBalance = 0.0;
   List<Map<String, dynamic>> _transactions = [];
   Map<String, dynamic>? _stayRequest;
@@ -33,6 +34,7 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final user = Provider.of<UserProvider>(context, listen: false);
     _walletBalance = user.walletBalance;
     _isLoading = (_walletBalance == 0.0 && _transactions.isEmpty);
@@ -49,7 +51,17 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      final user = Provider.of<UserProvider>(context, listen: false);
+      user.fetchWalletBalance();
+      _loadWalletData(silent: true);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     _pollingTimer?.cancel();
     super.dispose();
@@ -86,8 +98,11 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
       if (mounted) {
         if (res['success'] == true) {
           final txns = (res['transactions'] as List<dynamic>?) ?? [];
-          final stay = res['stay_request'] as Map<String, dynamic>?;
-          final balance = double.tryParse(res['balance']?.toString() ?? '0') ?? 0.0;
+          final dynamic stayRaw = res['stay_request'];
+          final Map<String, dynamic>? stay =
+              (stayRaw is Map) ? Map<String, dynamic>.from(stayRaw) : null;
+          final rawBal = double.tryParse(res['balance']?.toString() ?? '0') ?? 0.0;
+          final balance = rawBal < 0 ? 0.0 : rawBal;
           user.setWalletBalance(balance);
           setState(() {
             _walletBalance = balance;
@@ -293,7 +308,15 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
 
       if (!mounted) return;
 
-      if (payRes['success'] == true) {
+      if (payRes['launched'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+                'Opening payment gateway... Return to VStay once completed.'),
+            backgroundColor: Colors.blueGrey.shade800,
+          ),
+        );
+      } else if (payRes['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -302,7 +325,7 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
           ),
         );
         _loadWalletData(silent: false);
-      } else if (payRes['cancelled'] != true && payRes['launched'] != true) {
+      } else if (payRes['cancelled'] != true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(payRes['message'] ?? 'Payment was not completed.'),
@@ -327,61 +350,154 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
   void _showTransactionsDialog() {
     showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 440, maxHeight: 520),
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 440, maxHeight: 520),
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Wallet Transactions', style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold)),
-                  IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => Navigator.pop(ctx)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF6FF),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.history_rounded, size: 18, color: Color(0xFF2563EB)),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _transactions.isNotEmpty
+                                ? 'Wallet Transactions (${_transactions.length})'
+                                : 'Wallet Transactions',
+                            style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.refresh_rounded, size: 20, color: Color(0xFF64748B)),
+                            tooltip: 'Refresh',
+                            onPressed: () async {
+                              await _loadWalletData(silent: false);
+                              if (dialogCtx.mounted) setDialogState(() {});
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20, color: Color(0xFF64748B)),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 16),
+                  if (_transactions.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${_transactions.length} Total ${_transactions.length == 1 ? 'Transaction' : 'Transactions'}',
+                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF475569)),
+                          ),
+                          Text(
+                            'Balance: ₹${NumberFormat('#,##,##0.00').format(_walletBalance)}',
+                            style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF16A34A)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  Expanded(
+                    child: _transactions.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.receipt_long_outlined, size: 48, color: Colors.grey.shade400),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'No transactions yet',
+                                  style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(height: 12),
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    await _loadWalletData(silent: false);
+                                    if (dialogCtx.mounted) setDialogState(() {});
+                                  },
+                                  icon: const Icon(Icons.refresh, size: 16),
+                                  label: const Text('Refresh'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : RefreshIndicator(
+                            onRefresh: () async {
+                              await _loadWalletData(silent: false);
+                              if (dialogCtx.mounted) setDialogState(() {});
+                            },
+                            child: ListView.separated(
+                              itemCount: _transactions.length,
+                              separatorBuilder: (_, __) => const Divider(height: 12),
+                              itemBuilder: (c, idx) {
+                                final t = _transactions[idx];
+                                final isCredit = (t['txn_type'] ?? '') == 'credit';
+                                final amt = double.tryParse(t['amount']?.toString() ?? '0') ?? 0.0;
+                                return ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: isCredit ? Colors.green.shade50 : Colors.red.shade50,
+                                    child: Icon(
+                                      isCredit ? Icons.arrow_downward : Icons.arrow_upward,
+                                      size: 16,
+                                      color: isCredit ? Colors.green.shade700 : Colors.red.shade700,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    t['description'] ?? 'Transaction',
+                                    style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                                  ),
+                                  subtitle: Text(
+                                    t['created_at'] ?? '',
+                                    style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade600),
+                                  ),
+                                  trailing: Text(
+                                    '${isCredit ? '+' : '-'}₹${amt.toStringAsFixed(2)}',
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: isCredit ? Colors.green.shade700 : Colors.red.shade700,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                  ),
                 ],
               ),
-              const Divider(),
-              Expanded(
-                child: _transactions.isEmpty
-                    ? Center(child: Text('No transactions yet', style: GoogleFonts.inter(color: Colors.grey)))
-                    : ListView.separated(
-                        itemCount: _transactions.length,
-                        separatorBuilder: (_, __) => const Divider(height: 12),
-                        itemBuilder: (ctx, idx) {
-                          final t = _transactions[idx];
-                          final isCredit = (t['txn_type'] ?? '') == 'credit';
-                          final amt = double.tryParse(t['amount']?.toString() ?? '0') ?? 0.0;
-                          return ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: CircleAvatar(
-                              radius: 16,
-                              backgroundColor: isCredit ? Colors.green.shade50 : Colors.red.shade50,
-                              child: Icon(
-                                isCredit ? Icons.arrow_downward : Icons.arrow_upward,
-                                size: 16,
-                                color: isCredit ? Colors.green : Colors.red,
-                              ),
-                            ),
-                            title: Text(t['description'] ?? 'Transaction', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
-                            subtitle: Text(t['created_at'] ?? '', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey)),
-                            trailing: Text(
-                              '${isCredit ? '+' : '-'}₹${amt.toStringAsFixed(2)}',
-                              style: GoogleFonts.outfit(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: isCredit ? Colors.green.shade700 : Colors.red.shade700,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -481,7 +597,7 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
               ),
               const SizedBox(width: 10),
               Text(
-                '₹${NumberFormat('#,##,##0.00').format(_walletBalance)}',
+                '₹${NumberFormat('#,##,##0.00').format(_walletBalance < 0 ? 0.0 : _walletBalance)}',
                 style: GoogleFonts.outfit(
                   fontSize: 16.5,
                   fontWeight: FontWeight.bold,
@@ -504,7 +620,30 @@ class _StudentWalletScreenState extends State<StudentWalletScreen> {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: Colors.white.withOpacity(0.35)),
                   ),
-                  child: const Icon(Icons.history_rounded, color: Colors.white, size: 18),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.history_rounded, color: Colors.white, size: 18),
+                      if (_transactions.isNotEmpty) ...[
+                        const SizedBox(width: 5),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.28),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${_transactions.length}',
+                            style: GoogleFonts.outfit(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 10),

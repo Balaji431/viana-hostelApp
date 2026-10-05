@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
 
 /**
  * Hostel Rooms API
@@ -54,6 +55,7 @@ switch ($method) {
         break;
 
     case 'POST':
+        requireAuth(['admin', 'super_admin']);
         if ($action === 'bulk_insert') {
             // Bulk insert rooms
             bulkInsertRooms($conn, $input);
@@ -64,6 +66,7 @@ switch ($method) {
         break;
 
     case 'PUT':
+        requireAuth(['admin', 'super_admin']);
         if (isset($_GET['id'])) {
             updateRoom($conn, $_GET['id'], $input);
         } else {
@@ -73,6 +76,7 @@ switch ($method) {
         break;
 
     case 'DELETE':
+        requireAuth(['admin', 'super_admin']);
         if (isset($_GET['id'])) {
             deleteRoom($conn, $_GET['id']);
         } else {

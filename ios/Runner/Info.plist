@@ -64,6 +64,16 @@
 				<string>com.googleusercontent.apps.907286443175-905drg76rvp17qu5si0dn1lga6ppot9g</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.vianasoft.stay</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>vstay</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>VStay needs camera access so you can capture and attach photos to maintenance requests, support tickets, and chat messages with your hostel warden.</string>

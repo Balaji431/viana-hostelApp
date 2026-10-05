@@ -203,17 +203,17 @@ try {
                     $roomCapacity = 2;
                 }
                 
-                $checkSql = "SELECT id, room_code FROM room_master WHERE location_name = ? AND building_code = ? AND floor_no = ? AND block_no = ? AND room_no = ?";
+                // Check for existing room primarily by room_code (physical identifier)
+                $checkSql = "SELECT id, room_code FROM room_master WHERE room_code = ? OR (building_code = ? AND floor_no = ? AND block_no = ? AND room_no = ?)";
                 $checkStmt = $db->prepare($checkSql);
-                $checkStmt->execute([$locationName, $finalBuildingCode, $floorNo, $blockNo, $roomNo]);
+                $checkStmt->execute([$locationCode, $finalBuildingCode, $floorNo, $blockNo, $roomNo]);
                 $existing = $checkStmt->fetch();
                 
                 if ($existing) {
-                    if (empty($existing['room_code'])) {
-                        $updateSql = "UPDATE room_master SET room_code = ? WHERE id = ?";
-                        $updateStmt = $db->prepare($updateSql);
-                        $updateStmt->execute([$locationCode, $existing['id']]);
-                    }
+                    // Update location_name or room_code if missing
+                    $updateSql = "UPDATE room_master SET location_name = ?, room_code = COALESCE(NULLIF(room_code, ''), ?) WHERE id = ?";
+                    $updateStmt = $db->prepare($updateSql);
+                    $updateStmt->execute([$locationName, $locationCode, $existing['id']]);
                     continue;
                 }
                 

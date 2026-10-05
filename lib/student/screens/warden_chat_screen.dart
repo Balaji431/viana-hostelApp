@@ -21,6 +21,7 @@ import '../../shared/widgets/calendar_modal.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/widgets/complaint_feedback_dialogs.dart';
 import '../../shared/wallpaper_provider.dart';
+import '../../core/services/chat_cache_service.dart';
 
 class WardenChatScreen extends StatefulWidget {
   final String? requestId;
@@ -167,6 +168,15 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
       WebSocketService.instance.joinRoom(_activeRequestId!);
     }
 
+    // 0ms instant loading from local phone storage (WhatsApp style)
+    final cacheKey = _activeRequestId ?? 'warden_${user.username}';
+    final cached = await ChatCacheService.loadMessages(cacheKey);
+    if (cached.isNotEmpty && mounted && _messages.isEmpty) {
+      setState(() {
+        _messages.addAll(cached);
+      });
+    }
+
     _fetchMessages();
     _startTimer();
   }
@@ -237,6 +247,10 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
     if (!isMe && _activeRequestId != null && _activeRequestId!.isNotEmpty) {
       ApiService.markRead(_activeRequestId!, user.username);
     }
+
+    // Persist WebSocket message to local device storage
+    final cacheKey = eventReqId ?? _activeRequestId ?? 'warden_${user.username}';
+    ChatCacheService.appendMessage(cacheKey, newMsg);
   }
 
   DateTime _parseTimestamp(dynamic timestamp) {
@@ -332,6 +346,10 @@ class _WardenChatScreenState extends State<WardenChatScreen> {
 
             _messages.clear();
             _messages.addAll(updatedList);
+
+            // Persist & merge with local device history (so old messages >45 days stay on phone)
+            final cacheKey = _activeRequestId ?? 'warden_${user.username}';
+            ChatCacheService.mergeWithLocal(cacheKey, updatedList);
 
             bool hasIncoming = data.any((msg) => 
               msg['sender_id']?.toString() != user.username &&

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../shared/user_provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/attendance_page.dart' show AttendancePage, BiometricHistoryPage;
+
+import 'screens/student_vacate_status_screen.dart';
 import 'screens/student_wallet_screen.dart';
 import 'screens/settings_page.dart';
 import 'screens/warden_chat_screen.dart';
@@ -36,6 +38,13 @@ List<StudentTabItem> getStudentTabs(UserProvider user) {
       icon: Icons.calendar_month_outlined,
       activeIcon: Icons.calendar_month,
       page: AttendancePage(),
+    ),
+
+    StudentTabItem(
+      label: 'Vacate',
+      icon: Icons.exit_to_app_outlined,
+      activeIcon: Icons.exit_to_app_rounded,
+      page: StudentVacateStatusScreen(),
     ),
     StudentTabItem(
       label: 'Wallet',

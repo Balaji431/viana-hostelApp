@@ -1,7 +1,7 @@
 <?php
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Origin, Accept');
 header("Content-Type: application/json; charset=UTF-8");
 
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
@@ -9,8 +9,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit();
 }
 
-require_once '../config/database.php';
-require_once '../utils/activity_logger.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../utils/activity_logger.php';
+require_once __DIR__ . '/../utils/auth_helper.php';
+
+// Strictly require administrator authentication to register new staff members
+$authUser = requireAuth(['admin', 'super_admin']);
 
 $database = new Database();
 $db = $database->getConnection();
@@ -60,6 +64,7 @@ if (!empty($full_name) && !empty($username) && !empty($password) && !empty($role
                 'Authentication',
                 null,
                 [
+                    'registered_by' => $authUser['username'] ?? 'admin',
                     'full_name' => $data->full_name,
                     'phone_number' => $phone
                 ]

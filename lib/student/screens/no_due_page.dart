@@ -21,7 +21,7 @@ class NoDuePage extends StatefulWidget {
   State<NoDuePage> createState() => _NoDuePageState();
 }
 
-class _NoDuePageState extends State<NoDuePage> {
+class _NoDuePageState extends State<NoDuePage> with WidgetsBindingObserver {
   bool _isLoading = true;
   bool _isAddingFunds = false;
   bool _showWalletErrorOnCard = false;
@@ -83,7 +83,14 @@ class _NoDuePageState extends State<NoDuePage> {
 
       if (!mounted) return;
 
-      if (payRes['success'] == true) {
+      if (payRes['launched'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Opening payment gateway... Return to VStay once completed.'),
+            backgroundColor: Colors.blueGrey.shade800,
+          ),
+        );
+      } else if (payRes['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('₹${amount.toStringAsFixed(2)} added to wallet successfully!'),
@@ -91,7 +98,7 @@ class _NoDuePageState extends State<NoDuePage> {
           ),
         );
         _loadData();
-      } else if (payRes['cancelled'] != true && payRes['launched'] != true) {
+      } else if (payRes['cancelled'] != true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(payRes['message'] ?? 'Payment was not completed.'),
@@ -138,9 +145,25 @@ class _NoDuePageState extends State<NoDuePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final user = context.read<UserProvider>();
     _walletBalance = user.walletBalance;
     _loadData();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      final user = context.read<UserProvider>();
+      user.fetchWalletBalance();
+      _loadData();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -511,7 +534,9 @@ class _NoDuePageState extends State<NoDuePage> {
 
     final hostel = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
     final roomNo = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
-    final renewalDateStr = DateFormat('dd MMM yyyy').format(user.renewalDate);
+    final renewalDateStr = user.renewalDate != null
+        ? DateFormat('dd MMM yyyy').format(user.renewalDate!)
+        : 'N/A';
     final amtNum = double.tryParse(renewalTxn['amount']?.toString() ?? '120000') ?? 120000.0;
     final refId = renewalTxn['reference_id'] ?? 'REF-RENEWAL';
     final datePaid = renewalTxn['created_at'] != null ? renewalTxn['created_at'].toString().split(' ')[0] : 'Confirmed';
@@ -592,7 +617,7 @@ class _NoDuePageState extends State<NoDuePage> {
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  '$hostel · Thandalam Campus',
+                  '$hostel · ${UserProvider.getCampusForHostel(hostel, user.roomNumber)}',
                   style: TextStyle(
                     fontSize: 13,
                     color: isDark ? Colors.white70 : Colors.grey.shade600,
@@ -742,7 +767,9 @@ class _NoDuePageState extends State<NoDuePage> {
     final roomType = user.roomType.isNotEmpty ? user.roomType : (user.roomTypeDisplay.isNotEmpty ? user.roomTypeDisplay : "Standard Room");
     final hostel = user.hostelName.isNotEmpty ? user.hostelName : "Vaigai Hostel";
     final roomNo = user.roomNumber.isNotEmpty ? user.roomNumber : "T-32 F02- W0-R16";
-    final renewalDateStr = DateFormat('dd MMM yyyy').format(user.renewalDate);
+    final renewalDateStr = user.renewalDate != null
+        ? DateFormat('dd MMM yyyy').format(user.renewalDate!)
+        : 'N/A';
 
     return Container(
       width: double.infinity,
@@ -811,7 +838,7 @@ class _NoDuePageState extends State<NoDuePage> {
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  '$hostel · Thandalam Campus',
+                  '$hostel · ${UserProvider.getCampusForHostel(hostel, user.roomNumber)}',
                   style: TextStyle(
                     fontSize: 13,
                     color: isDark ? Colors.white70 : Colors.grey.shade600,

@@ -139,7 +139,15 @@ class _WardenRoomSearchScreenState extends State<WardenRoomSearchScreen> {
     final name = student['student_name'] ?? 'Student';
     final regNo = student['reg_no'] ?? student['username'] ?? 'N/A';
     final roomNo = student['room_allocation'] ?? student['room_number'] ?? 'N/A';
-    final phone = (student['personal_phone'] ?? '').toString();
+    String phone = (student['personal_phone'] ?? '').toString().trim();
+    // Strip country code: 919XXXXXXXXX → 9XXXXXXXXX (10 digits)
+    if (phone.startsWith('+91') && phone.length == 13) {
+      phone = phone.substring(3);
+    } else if (phone.startsWith('91') && phone.length == 12) {
+      phone = phone.substring(2);
+    } else if (phone.startsWith('0') && phone.length == 11) {
+      phone = phone.substring(1);
+    }
     final email = (student['email'] ?? '').toString();
     final renewalDate = (student['renewal_date'] ?? 'N/A').toString();
     final status = (student['status'] ?? 'Active').toString();

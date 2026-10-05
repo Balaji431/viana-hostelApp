@@ -22,6 +22,11 @@ header('Access-Control-Allow-Origin: *');
 
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/config/api_config.php';
+require_once __DIR__ . '/utils/auth_helper.php';
+
+if (PHP_SAPI !== 'cli') {
+    requireAuth(['super_admin', 'admin']);
+}
 
 $log = [];
 $errors = [];
@@ -325,15 +330,12 @@ foreach ($apiStudents as $reg => $b) {
     ) ? 'Girls' : 'Boys';
 
     // Calculate renewal date
+    $calcRenewal = null;
     if (!empty($renStr) && strtotime($renStr) !== false) {
         $calcRenewal = new DateTime($renStr);
-    } elseif (!empty($booked) && strtotime($booked) !== false) {
-        $calcRenewal = (clone new DateTime($booked))->modify('+1 year');
-    } else {
-        $calcRenewal = (clone $today)->modify('+1 year');
     }
-    $renFormatted = $calcRenewal->format('Y-m-d');
-    $remDays      = ($calcRenewal < $today) ? 0 : (int)$today->diff($calcRenewal)->format('%r%a');
+    $renFormatted = $calcRenewal ? $calcRenewal->format('Y-m-d') : null;
+    $remDays      = ($calcRenewal && $calcRenewal >= $today) ? (int)$today->diff($calcRenewal)->format('%r%a') : 0;
 
     $checkInFormatted = (!empty($booked) && strtotime($booked) !== false)
         ? (new DateTime($booked))->format('Y-m-d')

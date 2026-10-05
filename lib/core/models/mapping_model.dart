@@ -78,9 +78,15 @@ class LocationMapping {
     final String fName = zoneName ?? zoneId ?? '';
     final String wName = subZoneName ?? subZoneId ?? 'All';
 
+    // hostel_id must be an integer — only send the numeric value.
+    // If hostelId is a name string (not numeric), send null so the PHP
+    // can resolve it via hostel_name.
+    final int? numericHostelId = int.tryParse(hostelId);
+
     return {
       'id': id,
-      'hostel_id': int.tryParse(hostelId) ?? hostelId,
+      'hostel_id': numericHostelId,   // null when hostelId is a name string
+      'hostel_name': hName,           // always send name so PHP can resolve if id is null
       'zone_id': fName,
       'sub_zone_id': wName,
       'staff': assignedStaff.map((s) {

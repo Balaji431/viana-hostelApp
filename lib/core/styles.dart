@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../shared/wallpaper_provider.dart';
@@ -203,7 +204,7 @@ class LinenGridBackground extends StatelessWidget {
       color: baseColor,
       child: Stack(
         children: [
-          if (customPath != null)
+          if (!kIsWeb && customPath != null)
             Positioned.fill(
               child: Image.file(
                 File(customPath),

@@ -1,6 +1,11 @@
 <?php
-require '/var/www/html/config/database.php';
-require '/var/www/html/config/api_config.php';
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    echo json_encode(["status" => "error", "message" => "Forbidden: CLI access only"]);
+    exit();
+}
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/api_config.php';
 
 $_SERVER['REQUEST_METHOD'] = 'GET';
 $_GET['search'] = 'T22-F04-W0-R08';

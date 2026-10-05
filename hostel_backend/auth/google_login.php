@@ -71,16 +71,12 @@ if ($id_token || $access_token) {
 
     $email = trim($token_data['email']);
 } else {
-    // Fallback email for testing
-    $email = $data->email ?? $_POST['email'] ?? $_GET['email'] ?? null;
-}
-
-if (!$email) {
-    sendResponse(false, "ID token, Access Token or Email is required", null, 400);
+    sendResponse(false, "Authentication requires a valid Google ID token or Access Token.", null, 401);
     exit();
 }
 
 $email = trim($email);
+error_log("GOOGLE_LOGIN_EMAIL: '" . $email . "'");
 
 try {
     if ($db === null) {
@@ -88,9 +84,9 @@ try {
         exit();
     }
 
-    // 1. Search in users table (Warden / Student / Admin)
+    // 1. Search in users table strictly by email in database
     $query = "SELECT u.id, u.full_name, u.username as register_no, u.role, u.conduct, u.conduct_remarks, u.Status, u.HostelType, u.RoomType as u_room_type,
-                     p.personal_phone as phone, p.room_allocation, p.institution, p.hostel_name as profile_hostel, p.address, p.dob, p.profile_pic,
+                     p.personal_phone as phone, p.room_allocation, p.institution, p.hostel_name as profile_hostel, p.address, p.dob, COALESCE(NULLIF(p.profile_pic, ''), NULLIF(u.profileimage, ''), '') as profile_pic,
                      p.valid_from, p.valid_to, u.biometric_id, COALESCE(p.warden, rgd.warden_name) as warden,
                      rgd.room_number as hr_room_no, rgd.hostel_name as block, rgd.group_name as floor_name, '' as wing_name, rgd.hostel_name as room_hostel, COALESCE(rgd.room_type, rm.room_type, u.RoomType) as room_type,
                      '' as room_facility, '' as room_bath_attached, rgd.room_number as room_code,
@@ -107,7 +103,7 @@ try {
                   rm.room_code = COALESCE(NULLIF(p.room_allocation,''), u.RoomId)
                   OR REPLACE(REPLACE(TRIM(rm.room_code), ' ', ''), '-', '') = REPLACE(REPLACE(TRIM(COALESCE(NULLIF(p.room_allocation,''), u.RoomId)), ' ', ''), '-', '')
               )
-              WHERE LOWER(u.email) = LOWER(:email) LIMIT 0,1";
+              WHERE LOWER(TRIM(u.email)) = LOWER(TRIM(:email)) LIMIT 0,1";
 
     $stmt = $db->prepare($query);
     $stmt->bindParam(':email', $email);
@@ -116,7 +112,17 @@ try {
     if ($stmt->rowCount() > 0) {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (isset($row['Status']) && (strtolower($row['Status']) == 'inactive' || $row['Status'] == '0') && $row['role'] !== 'admin') {
+        // Role strictly comes from the database row
+        $userRole = strtolower(trim($row['role'] ?? ''));
+        if ($userRole === 'super_admin') {
+            $row['role'] = 'super_admin';
+            $row['Status'] = 'Active';
+        } else if ($userRole === 'developer') {
+            $row['role'] = 'developer';
+            $row['Status'] = 'Active';
+        }
+
+        if (isset($row['Status']) && (strtolower($row['Status']) == 'inactive' || $row['Status'] == '0') && $row['role'] !== 'admin' && $row['role'] !== 'super_admin') {
             logAudit($row['id'], $row['register_no'], $row['role'], 'LOGIN_FAILED', 'Authentication', null, [
                 'registration_no' => $row['register_no'],
                 'timestamp' => date('Y-m-d H:i:s'),
@@ -150,7 +156,11 @@ try {
 
         // For staff/warden/security/maintenance: resolve hostel, block, wing from mapping_staff
         $final_role = $row['role'];
-        if (!in_array(strtolower($row['role']), ['student', 'parent', 'admin'])) {
+        if ($userRole === 'super_admin') {
+            $final_role = 'super_admin';
+        } else if ($userRole === 'developer') {
+            $final_role = 'developer';
+        } else if (!in_array(strtolower($row['role']), ['student', 'parent', 'admin'])) {
             $mappingStmt = $db->prepare("SELECT role, hostel_name, floor_name, wing_name FROM mapping_staff WHERE staff_bio_id = :bio_id OR username = :username2 LIMIT 1");
             $mappingStmt->execute([':bio_id' => $row['register_no'], ':username2' => $row['register_no']]);
             $mappingRow = $mappingStmt->fetch(PDO::FETCH_ASSOC);
@@ -187,25 +197,24 @@ try {
         $total_fee = $room_amount + $room_food + $room_caution;
         $renew_amount = $room_amount + $room_food;
 
-        // Resolve available_roles for dual-role access (e.g. Warden + Maintenance)
+        // Resolve available_roles for dual-role access ONLY if explicitly assigned multiple roles in mapping_staff
         $available_roles = [strtolower($final_role)];
-        if (in_array(strtolower($final_role), ['warden', 'maintenance', 'security', 'staff'])) {
+        if ($final_role === 'super_admin') {
+            $available_roles = ['super_admin'];
+        } else if ($final_role === 'developer') {
+            $available_roles = ['developer'];
+        } else if (in_array(strtolower($final_role), ['warden', 'maintenance', 'security', 'it', 'staff'])) {
             $bio_check = trim($row['register_no']);
             
-            $maintCheck = $db->prepare("SELECT COUNT(*) FROM maintenance_users WHERE bio_id = :bio");
-            $maintCheck->execute([':bio' => $bio_check]);
-            if ($maintCheck->fetchColumn() > 0 && !in_array('maintenance', $available_roles)) {
-                $available_roles[] = 'maintenance';
-            }
-            
-            $wardenCheck = $db->prepare("SELECT COUNT(*) FROM staff_users WHERE bio_id = :bio AND LOWER(role) = 'warden'");
-            $wardenCheck->execute([':bio' => $bio_check]);
-            if ($wardenCheck->fetchColumn() > 0 && !in_array('warden', $available_roles)) {
-                $available_roles[] = 'warden';
-            }
-            
-            if (strtolower($row['role']) === 'warden' && !in_array('warden', $available_roles)) {
-                $available_roles[] = 'warden';
+            $mapRolesStmt = $db->prepare("SELECT DISTINCT LOWER(TRIM(role)) FROM mapping_staff WHERE (staff_bio_id = :bio OR username = :uname) AND role IS NOT NULL AND role != ''");
+            $mapRolesStmt->execute([':bio' => $bio_check, ':uname' => $bio_check]);
+            $assignedRoles = $mapRolesStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            foreach ($assignedRoles as $ar) {
+                $cleanRole = strtolower(trim($ar));
+                if (in_array($cleanRole, ['warden', 'maintenance', 'security', 'it']) && !in_array($cleanRole, $available_roles)) {
+                    $available_roles[] = $cleanRole;
+                }
             }
         }
 
@@ -223,8 +232,9 @@ try {
             "hostel_name" => $hostel,
             "room_allocation" => $row['room_allocation'] ?? 'N/A',
             "profile_pic" => $row['profile_pic'],
-            "valid_from" => $row['valid_from'] ?? '0000-00-00',
-            "valid_to" => $row['valid_to'] ?? '0000-00-00',
+            "valid_from" => (!empty($row['valid_from']) && $row['valid_from'] != '0000-00-00') ? $row['valid_from'] : null,
+            "valid_to" => (!empty($row['valid_to']) && $row['valid_to'] != '0000-00-00') ? $row['valid_to'] : null,
+            "renewal_date" => (!empty($row['renewal_date']) && $row['renewal_date'] != '0000-00-00') ? $row['renewal_date'] : (!empty($row['valid_to']) && $row['valid_to'] != '0000-00-00' ? $row['valid_to'] : null),
             "conduct" => $row['conduct'] ?? 'Good',
             "conduct_remarks" => $row['conduct_remarks'] ?? '',
             "biometric_id" => $row['biometric_id'],
@@ -249,47 +259,48 @@ try {
             "token" => generateJWT($row['id'], $row['register_no'], $final_role)
         ];
 
-        // Attach Temporary Stay details if exists
+        // Attach Temporary Stay details ONLY for guests or temporary stay accounts
         try {
-            $stmtTsr = $db->prepare("SELECT * FROM temporary_stay_requests WHERE LOWER(email) = LOWER(:email) OR full_name = :full_name ORDER BY id DESC LIMIT 1");
-            $stmtTsr->execute([':email' => $email, ':full_name' => $row['full_name']]);
-            $tsrRow = $stmtTsr->fetch(PDO::FETCH_ASSOC);
-            if ($tsrRow) {
-                if (!empty($tsrRow['hold_expires_at']) && $tsrRow['hold_status'] === 'held') {
-                    $rem = strtotime($tsrRow['hold_expires_at']) - time();
-                    $tsrRow['hold_remaining_seconds'] = max(0, $rem);
-                }
-                $user_data['temporary_stay_request'] = $tsrRow;
-                if ($final_role === 'guest' || strpos($row['register_no'], 'TEMP_') === 0 || strpos($row['register_no'], 'TEMP-') === 0) {
+            $isTempUser = ($final_role === 'guest' || strpos($row['register_no'], 'TEMP_') === 0 || strpos($row['register_no'], 'TEMP-') === 0);
+            if ($isTempUser && !empty($email)) {
+                $stmtTsr = $db->prepare("SELECT * FROM temporary_stay_requests WHERE LOWER(email) = LOWER(:email) ORDER BY id DESC LIMIT 1");
+                $stmtTsr->execute([':email' => $email]);
+                $tsrRow = $stmtTsr->fetch(PDO::FETCH_ASSOC);
+                if ($tsrRow) {
+                    if (!empty($tsrRow['hold_expires_at']) && $tsrRow['hold_status'] === 'held') {
+                        $rem = strtotime($tsrRow['hold_expires_at']) - time();
+                        $tsrRow['hold_remaining_seconds'] = max(0, $rem);
+                    }
+                    $user_data['temporary_stay_request'] = $tsrRow;
                     $user_data['role'] = 'guest';
-                }
-                if (!empty($tsrRow['room_no']) && ($user_data['room_no'] === 'N/A' || empty($user_data['room_no']))) {
-                    $user_data['room_no'] = $tsrRow['room_no'];
-                    $user_data['room_code'] = $tsrRow['room_code'] ?? $tsrRow['room_no'];
-                    $user_data['room_allocation'] = $tsrRow['room_no'];
-                }
-                if (!empty($tsrRow['hostel_name']) && ($user_data['hostel_name'] === 'N/A' || empty($user_data['hostel_name']))) {
-                    $user_data['hostel_name'] = $tsrRow['hostel_name'];
-                }
-                if (!empty($tsrRow['amount'])) {
-                    $user_data['total_fee'] = (float)$tsrRow['amount'];
-                    $user_data['room_amount'] = (float)$tsrRow['amount'];
-                    $user_data['renew_amount'] = (float)$tsrRow['amount'];
-                }
-                if (!empty($tsrRow['warden_name'])) {
-                    $user_data['warden'] = $tsrRow['warden_name'];
-                }
-                if (!empty($tsrRow['from_date'])) {
-                    $user_data['valid_from'] = $tsrRow['from_date'];
-                    $user_data['check_in_date'] = $tsrRow['from_date'];
-                }
-                if (!empty($tsrRow['to_date'])) {
-                    $user_data['valid_to'] = $tsrRow['to_date'];
-                    $user_data['renewal_date'] = $tsrRow['to_date'];
-                    $nowDay = strtotime(date('Y-m-d'));
-                    $toDay = strtotime($tsrRow['to_date']);
-                    $calcDays = (int)(($toDay - $nowDay) / 86400);
-                    $user_data['remaining_days'] = $calcDays > 0 ? $calcDays : (int)($tsrRow['duration_value'] ?? 1);
+                    if (!empty($tsrRow['room_no']) && ($user_data['room_no'] === 'N/A' || empty($user_data['room_no']))) {
+                        $user_data['room_no'] = $tsrRow['room_no'];
+                        $user_data['room_code'] = $tsrRow['room_code'] ?? $tsrRow['room_no'];
+                        $user_data['room_allocation'] = $tsrRow['room_no'];
+                    }
+                    if (!empty($tsrRow['hostel_name']) && ($user_data['hostel_name'] === 'N/A' || empty($user_data['hostel_name']))) {
+                        $user_data['hostel_name'] = $tsrRow['hostel_name'];
+                    }
+                    if (!empty($tsrRow['amount'])) {
+                        $user_data['total_fee'] = (float)$tsrRow['amount'];
+                        $user_data['room_amount'] = (float)$tsrRow['amount'];
+                        $user_data['renew_amount'] = (float)$tsrRow['amount'];
+                    }
+                    if (!empty($tsrRow['warden_name'])) {
+                        $user_data['warden'] = $tsrRow['warden_name'];
+                    }
+                    if (!empty($tsrRow['from_date'])) {
+                        $user_data['valid_from'] = $tsrRow['from_date'];
+                        $user_data['check_in_date'] = $tsrRow['from_date'];
+                    }
+                    if (!empty($tsrRow['to_date'])) {
+                        $user_data['valid_to'] = $tsrRow['to_date'];
+                        $user_data['renewal_date'] = $tsrRow['to_date'];
+                        $nowDay = strtotime(date('Y-m-d'));
+                        $toDay = strtotime($tsrRow['to_date']);
+                        $calcDays = (int)(($toDay - $nowDay) / 86400);
+                        $user_data['remaining_days'] = $calcDays > 0 ? $calcDays : (int)($tsrRow['duration_value'] ?? 1);
+                    }
                 }
             }
         } catch (Exception $eTsr) {}
@@ -329,7 +340,9 @@ try {
         $final_role = strtolower($staffRow['role']);
         if (!empty($mappedRoles)) {
             $roles_lower = array_map('strtolower', $mappedRoles);
-            if (in_array('warden', $roles_lower)) {
+            if (in_array('it_department', $roles_lower) || in_array('it', $roles_lower)) {
+                $final_role = 'it_department';
+            } elseif (in_array('warden', $roles_lower)) {
                 $final_role = 'warden';
             } elseif (in_array('security', $roles_lower)) {
                 $final_role = 'security';
@@ -517,8 +530,9 @@ try {
             "hostel_name"      => $row['room_hostel'] ?? $row['profile_hostel'] ?? 'N/A',
             "room_allocation"  => $row['room_allocation'] ?? 'N/A',
             "profile_pic"      => $row['profile_pic'],
-            "valid_from"       => $row['valid_from'] ?? '0000-00-00',
-            "valid_to"         => $row['valid_to'] ?? '0000-00-00',
+            "valid_from"       => (!empty($row['valid_from']) && $row['valid_from'] != '0000-00-00') ? $row['valid_from'] : null,
+            "valid_to"         => (!empty($row['valid_to']) && $row['valid_to'] != '0000-00-00') ? $row['valid_to'] : null,
+            "renewal_date"     => (!empty($row['renewal_date']) && $row['renewal_date'] != '0000-00-00') ? $row['renewal_date'] : (!empty($row['valid_to']) && $row['valid_to'] != '0000-00-00' ? $row['valid_to'] : null),
             "conduct"          => $row['conduct'] ?? 'Good',
             "conduct_remarks"  => $row['conduct_remarks'] ?? '',
             "biometric_id"     => $row['biometric_id'],

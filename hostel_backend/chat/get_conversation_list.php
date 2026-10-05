@@ -96,32 +96,8 @@ try {
         $mapped_student_ids = array_unique(array_merge($mapped_student_ids, $existing_ids));
     }
 
-    // 3. Bulk INSERT IGNORE for all students missing a request1 row (single efficient query)
-    if (!empty($mapped_student_ids)) {
-        $id_list_str = implode(',', array_map('intval', $mapped_student_ids));
-        $prefix = strtoupper(substr($target_dept, 0, 3));
-        // Find only students who don't have a request1 row yet
-        $missing_stmt = $db->query(
-            "SELECT id FROM users WHERE id IN ($id_list_str)
-             AND id NOT IN (
-                 SELECT student_id FROM request1 WHERE LOWER(department) = LOWER('$target_dept')
-             )"
-        );
-        $missing_ids = $missing_stmt ? $missing_stmt->fetchAll(PDO::FETCH_COLUMN) : [];
-        if (!empty($missing_ids)) {
-            $insert_values = [];
-            foreach ($missing_ids as $sid) {
-                $req_id = $prefix . "-" . time() . "-" . intval($sid);
-                $escaped_req_id = $db->quote($req_id);
-                $insert_values[] = "($escaped_req_id, " . intval($sid) . ", 'General Inquiry', " . $db->quote($target_dept) . ", 'chat', 'Auto-created for warden logs')";
-            }
-            if (!empty($insert_values)) {
-                try {
-                    $db->exec("INSERT IGNORE INTO request1 (request_id, student_id, request_type, department, status, purpose) VALUES " . implode(',', $insert_values));
-                } catch (Exception $e) { /* Silently skip duplicates */ }
-            }
-        }
-    }
+    // 3. (On-Demand Mode) No pre-creation of dummy request1 rows.
+    // Threads are created in request1 ONLY when a real message is sent.
 
     // Build safe IN clause
     $id_list_placeholder = "0";
@@ -132,9 +108,12 @@ try {
     // 4. Fetch conversation summaries for all mapped students
     $query = "
         SELECT 
-            (SELECT r2.request_id FROM request1 r2 
-             WHERE r2.student_id = u.id AND LOWER(r2.department) = LOWER(:target_dept) 
-             ORDER BY r2.id DESC LIMIT 1) as request_id,
+            COALESCE(
+                (SELECT r2.request_id FROM request1 r2 
+                 WHERE r2.student_id = u.id AND LOWER(r2.department) = LOWER(:target_dept) 
+                 ORDER BY r2.id DESC LIMIT 1),
+                CONCAT(UPPER(SUBSTRING(:target_dept, 1, 3)), '-', u.id)
+            ) as request_id,
             u.id as student_id,
             u.username as student_username,
             CASE 

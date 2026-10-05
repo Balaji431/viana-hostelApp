@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/api_config.php';
 require_once __DIR__ . '/../send_notification.php';
 
 $database = new Database();
@@ -41,9 +42,18 @@ $room_code = trim($input['room_code'] ?? $room_no);
 $room_id = trim($input['room_id'] ?? '');
 $doc_file_path = trim($input['doc_file_path'] ?? '');
 $from_date = trim($input['from_date'] ?? date('Y-m-d'));
-$duration_type = trim($input['duration_type'] ?? 'days');
+$duration_type = 'days'; // Strictly restricted to days only
 $duration_value = (int)($input['duration_value'] ?? 1);
 $fcm_token = trim($input['fcm_token'] ?? '');
+
+// Strict limit: Temporary stay is allowed for a maximum of 10 days only
+if ($duration_value < 1 || $duration_value > 10) {
+    echo json_encode([
+        "success" => false,
+        "message" => "Temporary stay is strictly restricted to a maximum of 10 days."
+    ]);
+    exit();
+}
 
 if (empty($full_name) || empty($email) || empty($phone) || empty($doc_type) || empty($doc_number) || empty($hostel_name) || empty($room_no)) {
     echo json_encode(["success" => false, "message" => "Please fill in all required fields including Government ID details."]);
@@ -166,8 +176,36 @@ if (empty($warden_name)) {
     } catch (Exception $eM) {}
 }
 
-// Calculate Fee based on Annual Fee / 365 * days, rounded to nearest 50
+// Calculate Fee based on VStudy Pricing API or (Annual Fee / 365 rounded up to next 50) * 3
 function calculateStayFee($db, $roomType, $durationType, $durationValue, $roomNo = '') {
+    $apiPerDay = 0;
+    try {
+        $pricingApiUrl = defined('VSTUDY_PRICING_API_URL') ? VSTUDY_PRICING_API_URL : 'https://xp7w1bhk-3000.inc1.devtunnels.ms/api/hostel-applications/external/pricing';
+        $clientId = defined('VSTUDY_CLIENT_ID') ? VSTUDY_CLIENT_ID : '';
+        $clientSecret = defined('VSTUDY_CLIENT_SECRET') ? VSTUDY_CLIENT_SECRET : '';
+        $ch = curl_init($pricingApiUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['roomType' => trim($roomType)]));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-client-id: ' . $clientId,
+            'x-client-secret: ' . $clientSecret
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        $pRes = curl_exec($ch);
+        $pCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($pCode === 200 && !empty($pRes)) {
+            $pJson = json_decode($pRes, true);
+            if (!empty($pJson['data']['shortStay']['perDay']) && (int)$pJson['data']['shortStay']['perDay'] > 0) {
+                $apiPerDay = (int)$pJson['data']['shortStay']['perDay'];
+            }
+        }
+    } catch (Exception $eP) {}
+
     $annualFee = 0;
     try {
         if (!empty($roomNo)) {
@@ -196,6 +234,10 @@ function calculateStayFee($db, $roomType, $durationType, $durationValue, $roomNo
             $annualFee = 150000;
         } else if (strpos($rtLower, 'single') !== false) {
             $annualFee = 55000;
+        } else if (strpos($rtLower, 'super deluxe') !== false && (strpos($rtLower, '4 in 1') !== false || strpos($rtLower, '4-in-1') !== false)) {
+            $annualFee = 95000;
+        } else if (strpos($rtLower, 'super deluxe') !== false && (strpos($rtLower, '3 in 1') !== false || strpos($rtLower, '3-in-1') !== false)) {
+            $annualFee = 110000;
         } else if (strpos($rtLower, '2 in 1') !== false || strpos($rtLower, 'double') !== false) {
             $annualFee = (strpos($rtLower, 'ac') !== false) ? 100000 : 55000;
         } else if (strpos($rtLower, '3 in 1') !== false || strpos($rtLower, 'triple') !== false) {
@@ -209,16 +251,16 @@ function calculateStayFee($db, $roomType, $durationType, $durationValue, $roomNo
         }
     }
 
-    $rawDailyRate = $annualFee / 365.0;
-    // Round to nearest 50 (no decimals/points)
-    $roundedDailyRate = round($rawDailyRate / 50.0) * 50.0;
-    if ($roundedDailyRate < 50) $roundedDailyRate = 50.0;
+    if ($apiPerDay > 0) {
+        $roundedDailyRate = (float)$apiPerDay;
+    } else {
+        $roundedDailyRate = (float)(ceil(($annualFee / 365.0) / 50.0) * 50.0 * 3);
+        if ($roundedDailyRate < 50) $roundedDailyRate = 50.0;
+    }
 
     $durationVal = max(1, (int)$durationValue);
     $totalDays = (strtolower($durationType) === 'months') ? ($durationVal * 30) : $durationVal;
-    $rawTotal = $roundedDailyRate * $totalDays;
-    $totalAmount = round($rawTotal / 50.0) * 50.0;
-    if ($totalAmount < 50) $totalAmount = 50.0;
+    $totalAmount = $roundedDailyRate * $totalDays;
 
     return [
         'annual_fee' => $annualFee,
@@ -232,13 +274,9 @@ $feeCalc = calculateStayFee($db, $room_type, $duration_type, $duration_value, $r
 $calculated_amount = $feeCalc['total_amount'];
 $annual_fee = $feeCalc['annual_fee'];
 
-// Calculate to_date based on duration
+// Calculate to_date based on duration (strictly in days, max 10 days)
 $fromDateObj = new DateTime($from_date);
-if ($duration_type === 'months') {
-    $fromDateObj->modify("+$duration_value month");
-} else {
-    $fromDateObj->modify("+$duration_value day");
-}
+$fromDateObj->modify("+$duration_value day");
 $to_date = $fromDateObj->format('Y-m-d');
 
 $request_id = 'TEMP-' . strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8));

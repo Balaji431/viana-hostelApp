@@ -10,6 +10,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 }
 
 require_once '../config/database.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['admin', 'super_admin']);
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();

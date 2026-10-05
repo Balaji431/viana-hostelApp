@@ -12,7 +12,10 @@ import '../../shared/category_provider.dart';
 import '../../warden/widgets/warden_widgets.dart' show LinenBackground;
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../../shared/main_layout.dart';
-import 'maintenance_chat_interface.dart';
+import '../../warden/screens/warden_chat_interface.dart';
+import '../../shared/widgets/raise_issue_header_button.dart';
+import 'eb_room_search_screen.dart';
+import '../../shared/widgets/user_avatar_header.dart';
 
 
 class MaintenanceHomeTab extends StatefulWidget {
@@ -42,20 +45,32 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
     });
     // Set up periodic refresh every 15 seconds
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (mounted) {
-        final user = context.read<UserProvider>();
-        context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username);
+      if (mounted && _userProvider != null) {
+        try {
+          context.read<CategoryProvider>().fetchCounts(wardenUsername: _userProvider!.username);
+        } catch (_) {}
       }
     });
-    _lastRefreshTick = context.read<UserProvider>().dashboardRefreshTick;
-    context.read<UserProvider>().addListener(_handleGlobalRefreshListener);
   }
 
+  UserProvider? _userProvider;
   int _lastRefreshTick = 0;
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final up = Provider.of<UserProvider>(context, listen: false);
+    if (_userProvider != up) {
+      _userProvider?.removeListener(_handleGlobalRefreshListener);
+      _userProvider = up;
+      _lastRefreshTick = _userProvider!.dashboardRefreshTick;
+      _userProvider!.addListener(_handleGlobalRefreshListener);
+    }
+  }
+
   void _handleGlobalRefreshListener() {
-    if (!mounted) return;
-    final user = context.read<UserProvider>();
+    if (!mounted || _userProvider == null) return;
+    final user = _userProvider!;
     if (user.dashboardRefreshTick > _lastRefreshTick) {
       _lastRefreshTick = user.dashboardRefreshTick;
       _handleGlobalRefresh();
@@ -64,15 +79,18 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
 
   void _handleGlobalRefresh() {
     _fetchAnnouncements();
-    if (mounted) {
-      final user = context.read<UserProvider>();
-      context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username);
+    if (mounted && _userProvider != null) {
+      final user = _userProvider!;
+      try {
+        context.read<CategoryProvider>().fetchCounts(wardenUsername: user.username);
+      } catch (_) {}
     }
   }
 
   @override
   void dispose() {
-    context.read<UserProvider>().removeListener(_handleGlobalRefreshListener);
+    _userProvider?.removeListener(_handleGlobalRefreshListener);
+    _userProvider = null;
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -100,14 +118,15 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
     final wallpaper = context.watch<WallpaperProvider>();
     final isDark = wallpaper.isDarkTheme;
 
+    final isDualRole = user.hasMultipleRoles;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: SkeuomorphicNavBar(
         title: '${user.roleName.isNotEmpty ? user.roleName : 'Maintenance'} Dashboard',
         onHomeTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(0),
-        rightAction: ProfileButton(
-          onTap: () => context.findAncestorStateOfType<MainResponsiveLayoutState>()?.setSelectedIndex(2),
-        ),
+        leftAction: isDualRole ? const RaiseIssueHeaderButton() : null,
+        rightAction: isDualRole ? null : const RaiseIssueHeaderButton(),
       ),
       body: LinenBackground(
         child: RefreshIndicator(
@@ -166,33 +185,7 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
       ),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: SkeuomorphicColors.goldGlossyGradient,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-              border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
-            ),
-            child: Center(
-              child: Text(
-                initials,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1B2B48),
-                  fontFamily: 'Lato',
-                ),
-              ),
-            ),
-          ),
+          UserHeaderAvatar(user: user, size: 44),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -260,6 +253,22 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
         'channel': channel,
         'count': catProvider.getUnreadCount(channel),
       },
+      {
+        'title': 'EB Meter Check',
+        'icon': Icons.electric_meter,
+        'color': const Color(0xFFE65100),
+        'channel': 'eb_meter',
+        'count': 0,
+        'onTap': () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const EBRoomSearchScreen(),
+              settings: const RouteSettings(name: '/eb_room_search'),
+            ),
+          );
+        },
+      },
     ];
 
     return SingleChildScrollView(
@@ -275,10 +284,11 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
                 context, 
                 action['title'], 
                 action['icon'], 
-                action['color'],
-                action['channel'],
-                action['count'],
+                action['color'], 
+                action['channel'], 
+                action['count'], 
                 isDark,
+                onCustomTap: action['onTap'] as VoidCallback?,
               ),
             ),
           );
@@ -287,7 +297,7 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
     );
   }
 
-  Widget _buildActionCard(BuildContext context, String title, IconData icon, Color color, String channel, int count, bool isDark) {
+  Widget _buildActionCard(BuildContext context, String title, IconData icon, Color color, String channel, int count, bool isDark, {VoidCallback? onCustomTap}) {
     bool isHover = false;
     return StatefulBuilder(
       builder: (context, setHover) {
@@ -298,6 +308,10 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
           onExit: (_) => setHover(() => isHover = false),
           child: GestureDetector(
             onTap: () {
+              if (onCustomTap != null) {
+                onCustomTap();
+                return;
+              }
               final isDesktop = MediaQuery.of(context).size.width >= 768;
               if (isDesktop) {
                 context.read<UIProvider>().setActiveChatChannel(channel);
@@ -306,7 +320,7 @@ class _MaintenanceHomeTabState extends State<MaintenanceHomeTab> with AutomaticK
                 Navigator.push(context, MaterialPageRoute(
                   builder: (context) => Scaffold(
                     backgroundColor: Colors.transparent,
-                    body: MaintenanceChatInterface(channel: channel),
+                    body: WardenChatInterface(channel: channel),
                   ),
                   settings: RouteSettings(name: '/chat_$channel'),
                 )).then((_) {

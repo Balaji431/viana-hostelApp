@@ -3,11 +3,11 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../shared/user_provider.dart';
 import '../../shared/wallpaper_provider.dart';
-import 'dart:math';
 import '../../core/api_service.dart';
 import '../../core/styles.dart';
 import '../../shared/widgets/skeuomorphic_navbar.dart';
 import '../widgets/warden_widgets.dart';
+import 'warden_biometric_screen.dart';
 
 class WardenAttendanceTab extends StatefulWidget {
   const WardenAttendanceTab({super.key});
@@ -195,30 +195,86 @@ class _WardenAttendanceTabState extends State<WardenAttendanceTab> with Automati
   Widget _buildMarkAttendanceButton(bool isDark) {
     return Container(
       color: Colors.transparent,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: SkeuomorphicButton(
-        onTap: () => _showManualAttendanceModal(context),
-        child: Container(
-          width: double.infinity,
-          height: 50,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFD4AF37), Color(0xFFB8860B)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: SkeuomorphicButton(
+              onTap: () => _showManualAttendanceModal(context),
+              child: Container(
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: isDark
+                        ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
+                        : [const Color(0xFF1B2B48), const Color(0xFF101B2E)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFD4AF37).withValues(alpha: 0.6),
+                    width: 1.2,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    'Manual',
+                    style: SkeuomorphicStyles.playfairHeader.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+              ),
             ),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.black12),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.edit, color: Color(0xFF1B2B48), size: 18),
-              const SizedBox(width: 10),
-              Text('Mark Attendance Manually', style: SkeuomorphicStyles.playfairHeader.copyWith(color: const Color(0xFF1B2B48), fontWeight: FontWeight.bold, fontSize: 16)),
-            ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: SkeuomorphicButton(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const WardenBiometricScreen(showBackButton: true),
+                  ),
+                );
+              },
+              child: Container(
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: isDark
+                        ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
+                        : [const Color(0xFF1B2B48), const Color(0xFF101B2E)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFD4AF37).withValues(alpha: 0.6),
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.fingerprint_rounded, color: Color(0xFFD4AF37), size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Biometric',
+                      style: SkeuomorphicStyles.playfairHeader.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

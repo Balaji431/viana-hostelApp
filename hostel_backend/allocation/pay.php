@@ -11,6 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once '../config/database.php';
 require_once '../utils/activity_logger.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth();
 
 $database = new DatabaseMysqli();
 $conn = $database->getConnection();
@@ -40,6 +43,11 @@ try {
         $allocation = $stmt->get_result()->fetch_assoc();
 
         if (!$allocation) throw new Exception("Allocation request not found");
+
+        $userRole = strtolower($authUser['role'] ?? '');
+        if ($userRole === 'student' && (int)$allocation['student_id'] !== (int)$authUser['id']) {
+            throw new Exception("Forbidden: You are not authorized to confirm payment for this allocation.");
+        }
         
         // 2. Verify status and deadline
         if ($allocation['status'] !== 'payment_pending') {

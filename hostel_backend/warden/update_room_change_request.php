@@ -11,6 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 require_once '../config/database.php';
 require_once '../utils/activity_logger.php';
+require_once '../utils/auth_helper.php';
+
+$authUser = requireAuth(['warden', 'admin', 'super_admin']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
@@ -26,7 +29,7 @@ try {
     }
     
     // Validate required fields
-    $required_fields = ['request_id', 'status', 'warden_id'];
+    $required_fields = ['request_id', 'status'];
     foreach ($required_fields as $field) {
         if (!isset($data[$field]) || empty(trim($data[$field]))) {
             throw new Exception("Missing required field: $field");
@@ -35,7 +38,7 @@ try {
     
     $request_id = trim($data['request_id']);
     $status = trim($data['status']);
-    $warden_id = (int)$data['warden_id'];
+    $warden_id = !empty($data['warden_id']) ? (int)$data['warden_id'] : (int)$authUser['id'];
     $remarks = isset($data['remarks']) ? trim($data['remarks']) : null;
     
     // Validate status

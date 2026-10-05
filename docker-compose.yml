@@ -8,13 +8,18 @@ services:
     ports:
       - "8080:80"
     environment:
-      - API_BASE_URL=https://vstay.saveetha.com/api/
+      - API_BASE_URL=http://localhost:8081/
     dns:
       - 8.8.8.8
       - 8.8.4.4
     depends_on:
       - backend
     restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   backend:
     build:
@@ -35,11 +40,17 @@ services:
     depends_on:
       - db
     restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   db:
     image: mysql:8.0
     container_name: hostel_db
     restart: always
+    command: --max_connections=1000 --wait_timeout=60 --interactive_timeout=60
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=stay_simats
@@ -49,6 +60,11 @@ services:
       - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin

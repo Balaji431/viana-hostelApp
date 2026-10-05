@@ -219,7 +219,7 @@ try {
         $payment_status = $record['payment_status'] ?? 'Paid';
         $application_status = $record['application_status'] ?? 'Verified';
         $paid_date = $record['paidAt'] ?? $record['paid_date'] ?? date('Y-m-d H:i:s');
-        $transaction_reference = $record['receiptNumber'] ?? $record['transaction_reference'] ?? 'TXN' . time() . rand(10, 99);
+        $transaction_reference = $record['receiptNumber'] ?? $record['transaction_reference'] ?? (!empty($roll_number) ? ('TXN_' . substr(md5($roll_number . '_' . $paid_date), 0, 16)) : null);
         
         $email = $student['email'] ?? $record['email'] ?? null;
         $phone_number = $student['phone'] ?? $record['phone_number'] ?? null;

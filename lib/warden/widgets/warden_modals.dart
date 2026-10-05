@@ -768,6 +768,7 @@ class _WardenRoomChangeDetailsModalState extends State<WardenRoomChangeDetailsMo
               const SizedBox(height: 15),
               _buildInfoTile("Student", widget.request.studentName, Icons.person_outline),
               _buildInfoTile("Reg No", widget.request.studentRegNo, Icons.badge_outlined),
+              _buildInfoTile("Campus", widget.request.campus ?? 'Thandalam Campus', Icons.location_on_outlined),
               _buildInfoTile("Requested Type", widget.request.requestedRoomType ?? 'Standard', Icons.star_outline),
               const SizedBox(height: 15),
               const Text("Movement Details", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),

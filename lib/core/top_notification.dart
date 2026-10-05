@@ -57,8 +57,19 @@ class TopNotification {
     VoidCallback? onTopUp,
   }) {
     final shortage = requiredAmount - currentBalance;
+    if (shortage <= 0) {
+      show(
+        context,
+        type: TopNotificationType.error,
+        duration: const Duration(seconds: 5),
+        title: 'Transaction Error',
+        message: 'Could not process transaction. Please try again or contact support.',
+      );
+      return;
+    }
+
     final formatter = NumberFormat('#,##,###.##');
-    final formattedShortage = formatter.format(shortage > 0 ? shortage : 0);
+    final formattedShortage = formatter.format(shortage);
     final formattedBalance = formatter.format(currentBalance);
     final formattedRequired = formatter.format(requiredAmount);
 

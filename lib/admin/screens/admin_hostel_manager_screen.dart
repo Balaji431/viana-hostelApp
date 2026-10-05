@@ -568,20 +568,6 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
                       ),
                     ),
                   ),
-                  const Spacer(),
-                  _buildCompactAction(
-                    Icons.edit_outlined, 
-                    'Edit', 
-                    isDark ? const Color(0xFF60A5FA) : const Color(0xFF2D4A7A), 
-                    () => _editHostel(hostel)
-                  ),
-                  const SizedBox(width: 16),
-                  _buildCompactAction(
-                    Icons.delete_outline, 
-                    'Delete', 
-                    isDark ? const Color(0xFFF87171) : Colors.red.shade700, 
-                    () => _deleteHostel(hostel)
-                  ),
                 ],
               ),
             ),
@@ -613,6 +599,7 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
     }
   }
 
+  // ignore: unused_element
   Future<void> _editHostel(HierarchicalHostel hostel) async {
     final nameController = TextEditingController(text: hostel.name);
     final buildingController = TextEditingController(text: hostel.buildingCode);
@@ -704,6 +691,7 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
     }
   }
 
+  // ignore: unused_element
   Future<void> _deleteHostel(HierarchicalHostel hostel) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -774,6 +762,7 @@ class _AdminHostelManagerScreenState extends State<AdminHostelManagerScreen> {
     }
   }
 
+  // ignore: unused_element
   Widget _buildCompactAction(IconData icon, String label, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
